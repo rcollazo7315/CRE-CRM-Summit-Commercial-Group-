@@ -1,16 +1,18 @@
+
 import React, { useState } from 'react';
-import { ArrowLeft, MapPin, Building2, User, Phone, Mail, Calendar, Edit, CheckCircle, FileText, Download } from 'lucide-react';
+import { ArrowLeft, MapPin, Building2, User, Phone, Mail, Calendar, Edit, CheckCircle, FileText, Download, Trash2 } from 'lucide-react';
 import { Deal, DealStatus, DocumentFile } from '../types';
 
 interface DealDetailsPageProps {
   deal: Deal;
   onBack: () => void;
   onUpdateDeal: (deal: Deal) => void;
-  onEditDeal: () => void; // Triggers the modal
-  onViewDocuments: () => void; // Navigates to doc tab
+  onEditDeal: () => void;
+  onDeleteDeal: () => void;
+  onViewDocuments: () => void;
 }
 
-const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdateDeal, onEditDeal, onViewDocuments }) => {
+const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdateDeal, onEditDeal, onDeleteDeal, onViewDocuments }) => {
   const [status, setStatus] = useState(deal.status);
 
   // Helper to update status locally and propagate up
@@ -73,6 +75,13 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
              >
                Edit Deal
              </button>
+             <button 
+               onClick={onDeleteDeal}
+               className="bg-white border border-slate-200 text-slate-400 hover:text-red-600 hover:border-red-200 px-3 py-2.5 rounded-lg transition-colors"
+               title="Delete Deal"
+             >
+               <Trash2 size={20} />
+             </button>
           </div>
         </div>
       </div>
@@ -83,17 +92,19 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
            
            {/* Image & Map Tabs */}
            <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
-             <div className="h-64 md:h-80 relative bg-slate-100">
-                <iframe 
-                  width="100%" 
-                  height="100%" 
-                  frameBorder="0" 
-                  style={{ border: 0 }}
-                  src={`https://maps.google.com/maps?q=${mapQuery}&t=&z=15&ie=UTF8&iwloc=&output=embed`}
-                  allowFullScreen
-                ></iframe>
-                <div className="absolute top-4 right-4 bg-white/90 backdrop-blur px-3 py-1 rounded-full text-xs font-bold text-slate-700 shadow-sm flex items-center">
-                   <MapPin size={12} className="mr-1 text-red-500" /> Live Map View
+             <div className="h-64 md:h-80 relative bg-slate-100 group">
+                {/* Visual toggle between Map and Image could be added, defaulting to Image or Map based on preference */}
+                <img src={deal.imageUrl} className="w-full h-full object-cover" alt="Property" />
+                
+                <div className="absolute bottom-4 right-4 flex gap-2">
+                   <a 
+                    href={`https://maps.google.com/?q=${mapQuery}`} 
+                    target="_blank" 
+                    rel="noreferrer"
+                    className="bg-white/90 backdrop-blur px-3 py-1.5 rounded-full text-xs font-bold text-slate-700 shadow-sm flex items-center hover:bg-white"
+                   >
+                     <MapPin size={12} className="mr-1 text-red-500" /> Open Maps
+                   </a>
                 </div>
              </div>
              <div className="p-6">

@@ -1,5 +1,6 @@
+
 import React, { useState } from 'react';
-import { Building2, CheckCircle, Lock, Mail, User, Phone, Briefcase, Loader2, Terminal } from 'lucide-react';
+import { Building2, CheckCircle, Lock, Mail, User, Phone, Briefcase, Loader2, Terminal, AlertCircle, ArrowLeft } from 'lucide-react';
 import { generateRegistrationEmails } from '../services/geminiService';
 
 interface AuthPageProps {
@@ -7,24 +8,29 @@ interface AuthPageProps {
 }
 
 const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
-  const [isRegistering, setIsRegistering] = useState(false);
+  const [viewState, setViewState] = useState<'login' | 'register' | 'forgot-password'>('login');
   const [isPendingApproval, setIsPendingApproval] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [sentEmails, setSentEmails] = useState<{adminEmail: string, userEmail: string} | null>(null);
+  const [error, setError] = useState('');
+  const [successMsg, setSuccessMsg] = useState('');
   
   const [formData, setFormData] = useState({
     name: '',
-    email: '',
-    password: '',
+    email: 'alex.mercer@summitcg.com',
+    password: 'password', // Default for demo
     phone: '',
     licenseNumber: ''
   });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (isRegistering) {
-      setIsSubmitting(true);
-      // Simulate sending emails via AI generation
+    setError('');
+    setSuccessMsg('');
+    setIsSubmitting(true);
+
+    // --- REGISTER FLOW ---
+    if (viewState === 'register') {
       const emails = await generateRegistrationEmails(
         formData.name, 
         formData.email, 
@@ -33,12 +39,34 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
       setSentEmails(emails);
       setIsSubmitting(false);
       setIsPendingApproval(true);
-    } else {
-      // Simulate login
-      onLogin(formData.email || 'alex.mercer@summitcg.com');
+      return;
+    } 
+    
+    // --- LOGIN FLOW ---
+    if (viewState === 'login') {
+      // Simulate network delay
+      await new Promise(resolve => setTimeout(resolve, 800));
+      
+      // Simple validation for demo purposes
+      if (formData.password !== 'password') {
+        setError('Invalid password. Hint: password');
+        setIsSubmitting(false);
+        return;
+      }
+
+      onLogin(formData.email);
+      return;
+    }
+
+    // --- FORGOT PASSWORD FLOW ---
+    if (viewState === 'forgot-password') {
+       await new Promise(resolve => setTimeout(resolve, 1000));
+       setSuccessMsg(`Password reset instructions sent to ${formData.email}`);
+       setIsSubmitting(false);
     }
   };
 
+  // --- RENDER: APPROVAL SCREEN ---
   if (isPendingApproval) {
     return (
       <div className="min-h-screen bg-slate-900 flex flex-col items-center justify-center p-4 overflow-y-auto">
@@ -85,7 +113,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
           <button 
             onClick={() => { 
               setIsPendingApproval(false); 
-              setIsRegistering(false); 
+              setViewState('login');
               setSentEmails(null);
             }}
             className="mt-8 text-summit-accent font-medium hover:underline"
@@ -97,6 +125,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
     );
   }
 
+  // --- RENDER: MAIN AUTH SCREEN ---
   return (
     <div className="min-h-screen flex bg-slate-50">
       {/* Left Side - Image/Branding */}
@@ -124,13 +153,28 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
             <h1 className="text-2xl font-bold text-slate-900">Summit Commercial Group</h1>
           </div>
 
-          <div className="bg-white p-8 rounded-2xl shadow-xl border border-slate-100">
-            <h2 className="text-2xl font-bold text-slate-900 mb-6">
-              {isRegistering ? 'Agent Registration' : 'Welcome Back'}
+          <div className="bg-white p-8 rounded-2xl shadow-xl border border-slate-100 relative overflow-hidden">
+            <h2 className="text-2xl font-bold text-slate-900 mb-2">
+              {viewState === 'register' ? 'Agent Registration' : viewState === 'forgot-password' ? 'Reset Password' : 'Welcome Back'}
             </h2>
+            <p className="text-slate-500 mb-6 text-sm">
+              {viewState === 'register' ? 'Apply to join our exclusive network.' : viewState === 'forgot-password' ? 'Enter your email to receive recovery instructions.' : 'Sign in to access your dashboard.'}
+            </p>
+
+            {error && (
+              <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm mb-6 flex items-center gap-2 animate-pulse">
+                <AlertCircle size={16} /> {error}
+              </div>
+            )}
+
+            {successMsg && (
+               <div className="bg-green-50 text-green-600 p-3 rounded-lg text-sm mb-6 flex items-center gap-2">
+                <CheckCircle size={16} /> {successMsg}
+              </div>
+            )}
 
             <form onSubmit={handleSubmit} className="space-y-4">
-              {isRegistering && (
+              {viewState === 'register' && (
                 <>
                   <div className="relative">
                     <User className="absolute left-3 top-3.5 text-slate-400" size={18} />
@@ -180,17 +224,31 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
                 />
               </div>
 
-              <div className="relative">
-                <Lock className="absolute left-3 top-3.5 text-slate-400" size={18} />
-                <input
-                  type="password"
-                  placeholder="Password"
-                  required
-                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-summit-accent focus:border-transparent outline-none transition-all"
-                  value={formData.password}
-                  onChange={e => setFormData({...formData, password: e.target.value})}
-                />
-              </div>
+              {viewState !== 'forgot-password' && (
+                <div className="relative">
+                  <Lock className="absolute left-3 top-3.5 text-slate-400" size={18} />
+                  <input
+                    type="password"
+                    placeholder="Password"
+                    required
+                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-summit-accent focus:border-transparent outline-none transition-all"
+                    value={formData.password}
+                    onChange={e => setFormData({...formData, password: e.target.value})}
+                  />
+                </div>
+              )}
+
+              {viewState === 'login' && (
+                <div className="flex justify-end">
+                  <button 
+                    type="button" 
+                    onClick={() => setViewState('forgot-password')}
+                    className="text-xs text-slate-500 hover:text-summit-accent transition-colors"
+                  >
+                    Forgot Password?
+                  </button>
+                </div>
+              )}
 
               <button
                 type="submit"
@@ -203,18 +261,22 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
                     Processing...
                   </>
                 ) : (
-                  isRegistering ? 'Request Account' : 'Sign In'
+                  viewState === 'register' ? 'Request Account' : viewState === 'forgot-password' ? 'Send Reset Link' : 'Sign In'
                 )}
               </button>
             </form>
 
             <div className="mt-6 text-center text-sm text-slate-500">
-              {isRegistering ? 'Already have an account? ' : 'Need an account? '}
+              {viewState === 'register' ? 'Already have an account? ' : viewState === 'forgot-password' ? 'Remembered it? ' : 'Need an account? '}
               <button 
-                onClick={() => setIsRegistering(!isRegistering)}
+                onClick={() => {
+                  setError('');
+                  setSuccessMsg('');
+                  setViewState(viewState === 'login' ? 'register' : 'login');
+                }}
                 className="text-summit-accent font-semibold hover:underline"
               >
-                {isRegistering ? 'Sign In' : 'Apply Now'}
+                {viewState === 'register' ? 'Sign In' : viewState === 'forgot-password' ? 'Back to Login' : 'Apply Now'}
               </button>
             </div>
           </div>

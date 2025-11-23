@@ -48,6 +48,7 @@ const App: React.FC = () => {
   const handleLogout = () => {
     setIsAuthenticated(false);
     setActiveTab('dashboard');
+    setIsGmailConnected(false);
   };
 
   const handleSaveDeal = (dealData: Deal) => {
@@ -57,6 +58,16 @@ const App: React.FC = () => {
       setDeals(deals.map(d => d.id === dealData.id ? dealData : d));
     } else {
       setDeals([dealData, ...deals]);
+    }
+  };
+
+  const handleDeleteDeal = (dealId: string) => {
+    if (window.confirm("Are you sure you want to delete this deal? This action cannot be undone.")) {
+      setDeals(prev => prev.filter(d => d.id !== dealId));
+      if (selectedDealId === dealId) {
+        setSelectedDealId(null);
+        setActiveTab('deals');
+      }
     }
   };
 
@@ -128,19 +139,21 @@ const App: React.FC = () => {
             deals={deals} 
             onAddDeal={handleAddDealClick}
             onDealClick={handleDealClick}
+            onDeleteDeal={handleDeleteDeal}
             onRouteChange={setActiveTab}
             onOpenAi={() => setIsChatOpen(true)}
           />
         );
       case 'deal-details':
         const deal = deals.find(d => d.id === selectedDealId);
-        if (!deal) return <div onClick={() => setActiveTab('dashboard')} className="p-8 cursor-pointer text-slate-500">Deal not found. Return to dashboard.</div>;
+        if (!deal) return <div onClick={() => setActiveTab('dashboard')} className="p-8 cursor-pointer text-slate-500">Deal not found or deleted. Return to dashboard.</div>;
         return (
           <DealDetailsPage 
             deal={deal} 
             onBack={() => setActiveTab('deals')} 
             onUpdateDeal={handleSaveDeal}
             onEditDeal={() => handleEditDeal(deal)}
+            onDeleteDeal={() => handleDeleteDeal(deal.id)}
             onViewDocuments={() => handleViewDocuments(deal.id)}
           />
         );
@@ -162,7 +175,7 @@ const App: React.FC = () => {
       case 'lead-gen':
         return <LeadGenPage logs={leadGenLogs} onSaveLog={handleSaveLeadGenLog} />;
       default:
-        return <DashboardPage activeTab="dashboard" deals={deals} onAddDeal={handleAddDealClick} onDealClick={handleDealClick} onRouteChange={setActiveTab} onOpenAi={() => setIsChatOpen(true)} />;
+        return <DashboardPage activeTab="dashboard" deals={deals} onAddDeal={handleAddDealClick} onDealClick={handleDealClick} onDeleteDeal={handleDeleteDeal} onRouteChange={setActiveTab} onOpenAi={() => setIsChatOpen(true)} />;
     }
   };
 

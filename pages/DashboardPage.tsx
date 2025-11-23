@@ -1,5 +1,6 @@
+
 import React, { useState, useMemo } from 'react';
-import { Plus, ArrowUpRight, DollarSign, Clock, ChevronDown, MessageSquare, Briefcase, FileText, Download, MoreHorizontal, PieChart, MapPin } from 'lucide-react';
+import { Plus, ArrowUpRight, DollarSign, Clock, ChevronDown, MessageSquare, Briefcase, FileText, Download, MoreHorizontal, PieChart, MapPin, Trash2 } from 'lucide-react';
 import { Deal, DealStatus } from '../types';
 import { MOCK_ACTIVITY } from '../constants';
 
@@ -8,11 +9,12 @@ interface DashboardPageProps {
   deals: Deal[];
   onAddDeal: () => void;
   onDealClick: (dealId: string) => void;
+  onDeleteDeal: (dealId: string) => void;
   onRouteChange: (route: string) => void;
   onOpenAi: () => void;
 }
 
-const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDeal, onDealClick, onRouteChange, onOpenAi }) => {
+const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDeal, onDealClick, onDeleteDeal, onRouteChange, onOpenAi }) => {
   const [filterStatus, setFilterStatus] = useState<string>('all');
   
   // -- Computed Stats --
@@ -188,10 +190,9 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
                     filteredDeals.map((deal) => (
                       <tr 
                         key={deal.id} 
-                        onClick={() => onDealClick(deal.id)}
-                        className="hover:bg-slate-50 transition-colors group cursor-pointer"
+                        className="hover:bg-slate-50 transition-colors group"
                       >
-                        <td className="p-4">
+                        <td className="p-4 cursor-pointer" onClick={() => onDealClick(deal.id)}>
                           <div className="flex items-center gap-3">
                             <img src={deal.imageUrl} alt="Prop" className="w-12 h-12 rounded-lg object-cover" />
                             <div>
@@ -203,24 +204,28 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
                             </div>
                           </div>
                         </td>
-                        <td className="p-4">
+                        <td className="p-4 cursor-pointer" onClick={() => onDealClick(deal.id)}>
                           <StatusBadge status={deal.status} />
                         </td>
-                        <td className="p-4 text-right font-medium text-slate-700 text-sm">
+                        <td className="p-4 text-right font-medium text-slate-700 text-sm cursor-pointer" onClick={() => onDealClick(deal.id)}>
                           ${(deal.askingPrice / 1000000).toFixed(2)}M
                         </td>
-                        <td className="p-4 text-center text-slate-600 text-sm">
+                        <td className="p-4 text-center text-slate-600 text-sm cursor-pointer" onClick={() => onDealClick(deal.id)}>
                           {deal.offersReceived}
                         </td>
-                        <td className="p-4 text-right font-medium text-green-600 text-sm">
+                        <td className="p-4 text-right font-medium text-green-600 text-sm cursor-pointer" onClick={() => onDealClick(deal.id)}>
                           {deal.highestOffer > 0 ? `$${(deal.highestOffer / 1000000).toFixed(2)}M` : '-'}
                         </td>
-                        <td className="p-4 text-xs text-slate-500">
+                        <td className="p-4 text-xs text-slate-500 cursor-pointer" onClick={() => onDealClick(deal.id)}>
                           {new Date(deal.lastUpdated).toLocaleDateString()}
                         </td>
                         <td className="p-4 text-right">
-                           <button className="text-slate-400 hover:text-summit-900 p-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                             <MoreHorizontal size={18} />
+                           <button 
+                              onClick={(e) => { e.stopPropagation(); onDeleteDeal(deal.id); }}
+                              className="text-slate-400 hover:text-red-600 p-2 rounded hover:bg-red-50 transition-all opacity-0 group-hover:opacity-100"
+                              title="Delete Deal"
+                           >
+                             <Trash2 size={16} />
                            </button>
                         </td>
                       </tr>

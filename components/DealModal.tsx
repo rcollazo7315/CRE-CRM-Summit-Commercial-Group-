@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { X, Sparkles, Upload, Loader2, Save } from 'lucide-react';
+
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Sparkles, Upload, Loader2, Save, Image as ImageIcon } from 'lucide-react';
 import { PropertyType, DealStatus, Deal } from '../types';
 import { generateListingDescription } from '../services/geminiService';
 
@@ -12,6 +13,8 @@ interface DealModalProps {
 
 const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialData }) => {
   const [loadingAi, setLoadingAi] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
   const [formData, setFormData] = useState({
     propertyAddress: '',
     propertyType: PropertyType.OFFICE,
@@ -21,7 +24,8 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
     ownerPhone: '',
     description: '',
     notes: '',
-    status: DealStatus.ACTIVE
+    status: DealStatus.ACTIVE,
+    imageUrl: ''
   });
 
   // Load initial data if editing
@@ -36,7 +40,8 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
         ownerPhone: initialData.owner.phone,
         description: initialData.description,
         notes: initialData.notes || '',
-        status: initialData.status
+        status: initialData.status,
+        imageUrl: initialData.imageUrl
       });
     } else {
       // Reset for new deal
@@ -49,7 +54,8 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
         ownerPhone: '',
         description: '',
         notes: '',
-        status: DealStatus.ACTIVE
+        status: DealStatus.ACTIVE,
+        imageUrl: `https://picsum.photos/400/300?random=${Math.floor(Math.random() * 100)}`
       });
     }
   }, [initialData, isOpen]);
@@ -59,6 +65,18 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64String = reader.result as string;
+        setFormData(prev => ({ ...prev, imageUrl: base64String }));
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleAiGenerate = async () => {
@@ -89,6 +107,7 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
       status: formData.status,
       description: formData.description,
       notes: formData.notes,
+      imageUrl: formData.imageUrl,
       owner: {
         name: formData.ownerName,
         email: formData.ownerEmail,
@@ -101,7 +120,6 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
       daysOnMarket: initialData?.daysOnMarket || 0,
       lastUpdated: new Date().toISOString(),
       documents: initialData?.documents || [],
-      imageUrl: initialData?.imageUrl || `https://picsum.photos/400/300?random=${Math.floor(Math.random() * 100)}`,
     };
 
     onSave(dealPayload);
@@ -178,6 +196,28 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
                     <option key={s} value={s}>{s}</option>
                   ))}
                 </select>
+              </div>
+            </div>
+
+            {/* Deal Photo Upload */}
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">Deal Photo</label>
+              <div className="flex items-center gap-4">
+                <img src={formData.imageUrl} alt="Preview" className="w-20 h-20 rounded-lg object-cover border border-slate-200" />
+                <button 
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium hover:bg-slate-50 flex items-center gap-2"
+                >
+                  <ImageIcon size={16} /> Change Photo
+                </button>
+                <input 
+                  type="file" 
+                  ref={fileInputRef}
+                  className="hidden"
+                  accept="image/*"
+                  onChange={handleImageUpload}
+                />
               </div>
             </div>
           </div>
