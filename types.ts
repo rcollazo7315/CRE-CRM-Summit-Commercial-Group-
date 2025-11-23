@@ -1,3 +1,4 @@
+
 export enum DealStatus {
   ACTIVE = 'Active',
   UNDER_REVIEW = 'Under Review',
@@ -71,4 +72,27 @@ export interface AgentMetric {
   value: number;
   change: number; // percentage
   trend: 'up' | 'down' | 'neutral';
+}
+
+export interface LeadGenMetrics {
+  callsMade: number;
+  lettersSent: number;
+  socialPosts: number;
+  targetedEmails: number;
+  networkingEvents: number;
+  clientMeetings: number;
+  referralsGenerated: number;
+  propertyTours: number;
+  bovsSubmitted: number;
+  listingsSigned: number;
+  offersMade: number;
+  underContract: number;
+  closedDeals: number;
+  closedAmount: number;
+}
+
+export interface LeadGenLog extends LeadGenMetrics {
+  id: string;
+  date: string; // YYYY-MM-DD
+  notes?: string;
 }

@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
@@ -8,10 +9,11 @@ import SettingsPage from './pages/SettingsPage';
 import ReportsPage from './pages/ReportsPage';
 import DocumentsPage from './pages/DocumentsPage';
 import CommunicationsPage from './pages/CommunicationsPage';
+import LeadGenPage from './pages/LeadGenPage';
 import DealModal from './components/DealModal';
 import AiChatModal from './components/AiChatModal';
-import { MOCK_DEALS } from './constants';
-import { Deal, DocumentFile } from './types';
+import { MOCK_DEALS, MOCK_LEAD_GEN_LOGS } from './constants';
+import { Deal, DocumentFile, LeadGenLog } from './types';
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -19,6 +21,7 @@ const App: React.FC = () => {
   
   // -- Global State --
   const [deals, setDeals] = useState<Deal[]>(MOCK_DEALS);
+  const [leadGenLogs, setLeadGenLogs] = useState<LeadGenLog[]>(MOCK_LEAD_GEN_LOGS);
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
   const [isGmailConnected, setIsGmailConnected] = useState(false);
   const [currentUser, setCurrentUser] = useState({
@@ -99,6 +102,20 @@ const App: React.FC = () => {
     }));
   };
 
+  const handleSaveLeadGenLog = (log: LeadGenLog) => {
+    setLeadGenLogs(prev => {
+      const existingIndex = prev.findIndex(l => l.id === log.id);
+      if (existingIndex >= 0) {
+        // Update existing log
+        const updatedLogs = [...prev];
+        updatedLogs[existingIndex] = log;
+        return updatedLogs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+      }
+      // Add new log
+      return [log, ...prev].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    });
+  };
+
   // -- Routing Logic --
 
   const renderContent = () => {
@@ -142,6 +159,8 @@ const App: React.FC = () => {
         );
       case 'communications':
         return <CommunicationsPage isConnected={isGmailConnected} onConnectGmail={() => setIsGmailConnected(true)} />;
+      case 'lead-gen':
+        return <LeadGenPage logs={leadGenLogs} onSaveLog={handleSaveLeadGenLog} />;
       default:
         return <DashboardPage activeTab="dashboard" deals={deals} onAddDeal={handleAddDealClick} onDealClick={handleDealClick} onRouteChange={setActiveTab} onOpenAi={() => setIsChatOpen(true)} />;
     }

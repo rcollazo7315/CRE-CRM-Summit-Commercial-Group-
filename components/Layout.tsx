@@ -1,5 +1,6 @@
+
 import React from 'react';
-import { LayoutDashboard, Building2, Mail, FileText, Settings, Bell, Search, LogOut, Menu, X, PieChart } from 'lucide-react';
+import { LayoutDashboard, Building2, Mail, FileText, Settings, Bell, Search, LogOut, Menu, X, PieChart, Target } from 'lucide-react';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -18,6 +19,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, user
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'deals', label: 'My Deals', icon: Building2 },
+    { id: 'lead-gen', label: 'Log Daily Activity', icon: Target },
     { id: 'reports', label: 'Reports', icon: PieChart },
     { id: 'communications', label: 'Communications', icon: Mail },
     { id: 'documents', label: 'Documents', icon: FileText },

@@ -1,4 +1,5 @@
-import { Deal, DealStatus, PropertyType, ActivityLog, EmailMessage } from './types';
+
+import { Deal, DealStatus, PropertyType, ActivityLog, EmailMessage, LeadGenLog } from './types';
 
 export const MOCK_DEALS: Deal[] = [
   {
@@ -21,7 +22,7 @@ export const MOCK_DEALS: Deal[] = [
   },
   {
     id: '2',
-    propertyAddress: '789 Industrial Pkwy, Austin, TX',
+    propertyAddress: '789 Industrial Pkw, Austin, TX',
     propertyType: PropertyType.INDUSTRIAL,
     askingPrice: 12500000,
     offersReceived: 8,
@@ -84,3 +85,48 @@ export const MOCK_EMAILS: EmailMessage[] = [
   { id: '2', from: 'Atlas Holdings', subject: 'Re: Counter Offer', preview: 'We have reviewed the terms and would like to propose...', date: 'Yesterday', read: true },
   { id: '3', from: 'Title Company', subject: 'Closing Docs - 1200 Market', preview: 'Attached are the preliminary HUD statements...', date: 'Oct 24', read: true },
 ];
+
+// Generate daily lead gen data for the last 90 days
+const generateMockLeadGen = (): LeadGenLog[] => {
+  const logs: LeadGenLog[] = [];
+  const today = new Date();
+  
+  // Generate data for 90 days
+  for (let i = 0; i < 90; i++) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    const dateStr = d.toISOString().split('T')[0];
+    
+    // Skip weekends for realistic data, but keep index logic for array creation
+    const day = d.getDay();
+    const isWeekend = day === 0 || day === 6;
+    
+    // Only skip 80% of weekends to simulate some weekend work
+    if (isWeekend && Math.random() > 0.2) continue;
+
+    const activityMultiplier = Math.random(); 
+
+    logs.push({
+      id: `log-${i}`,
+      date: dateStr,
+      callsMade: Math.floor(5 + activityMultiplier * 20), // 5-25 calls
+      lettersSent: Math.floor(Math.random() * 5),
+      socialPosts: Math.floor(Math.random() * 2),
+      targetedEmails: Math.floor(10 + activityMultiplier * 30),
+      networkingEvents: Math.random() > 0.9 ? 1 : 0,
+      clientMeetings: Math.random() > 0.8 ? 1 : 0,
+      referralsGenerated: Math.random() > 0.95 ? 1 : 0,
+      propertyTours: Math.random() > 0.85 ? 1 : 0,
+      bovsSubmitted: Math.random() > 0.9 ? 1 : 0,
+      listingsSigned: Math.random() > 0.98 ? 1 : 0,
+      offersMade: Math.random() > 0.9 ? 1 : 0,
+      underContract: Math.random() > 0.98 ? 1 : 0,
+      closedDeals: Math.random() > 0.99 ? 1 : 0,
+      closedAmount: Math.random() > 0.99 ? (Math.floor(Math.random() * 50) + 10) * 100000 : 0,
+      notes: ''
+    });
+  }
+  return logs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+};
+
+export const MOCK_LEAD_GEN_LOGS = generateMockLeadGen();
