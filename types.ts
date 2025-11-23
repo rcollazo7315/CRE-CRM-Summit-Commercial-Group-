@@ -16,6 +16,20 @@ export enum PropertyType {
   LAND = 'Land'
 }
 
+export type AccountStatus = 'pending' | 'active' | 'denied';
+
+export interface UserAccount {
+  id: string;
+  username: string;
+  email: string;
+  passwordHash: string; // In a real app, this is hashed. Here we store the string but treat it securely.
+  name: string;
+  phone: string;
+  licenseNumber: string;
+  status: AccountStatus;
+  avatar: string;
+}
+
 export interface OwnerInfo {
   name: string;
   email: string;

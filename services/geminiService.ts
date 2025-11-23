@@ -70,6 +70,7 @@ export const generateOwnerUpdateEmail = async (
 export const generateRegistrationEmails = async (
   agentName: string,
   agentEmail: string,
+  username: string,
   licenseNumber: string
 ): Promise<{ adminEmail: string; userEmail: string }> => {
   try {
@@ -78,13 +79,19 @@ export const generateRegistrationEmails = async (
       
       Context:
       Agent Name: ${agentName}
+      Username: ${username}
       Agent Email: ${agentEmail}
       License Number: ${licenseNumber}
       Admin Email: raphael@sumcg.com
+      Date: ${new Date().toLocaleString()}
       
       Required Output:
-      1. content_admin: A formal email to Raphael requesting approval for the new agent. Include the agent's details.
-      2. content_user: A professional welcome email to ${agentName} confirming receipt of their application and noting that it is pending approval.
+      1. adminEmail: A formal email to Raphael. 
+         - Subject: New Agent Registration Request: ${agentName}
+         - Body: Must include the agent's details. Must explicitly include two simulated links/buttons at the bottom: "[APPROVE ACCESS]" and "[DENY ACCESS]".
+      2. userEmail: A professional welcome email to ${agentName}.
+         - Subject: Application Received - Summit Commercial Group
+         - Body: Confirm receipt of application. State clearly that the account is PENDING APPROVAL and they will be notified once the admin reviews their credentials.
 
       Tone: Professional, corporate, and efficient.
     `;
@@ -97,8 +104,8 @@ export const generateRegistrationEmails = async (
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            adminEmail: { type: Type.STRING, description: "The full email body and subject for the admin." },
-            userEmail: { type: Type.STRING, description: "The full email body and subject for the user." },
+            adminEmail: { type: Type.STRING, description: "The full email content for the admin." },
+            userEmail: { type: Type.STRING, description: "The full email content for the user." },
           },
           required: ["adminEmail", "userEmail"]
         }

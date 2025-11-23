@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
@@ -13,24 +12,35 @@ import LeadGenPage from './pages/LeadGenPage';
 import DealModal from './components/DealModal';
 import AiChatModal from './components/AiChatModal';
 import { MOCK_DEALS, MOCK_LEAD_GEN_LOGS } from './constants';
-import { Deal, DocumentFile, LeadGenLog } from './types';
+import { Deal, DocumentFile, LeadGenLog, UserAccount } from './types';
 
 const App: React.FC = () => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
   
-  // -- Global State --
+  // -- Mock Database State --
+  // In a real app, this would be in a backend database.
+  const [users, setUsers] = useState<UserAccount[]>([
+    {
+      id: 'user-1',
+      username: 'amercer',
+      email: 'alex.mercer@summitcg.com',
+      passwordHash: 'password', // Simulating a hash
+      name: 'Alex Mercer',
+      phone: '(555) 123-4567',
+      licenseNumber: 'CA-DRE-123456',
+      status: 'active',
+      avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=facearea&facepad=2.25&w=256&h=256&q=80'
+    }
+  ]);
+
+  const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
+
+  // -- Global App State --
   const [deals, setDeals] = useState<Deal[]>(MOCK_DEALS);
   const [leadGenLogs, setLeadGenLogs] = useState<LeadGenLog[]>(MOCK_LEAD_GEN_LOGS);
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
   const [isGmailConnected, setIsGmailConnected] = useState(false);
-  const [currentUser, setCurrentUser] = useState({
-    name: 'Alex Mercer',
-    email: 'alex.mercer@summitcg.com',
-    avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=facearea&facepad=2.25&w=256&h=256&q=80',
-    phone: '(555) 123-4567',
-    bio: 'Senior Commercial Agent specializing in Retail and Office properties.'
-  });
 
   // -- Modal States --
   const [isDealModalOpen, setIsDealModalOpen] = useState(false);
@@ -38,21 +48,62 @@ const App: React.FC = () => {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [documentFilterId, setDocumentFilterId] = useState<string | null>(null);
 
-  // -- Handlers --
+  // -- Auth Handlers --
 
-  const handleLogin = (email: string) => {
+  const handleLogin = (usernameOrEmail: string, password: string): { success: boolean; message?: string } => {
+    const user = users.find(u => 
+      (u.username.toLowerCase() === usernameOrEmail.toLowerCase() || 
+       u.email.toLowerCase() === usernameOrEmail.toLowerCase()) && 
+      u.passwordHash === password // In real app, verify hash
+    );
+
+    if (!user) {
+      // Generic error for security
+      return { success: false, message: 'Invalid username or password.' };
+    }
+
+    if (user.status === 'pending') {
+      return { success: false, message: 'Your account is pending admin approval. You will receive an email once approved.' };
+    }
+
+    if (user.status === 'denied') {
+      return { success: false, message: 'Your account request was denied. Please contact administration.' };
+    }
+
+    setCurrentUser(user);
     setIsAuthenticated(true);
-    setCurrentUser(prev => ({...prev, email: email}));
+    return { success: true };
+  };
+
+  const handleRegister = (userData: Omit<UserAccount, 'id' | 'status' | 'avatar'>) => {
+    const newUser: UserAccount = {
+      ...userData,
+      id: Math.random().toString(36).substr(2, 9),
+      status: 'pending',
+      avatar: `https://ui-avatars.com/api/?name=${encodeURIComponent(userData.name)}&background=random`
+    };
+    setUsers(prev => [...prev, newUser]);
+    return newUser;
+  };
+
+  // Simulated Admin Action
+  const handleSimulateAdminApprove = (username: string) => {
+    setUsers(prev => prev.map(u => 
+      u.username === username ? { ...u, status: 'active' } : u
+    ));
+    alert(`Admin has approved user: ${username}. You may now log in.`);
   };
 
   const handleLogout = () => {
     setIsAuthenticated(false);
+    setCurrentUser(null);
     setActiveTab('dashboard');
     setIsGmailConnected(false);
   };
 
+  // -- Data Handlers --
+
   const handleSaveDeal = (dealData: Deal) => {
-    // If ID exists in current state, update it. Otherwise add new.
     const exists = deals.find(d => d.id === dealData.id);
     if (exists) {
       setDeals(deals.map(d => d.id === dealData.id ? dealData : d));
@@ -92,7 +143,10 @@ const App: React.FC = () => {
   };
 
   const handleUpdateProfile = (updatedProfile: any) => {
-    setCurrentUser(prev => ({ ...prev, ...updatedProfile }));
+    if (currentUser) {
+      setCurrentUser({ ...currentUser, ...updatedProfile });
+      setUsers(prev => prev.map(u => u.id === currentUser.id ? { ...u, ...updatedProfile } : u));
+    }
   };
 
   const handleAddDocument = (dealId: string, docFile: DocumentFile) => {
@@ -117,12 +171,10 @@ const App: React.FC = () => {
     setLeadGenLogs(prev => {
       const existingIndex = prev.findIndex(l => l.id === log.id);
       if (existingIndex >= 0) {
-        // Update existing log
         const updatedLogs = [...prev];
         updatedLogs[existingIndex] = log;
         return updatedLogs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
       }
-      // Add new log
       return [log, ...prev].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
     });
   };
@@ -158,7 +210,7 @@ const App: React.FC = () => {
           />
         );
       case 'settings':
-        return <SettingsPage user={currentUser} onUpdateProfile={handleUpdateProfile} />;
+        return currentUser ? <SettingsPage user={currentUser} onUpdateProfile={handleUpdateProfile} /> : null;
       case 'reports':
         return <ReportsPage deals={deals} />;
       case 'documents':
@@ -184,24 +236,33 @@ const App: React.FC = () => {
       <Routes>
         <Route 
           path="/login" 
-          element={!isAuthenticated ? <AuthPage onLogin={handleLogin} /> : <Navigate to="/" />} 
+          element={
+            !isAuthenticated ? (
+              <AuthPage 
+                onLogin={handleLogin} 
+                onRegister={handleRegister} 
+                onSimulateAdminApprove={handleSimulateAdminApprove}
+              />
+            ) : (
+              <Navigate to="/" />
+            )
+          } 
         />
         <Route 
           path="/" 
           element={
-            isAuthenticated ? (
+            isAuthenticated && currentUser ? (
               <Layout 
                 activeTab={activeTab} 
                 setActiveTab={(tab) => {
                   setActiveTab(tab);
-                  if (tab === 'documents') setDocumentFilterId('all'); // Reset filter if clicking nav directly
+                  if (tab === 'documents') setDocumentFilterId('all');
                 }}
                 user={currentUser}
                 onLogout={handleLogout}
               >
                 {renderContent()}
                 
-                {/* Global Modals */}
                 <DealModal 
                   isOpen={isDealModalOpen}
                   onClose={() => setIsDealModalOpen(false)}
