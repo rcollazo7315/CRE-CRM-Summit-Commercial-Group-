@@ -1,12 +1,13 @@
 
 import React from 'react';
-import { LayoutDashboard, Building2, Mail, FileText, Settings, Bell, Search, LogOut, Menu, X, PieChart, Target } from 'lucide-react';
+import { LayoutDashboard, Building2, Mail, FileText, Settings, Bell, Search, LogOut, Menu, X, PieChart, Target, Shield, Calculator } from 'lucide-react';
+import { UserAccount } from '../types';
 
 interface LayoutProps {
   children: React.ReactNode;
   activeTab: string;
   setActiveTab: (tab: string) => void;
-  user: { name: string; email: string; avatar: string };
+  user: UserAccount;
   onLogout: () => void;
 }
 
@@ -16,15 +17,21 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, user
   // Normalize activeTab to highlight the correct nav item even if in a sub-view (like deal-details)
   const currentNav = activeTab === 'deal-details' ? 'deals' : activeTab;
 
-  const navItems = [
+  const agentNavItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'deals', label: 'My Deals', icon: Building2 },
-    { id: 'lead-gen', label: 'Log Daily Activity', icon: Target },
+    { id: 'calculator', label: 'Mortgage Calc', icon: Calculator },
+    { id: 'lead-gen', label: 'Log Activity', icon: Target },
     { id: 'reports', label: 'Reports', icon: PieChart },
     { id: 'communications', label: 'Communications', icon: Mail },
     { id: 'documents', label: 'Documents', icon: FileText },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
+
+  // If Admin, prepend the Admin Console, but keep all agent functionality accessible
+  const navItems = user.role === 'admin' 
+    ? [{ id: 'admin-dashboard', label: 'Admin Console', icon: Shield }, ...agentNavItems]
+    : agentNavItems;
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans text-slate-900">
@@ -42,10 +49,10 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, user
         ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
       `}>
         <div className="p-6 border-b border-slate-700 hidden md:block">
-          <div className="font-bold text-2xl text-white tracking-tight cursor-pointer" onClick={() => setActiveTab('dashboard')}>
+          <div className="font-bold text-2xl text-white tracking-tight cursor-pointer" onClick={() => setActiveTab(user.role === 'admin' ? 'admin-dashboard' : 'dashboard')}>
             Summit<span className="font-light text-summit-accent">CG</span>
           </div>
-          <p className="text-xs text-slate-500 mt-1 uppercase tracking-wider">Agent Portal</p>
+          <p className="text-xs text-slate-500 mt-1 uppercase tracking-wider">{user.role === 'admin' ? 'Admin Portal' : 'Agent Portal'}</p>
         </div>
 
         <nav className="flex-1 overflow-y-auto py-6">
@@ -76,7 +83,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, user
           <div className="flex items-center gap-3 mb-4 px-2 cursor-pointer hover:bg-slate-800 p-2 rounded transition-colors" onClick={() => setActiveTab('settings')}>
             <img src={user.avatar} alt="User" className="w-10 h-10 rounded-full border-2 border-slate-600 object-cover" />
             <div className="overflow-hidden">
-              <p className="text-sm font-semibold text-white truncate">{user.name}</p>
+              <p className="text-sm font-semibold text-white truncate">{user.firstName} {user.lastName}</p>
               <p className="text-xs text-slate-500 truncate">{user.email}</p>
             </div>
           </div>
@@ -95,14 +102,18 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, user
         {/* Top Header */}
         <header className="bg-white border-b border-slate-200 h-16 flex items-center justify-between px-6 sticky top-0 z-30 print:hidden">
           <div className="flex items-center flex-1 max-w-xl">
-            <div className="relative w-full">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-              <input 
-                type="text" 
-                placeholder="Search properties, owners, or documents..." 
-                className="w-full pl-10 pr-4 py-2 bg-slate-100 border-none rounded-full text-sm focus:ring-2 focus:ring-summit-accent outline-none transition-all"
-              />
-            </div>
+            {activeTab === 'admin-dashboard' ? (
+              <div className="font-bold text-slate-800 text-lg">Administrator Console</div>
+            ) : (
+              <div className="relative w-full">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+                <input 
+                  type="text" 
+                  placeholder="Search properties, owners, or documents..." 
+                  className="w-full pl-10 pr-4 py-2 bg-slate-100 border-none rounded-full text-sm focus:ring-2 focus:ring-summit-accent outline-none transition-all"
+                />
+              </div>
+            )}
           </div>
           
           <div className="flex items-center gap-4 ml-4">

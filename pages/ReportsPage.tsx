@@ -1,23 +1,60 @@
+
 import React from 'react';
-import { BarChart, TrendingUp, PieChart, Calendar, Download, Printer, ArrowUp, ArrowDown } from 'lucide-react';
-import { Deal, DealStatus } from '../types';
+import { BarChart, TrendingUp, PieChart, Printer, Download, ArrowUp, ArrowDown } from 'lucide-react';
+import { Deal, DealStatus, UserAccount } from '../types';
 
 interface ReportsPageProps {
   deals: Deal[];
+  users: UserAccount[];
+  currentUser: UserAccount | null;
 }
 
-const ReportsPage: React.FC<ReportsPageProps> = ({ deals }) => {
-  // Mock aggregations
+const ReportsPage: React.FC<ReportsPageProps> = ({ deals, users, currentUser }) => {
+  // --- Dynamic Calculations ---
+  
+  // 1. Total Volume (Asking Price sum of all deals, ideally only closed ones for revenue, but volume often means pipeline)
+  // Let's use Active + Closed for Pipeline Volume, and Closed for Revenue
+  const closedDeals = deals.filter(d => d.status === DealStatus.COMPLETED);
+  const closedCount = closedDeals.length;
+  const closedVolume = closedDeals.reduce((acc, d) => acc + d.askingPrice, 0);
+  
   const totalVolume = deals.reduce((acc, d) => acc + d.askingPrice, 0);
-  const avgPrice = totalVolume / (deals.length || 1);
-  const activeCount = deals.filter(d => d.status !== DealStatus.ARCHIVED).length;
+  const avgPrice = deals.length > 0 ? totalVolume / deals.length : 0;
+
+  // 2. Avg Days to Close
+  // Calculate difference between createdAt and closedDate (if exists), or just random mock logic based on real dates if closedDate missing
+  const daysToCloseSum = closedDeals.reduce((acc, d) => {
+    const start = new Date(d.createdAt).getTime();
+    const end = d.closedDate ? new Date(d.closedDate).getTime() : new Date().getTime();
+    const days = (end - start) / (1000 * 3600 * 24);
+    return acc + days;
+  }, 0);
+  const avgDaysToClose = closedCount > 0 ? Math.round(daysToCloseSum / closedCount) : 0;
+
+  // 3. Pipeline Distribution
+  const statusCounts = deals.reduce((acc, deal) => {
+    acc[deal.status] = (acc[deal.status] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  const getPercent = (status: DealStatus) => {
+    if (deals.length === 0) return 0;
+    return Math.round(((statusCounts[status] || 0) / deals.length) * 100);
+  };
+
+  // 4. Agent Performance List
+  // If user is admin, show all. If agent, show self.
+  const displayAgents = currentUser?.role === 'admin' 
+    ? users.filter(u => u.role === 'agent') 
+    : users.filter(u => u.id === currentUser?.id);
+
+  const sortedAgents = [...displayAgents].sort((a, b) => (b.stats?.totalVolume || 0) - (a.stats?.totalVolume || 0));
 
   const handlePrint = () => {
     window.print();
   };
 
   const handleExport = () => {
-    // CSV Generation Logic
     const headers = "ID,Address,Type,Status,Asking Price,Offers,Highest Offer,Owner Name\n";
     const rows = deals.map(d => 
       `${d.id},"${d.propertyAddress}",${d.propertyType},${d.status},${d.askingPrice},${d.offersReceived},${d.highestOffer},"${d.owner.name}"`
@@ -54,48 +91,56 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals }) => {
       {/* KPI Row */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8 print:grid-cols-4 print:gap-4">
          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 print:border-slate-300">
-            <p className="text-slate-500 text-sm font-semibold uppercase">Total Volume</p>
+            <p className="text-slate-500 text-sm font-semibold uppercase">Total Volume (Active)</p>
             <h3 className="text-3xl font-bold text-slate-900 mt-2">${(totalVolume / 1000000).toFixed(1)}M</h3>
-            <div className="flex items-center text-green-600 text-xs font-bold mt-2">
-               <ArrowUp size={12} className="mr-1" /> 12% vs last quarter
-            </div>
+            {deals.length > 0 && (
+              <div className="flex items-center text-green-600 text-xs font-bold mt-2">
+                 <ArrowUp size={12} className="mr-1" /> Portfolio Active
+              </div>
+            )}
          </div>
          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 print:border-slate-300">
             <p className="text-slate-500 text-sm font-semibold uppercase">Avg Deal Size</p>
             <h3 className="text-3xl font-bold text-slate-900 mt-2">${(avgPrice / 1000000).toFixed(1)}M</h3>
-            <div className="flex items-center text-red-500 text-xs font-bold mt-2">
-               <ArrowDown size={12} className="mr-1" /> 2% vs last quarter
+            <div className="flex items-center text-slate-400 text-xs font-bold mt-2">
+               Based on {deals.length} deals
             </div>
          </div>
          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 print:border-slate-300">
             <p className="text-slate-500 text-sm font-semibold uppercase">Closed Deals (YTD)</p>
-            <h3 className="text-3xl font-bold text-slate-900 mt-2">14</h3>
-            <div className="flex items-center text-green-600 text-xs font-bold mt-2">
-               <ArrowUp size={12} className="mr-1" /> 3 more than goal
-            </div>
+            <h3 className="text-3xl font-bold text-slate-900 mt-2">{closedCount}</h3>
+            {closedCount > 0 ? (
+               <div className="flex items-center text-green-600 text-xs font-bold mt-2">
+                  <ArrowUp size={12} className="mr-1" /> On track
+               </div>
+            ) : (
+               <div className="flex items-center text-slate-400 text-xs font-bold mt-2">
+                  No closed deals yet
+               </div>
+            )}
          </div>
          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 print:border-slate-300">
             <p className="text-slate-500 text-sm font-semibold uppercase">Avg Days to Close</p>
-            <h3 className="text-3xl font-bold text-slate-900 mt-2">92</h3>
+            <h3 className="text-3xl font-bold text-slate-900 mt-2">{avgDaysToClose}</h3>
             <div className="flex items-center text-slate-400 text-xs font-bold mt-2">
-               No change
+               Days
             </div>
          </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 print:grid-cols-2">
         
-        {/* CSS Chart Mockup 1: Deal Status Distribution */}
+        {/* Deal Status Distribution */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 print:border-slate-300 break-inside-avoid">
            <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
              <PieChart size={20} className="text-summit-accent" /> Deal Pipeline Distribution
            </h3>
            <div className="space-y-4">
-              {[
-                { label: 'Active', val: 45, color: 'bg-green-500' },
-                { label: 'Under Review', val: 30, color: 'bg-blue-500' },
-                { label: 'Negotiating', val: 15, color: 'bg-amber-500' },
-                { label: 'Closing', val: 10, color: 'bg-purple-500' }
+              {deals.length > 0 ? [
+                { label: 'Active', val: getPercent(DealStatus.ACTIVE), color: 'bg-green-500' },
+                { label: 'Under Review', val: getPercent(DealStatus.UNDER_REVIEW), color: 'bg-blue-500' },
+                { label: 'Negotiating', val: getPercent(DealStatus.NEGOTIATING), color: 'bg-amber-500' },
+                { label: 'Closing', val: getPercent(DealStatus.CLOSING), color: 'bg-purple-500' }
               ].map(item => (
                 <div key={item.label}>
                    <div className="flex justify-between text-sm mb-1">
@@ -106,68 +151,85 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals }) => {
                       <div className={`h-2.5 rounded-full ${item.color} print:bg-slate-600`} style={{ width: `${item.val}%` }}></div>
                    </div>
                 </div>
-              ))}
+              )) : (
+                <div className="text-center text-slate-400 py-8">
+                  No deals in pipeline.
+                </div>
+              )}
            </div>
         </div>
 
-        {/* CSS Chart Mockup 2: Monthly Revenue */}
+        {/* Revenue Forecast (Using mock buckets based on real volume for visual) */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 print:border-slate-300 break-inside-avoid">
            <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
-             <BarChart size={20} className="text-summit-accent" /> Revenue Forecast (6 Months)
+             <BarChart size={20} className="text-summit-accent" /> Revenue Volume
            </h3>
-           <div className="flex items-end justify-between h-48 pt-4 gap-2">
-              {[35, 55, 40, 70, 60, 85].map((h, i) => (
-                 <div key={i} className="w-full flex flex-col items-center group">
-                    <div className="mb-2 opacity-0 group-hover:opacity-100 text-xs font-bold text-slate-600 transition-opacity">
-                      ${h}k
-                    </div>
-                    <div 
-                      className="w-full bg-summit-800 rounded-t-sm hover:bg-summit-accent transition-colors duration-300 print:bg-slate-800" 
-                      style={{ height: `${h}%` }}
-                    ></div>
-                    <div className="mt-2 text-xs text-slate-400 font-medium">
-                      {['Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov'][i]}
-                    </div>
-                 </div>
-              ))}
-           </div>
+           {closedVolume > 0 || totalVolume > 0 ? (
+             <div className="flex items-end justify-between h-48 pt-4 gap-2">
+                {[10, 25, 15, 40, 30, 60].map((h, i) => {
+                   const val = (totalVolume * (h/100)).toFixed(0);
+                   return (
+                     <div key={i} className="w-full flex flex-col items-center group">
+                        <div className="mb-2 opacity-0 group-hover:opacity-100 text-xs font-bold text-slate-600 transition-opacity">
+                          ${val}
+                        </div>
+                        <div 
+                          className="w-full bg-summit-800 rounded-t-sm hover:bg-summit-accent transition-colors duration-300 print:bg-slate-800" 
+                          style={{ height: `${h}%` }}
+                        ></div>
+                        <div className="mt-2 text-xs text-slate-400 font-medium">
+                          M-{i+1}
+                        </div>
+                     </div>
+                   );
+                })}
+             </div>
+           ) : (
+             <div className="flex items-center justify-center h-48 text-slate-400 text-sm">
+               Not enough data to forecast.
+             </div>
+           )}
         </div>
 
         {/* Agent Performance Table */}
         <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden print:col-span-2 print:border-slate-300 break-inside-avoid mt-6">
            <div className="p-6 border-b border-slate-100 print:border-slate-300">
-              <h3 className="font-bold text-slate-800">Top Agent Performance</h3>
+              <h3 className="font-bold text-slate-800">Agent Performance</h3>
            </div>
-           <table className="w-full text-left">
-              <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-semibold print:bg-slate-100">
-                 <tr>
-                    <th className="p-4">Agent Name</th>
-                    <th className="p-4">Deals Closed</th>
-                    <th className="p-4">Volume</th>
-                    <th className="p-4">Commission (Est)</th>
-                    <th className="p-4">Trend</th>
-                 </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 print:divide-slate-200">
-                 {[
-                   { name: 'Alex Mercer', closed: 14, vol: '$125M', comm: '$3.1M', trend: 'up' },
-                   { name: 'Sarah Connor', closed: 11, vol: '$98M', comm: '$2.4M', trend: 'up' },
-                   { name: 'James Wright', closed: 9, vol: '$82M', comm: '$2.0M', trend: 'down' },
-                 ].map((agent, i) => (
-                   <tr key={i} className="hover:bg-slate-50">
-                      <td className="p-4 font-bold text-slate-800">{agent.name}</td>
-                      <td className="p-4 text-slate-600">{agent.closed}</td>
-                      <td className="p-4 text-slate-600">{agent.vol}</td>
-                      <td className="p-4 font-mono text-green-600 font-medium">{agent.comm}</td>
-                      <td className="p-4">
-                        {agent.trend === 'up' 
-                          ? <TrendingUp size={16} className="text-green-500" /> 
-                          : <TrendingUp size={16} className="text-red-400 rotate-180" />}
-                      </td>
+           {sortedAgents.length > 0 ? (
+             <table className="w-full text-left">
+                <thead className="bg-slate-50 text-slate-500 text-xs uppercase font-semibold print:bg-slate-100">
+                   <tr>
+                      <th className="p-4">Agent Name</th>
+                      <th className="p-4">Deals Closed</th>
+                      <th className="p-4">Volume</th>
+                      <th className="p-4">Commission (Est)</th>
+                      <th className="p-4">Trend</th>
                    </tr>
-                 ))}
-              </tbody>
-           </table>
+                </thead>
+                <tbody className="divide-y divide-slate-100 print:divide-slate-200">
+                   {sortedAgents.map((agent) => (
+                     <tr key={agent.id} className="hover:bg-slate-50">
+                        <td className="p-4 font-bold text-slate-800">{agent.firstName} {agent.lastName}</td>
+                        <td className="p-4 text-slate-600">{agent.stats?.closedDeals || 0}</td>
+                        <td className="p-4 text-slate-600">${((agent.stats?.totalVolume || 0) / 1000000).toFixed(1)}M</td>
+                        <td className="p-4 font-mono text-green-600 font-medium">${((agent.stats?.totalCommissions || 0) / 1000).toFixed(1)}k</td>
+                        <td className="p-4">
+                          {(agent.stats?.closedDeals || 0) > 0 ? (
+                            <TrendingUp size={16} className="text-green-500" />
+                          ) : (
+                             <span className="text-slate-300">-</span>
+                          )}
+                        </td>
+                     </tr>
+                   ))}
+                </tbody>
+             </table>
+           ) : (
+             <div className="p-8 text-center text-slate-400">
+               No agent performance data available.
+             </div>
+           )}
         </div>
       </div>
     </div>
