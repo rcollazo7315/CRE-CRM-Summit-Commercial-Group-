@@ -1,8 +1,10 @@
+
 import { initializeApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 
-const env = (import.meta as any).env;
+// robustly get env variables
+const env = (import.meta as any).env || {};
 
 const firebaseConfig = {
   apiKey: env.VITE_FIREBASE_API_KEY,
@@ -12,6 +14,11 @@ const firebaseConfig = {
   messagingSenderId: env.VITE_FIREBASE_MESSAGING_SENDER_ID,
   appId: env.VITE_FIREBASE_APP_ID
 };
+
+// Defensive check to help troubleshooting
+if (!firebaseConfig.apiKey) {
+  console.error("CRITICAL: Firebase API Keys are missing. Please ensure you have created a .env.local file in the project root with your VITE_FIREBASE_... keys.");
+}
 
 const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app);
