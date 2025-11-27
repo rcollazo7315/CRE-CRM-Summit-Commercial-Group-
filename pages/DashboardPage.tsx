@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
-import { Plus, ArrowUpRight, DollarSign, Clock, ChevronDown, MessageSquare, Briefcase, FileText, CheckCircle, AlertCircle, Trash2, MapPin } from 'lucide-react';
+import { Plus, ArrowUpRight, DollarSign, Clock, ChevronDown, MessageSquare, Briefcase, FileText, CheckCircle, Trash2, MapPin, Undo2 } from 'lucide-react';
 import { Deal, DealStatus, Task } from '../types';
-import { mockApi } from '../services/mockApi';
+import { api } from '../services/firestore';
 import TaskModal from '../components/TaskModal';
+import { useAuth } from '../context/AuthContext';
 
 interface DashboardPageProps {
   activeTab: string;
@@ -13,9 +14,11 @@ interface DashboardPageProps {
   onDeleteDeal: (dealId: string) => void;
   onRouteChange: (route: string) => void;
   onOpenAi: () => void;
+  onSaveDeal: (deal: Deal) => void; // Added to support reopening
 }
 
-const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDeal, onDealClick, onDeleteDeal, onRouteChange, onOpenAi }) => {
+const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDeal, onDealClick, onDeleteDeal, onRouteChange, onOpenAi, onSaveDeal }) => {
+  const { currentUser } = useAuth();
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
@@ -24,9 +27,8 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
   // -- Fetch Tasks --
   const loadTasks = async () => {
     try {
-      const currentUser = JSON.parse(localStorage.getItem('summit_currentUser') || '{}');
-      if (currentUser.id) {
-         const userTasks = await mockApi.getTasks(currentUser.id);
+      if (currentUser?.id) {
+         const userTasks = await api.getTasks(currentUser.id);
          setTasks(userTasks);
       }
     } catch (e) {
@@ -36,13 +38,10 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
 
   useEffect(() => {
     loadTasks();
-    const interval = setInterval(loadTasks, 5000); // Poll for updates
-    return () => clearInterval(interval);
-  }, [deals]);
+  }, [deals, currentUser]);
 
   const handleSaveTask = async (task: Partial<Task>) => {
-    const currentUser = JSON.parse(localStorage.getItem('summit_currentUser') || '{}');
-    if (!currentUser.id) return;
+    if (!currentUser?.id) return;
 
     const newTask = {
       ...task,
@@ -50,23 +49,42 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
       userId: currentUser.id,
     } as Task;
 
-    await mockApi.saveTask(newTask);
+    await api.saveTask(newTask);
     loadTasks();
     setIsTaskModalOpen(false);
   };
 
   const toggleTaskComplete = async (task: Task) => {
     const updated = { ...task, status: task.status === 'completed' ? 'pending' : 'completed' } as Task;
-    await mockApi.saveTask(updated);
+    await api.saveTask(updated);
     loadTasks();
+  };
+
+  const handleReopenDeal = (deal: Deal, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if(confirm('Do you want to reopen this deal? It will be moved back to Active Deals.')) {
+        onSaveDeal({ ...deal, status: DealStatus.ACTIVE });
+    }
   };
 
   // -- Computed Stats --
   const activeDealsCount = deals.filter(d => d.status !== DealStatus.COMPLETED && d.status !== DealStatus.ARCHIVED).length;
-  const pipelineValue = deals.reduce((acc, curr) => acc + (curr.status !== DealStatus.ARCHIVED ? curr.askingPrice : 0), 0);
+  const pipelineValue = deals.reduce((acc, curr) => acc + (curr.status !== DealStatus.ARCHIVED && curr.status !== DealStatus.COMPLETED ? curr.askingPrice : 0), 0);
   const totalOffers = deals.reduce((acc, curr) => acc + curr.offersReceived, 0);
   
-  const filteredDeals = filterStatus === 'all' ? deals : deals.filter(d => d.status === filterStatus);
+  // Filtering Logic based on Tabs
+  let displayedDeals = deals;
+  
+  if (activeTab === 'closed-deals') {
+    displayedDeals = deals.filter(d => d.status === DealStatus.COMPLETED);
+  } else if (activeTab === 'deals') {
+    displayedDeals = deals.filter(d => d.status !== DealStatus.COMPLETED && d.status !== DealStatus.ARCHIVED);
+  }
+
+  // Then apply local filter if set
+  if (filterStatus !== 'all') {
+    displayedDeals = displayedDeals.filter(d => d.status === filterStatus);
+  }
 
   // -- Task Filtering --
   const pendingTasks = tasks.filter(t => t.status !== 'completed').sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
@@ -96,35 +114,43 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
           <StatsCard title="Active Deals" value={activeDealsCount} subtext="Current Portfolio" icon={Briefcase} colorClass="bg-blue-100 text-blue-600" />
           <StatsCard title="Total Offers" value={totalOffers} subtext="Activity Level" icon={DollarSign} colorClass="bg-green-100 text-green-600" />
           <StatsCard title="Pending Tasks" value={pendingTasks.length} subtext={`${overdueTasks.length} Overdue`} icon={CheckCircle} colorClass="bg-purple-100 text-purple-600" />
-          <StatsCard title="Pipeline Value" value={`$${(pipelineValue / 1000000).toFixed(1)}M`} subtext="Total Asking" icon={ArrowUpRight} colorClass="bg-orange-100 text-orange-600" />
+          <StatsCard title="Pipeline Value" value={`$${(pipelineValue / 1000000).toFixed(1)}M`} subtext="Total Asking (Active)" icon={ArrowUpRight} colorClass="bg-orange-100 text-orange-600" />
         </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
         
         {/* Main Deals Table Area */}
-        <div className={`${activeTab === 'deals' ? 'col-span-4' : 'lg:col-span-3'} space-y-6`}>
+        <div className={`${activeTab !== 'dashboard' ? 'col-span-4' : 'lg:col-span-3'} space-y-6`}>
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden min-h-[400px]">
             <div className="p-5 border-b border-slate-100 flex flex-wrap gap-4 justify-between items-center">
-              <h2 className="text-lg font-bold text-slate-800">Deal Flow</h2>
+              <h2 className="text-lg font-bold text-slate-800">
+                {activeTab === 'closed-deals' ? 'Closed Deals' : 'Deal Flow'}
+              </h2>
               <div className="flex gap-2">
-                <div className="relative">
-                  <select 
-                    value={filterStatus}
-                    onChange={(e) => setFilterStatus(e.target.value)}
-                    className="appearance-none bg-slate-50 border border-slate-200 text-slate-700 text-sm rounded-lg pl-3 pr-8 py-2 focus:ring-summit-accent outline-none cursor-pointer"
-                  >
-                    <option value="all">All Statuses</option>
-                    {Object.values(DealStatus).map(s => <option key={s} value={s}>{s}</option>)}
-                  </select>
-                  <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                </div>
-                <button 
-                  onClick={onAddDeal}
-                  className="bg-summit-900 text-white hover:bg-summit-800 text-sm font-medium px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
-                >
-                  <Plus size={16} /> New Deal
-                </button>
+                {activeTab !== 'closed-deals' && (
+                  <div className="relative">
+                    <select 
+                      value={filterStatus}
+                      onChange={(e) => setFilterStatus(e.target.value)}
+                      className="appearance-none bg-slate-50 border border-slate-200 text-slate-700 text-sm rounded-lg pl-3 pr-8 py-2 focus:ring-summit-accent outline-none cursor-pointer"
+                    >
+                      <option value="all">All Statuses</option>
+                      {Object.values(DealStatus).filter(s => s !== DealStatus.COMPLETED).map(s => <option key={s} value={s}>{s}</option>)}
+                    </select>
+                    <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  </div>
+                )}
+                
+                {/* REMOVED: "New Deal" Button from Closed Deals Tab */}
+                {activeTab !== 'closed-deals' && (
+                    <button 
+                    onClick={onAddDeal}
+                    className="bg-summit-900 text-white hover:bg-summit-800 text-sm font-medium px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
+                    >
+                    <Plus size={16} /> New Deal
+                    </button>
+                )}
               </div>
             </div>
             
@@ -141,8 +167,8 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {filteredDeals.length > 0 ? (
-                    filteredDeals.map((deal) => (
+                  {displayedDeals.length > 0 ? (
+                    displayedDeals.map((deal) => (
                       <tr key={deal.id} className="hover:bg-slate-50 transition-colors group">
                         <td className="p-4 cursor-pointer" onClick={() => onDealClick(deal.id)}>
                           <div className="flex items-center gap-3">
@@ -159,13 +185,14 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
                         <td className="p-4 cursor-pointer" onClick={() => onDealClick(deal.id)}>
                            <span className={`px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap
                              ${deal.status === DealStatus.ACTIVE ? 'bg-green-100 text-green-700' : 
-                               deal.status === DealStatus.NEGOTIATING ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-600'}`
+                               deal.status === DealStatus.NEGOTIATING ? 'bg-amber-100 text-amber-700' : 
+                               deal.status === DealStatus.COMPLETED ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600'}`
                            }>
                             {deal.status}
                           </span>
                         </td>
                         <td className="p-4 text-right font-medium text-slate-700 text-sm cursor-pointer" onClick={() => onDealClick(deal.id)}>
-                          ${(deal.askingPrice / 1000000).toFixed(2)}M
+                          ${deal.askingPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                         </td>
                         <td className="p-4 text-center text-slate-600 text-sm cursor-pointer" onClick={() => onDealClick(deal.id)}>
                           {deal.offersReceived}
@@ -173,7 +200,16 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
                         <td className="p-4 text-xs text-slate-500 cursor-pointer" onClick={() => onDealClick(deal.id)}>
                           {new Date(deal.lastUpdated).toLocaleDateString()}
                         </td>
-                        <td className="p-4 text-center">
+                        <td className="p-4 text-center flex items-center justify-center gap-2">
+                          {activeTab === 'closed-deals' && (
+                            <button
+                                onClick={(e) => handleReopenDeal(deal, e)}
+                                className="text-slate-400 hover:text-summit-accent p-2 rounded-full hover:bg-green-50 transition-colors"
+                                title="Reopen Deal (Move to Active)"
+                            >
+                                <Undo2 size={16} />
+                            </button>
+                          )}
                           <button 
                             onClick={(e) => { e.stopPropagation(); onDeleteDeal(deal.id); }}
                             className="text-slate-400 hover:text-red-600 p-2 rounded-full hover:bg-red-50 transition-colors"
@@ -190,7 +226,11 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
                         <div className="flex flex-col items-center">
                            <Briefcase size={40} className="mb-4 opacity-20" />
                            <p className="font-medium">No deals found.</p>
-                           <p className="text-sm mt-1">Start by clicking "New Deal" to build your pipeline.</p>
+                           <p className="text-sm mt-1">
+                             {activeTab === 'closed-deals' 
+                              ? "You haven't closed any deals yet. Keep pushing!" 
+                              : "Start by clicking 'New Deal' to build your pipeline."}
+                           </p>
                         </div>
                       </td>
                     </tr>

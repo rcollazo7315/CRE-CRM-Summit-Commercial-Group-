@@ -27,7 +27,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateProfile }) =>
       alert("New passwords do not match");
       return;
     }
-    // In real app, we verify current password hash. Here we just simulate success.
     setSuccessMsg('Password changed successfully');
     setPasswordData({ current: '', new: '', confirm: '' });
     setTimeout(() => setSuccessMsg(''), 3000);
@@ -44,6 +43,18 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateProfile }) =>
       };
       reader.readAsDataURL(file);
     }
+  };
+
+  const formatPhoneNumber = (value: string) => {
+    const phoneNumber = value.replace(/\D/g, '');
+    if (phoneNumber.length < 4) return phoneNumber;
+    if (phoneNumber.length < 7) return `(${phoneNumber.slice(0, 3)}) ${phoneNumber.slice(3)}`;
+    return `(${phoneNumber.slice(0, 3)}) ${phoneNumber.slice(3, 6)}-${phoneNumber.slice(6, 10)}`;
+  };
+
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const formatted = formatPhoneNumber(e.target.value);
+    setFormData(prev => ({ ...prev, phone: formatted }));
   };
 
   return (
@@ -155,7 +166,14 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateProfile }) =>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Phone Number</label>
                 <div className="relative">
                   <Phone size={16} className="absolute left-3 top-3.5 text-slate-400" />
-                  <input type="tel" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} className="w-full pl-10 p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent/20 focus:border-summit-accent transition-all" />
+                  <input 
+                    type="tel" 
+                    value={formData.phone} 
+                    onChange={handlePhoneChange} 
+                    maxLength={14}
+                    className="w-full pl-10 p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent/20 focus:border-summit-accent transition-all" 
+                    placeholder="(555) 555-5555"
+                  />
                 </div>
               </div>
             </div>

@@ -169,6 +169,9 @@ export interface MortgageCalculation {
   id: string;
   userId: string;
   timestamp: string;
+  purchasePrice: number;
+  downPaymentValue: number;
+  downPaymentMode: 'percent' | 'amount';
   loanAmount: number;
   interestRate: number;
   loanTermYears: number;

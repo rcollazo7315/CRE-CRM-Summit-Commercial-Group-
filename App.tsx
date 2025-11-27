@@ -8,7 +8,6 @@ import DealDetailsPage from './pages/DealDetailsPage';
 import SettingsPage from './pages/SettingsPage';
 import ReportsPage from './pages/ReportsPage';
 import DocumentsPage from './pages/DocumentsPage';
-import CommunicationsPage from './pages/CommunicationsPage';
 import LeadGenPage from './pages/LeadGenPage';
 import AdminDashboardPage from './pages/AdminDashboardPage';
 import MortgageCalculatorPage from './pages/MortgageCalculatorPage';
@@ -73,7 +72,6 @@ const AppContent: React.FC = () => {
     const dealWithUser = { ...dealData, userId: currentUser.id };
     await api.saveDeal(dealWithUser);
     loadUserData(currentUser.id, currentUser.role === 'admin');
-    // Also refresh user stats
     refreshUser();
   };
 
@@ -97,15 +95,14 @@ const AppContent: React.FC = () => {
   if (loading) return <div className="h-screen flex items-center justify-center bg-slate-50 text-slate-400">Loading SummitCG...</div>;
 
   const renderContent = () => {
-    // Admin Specific Route
     if (activeTab === 'admin-dashboard' && currentUser?.role === 'admin') {
       return <AdminDashboardPage />;
     }
 
-    // Shared Routes (Agents & Admins)
     switch (activeTab) {
       case 'dashboard':
       case 'deals':
+      case 'closed-deals':
         return (
           <DashboardPage 
             activeTab={activeTab} 
@@ -115,6 +112,7 @@ const AppContent: React.FC = () => {
             onDeleteDeal={handleDeleteDeal}
             onRouteChange={setActiveTab}
             onOpenAi={() => setIsChatOpen(true)}
+            onSaveDeal={handleSaveDeal} // Passed down for reopening
           />
         );
       case 'deal-details':
@@ -138,8 +136,6 @@ const AppContent: React.FC = () => {
         return <ReportsPage deals={deals} users={allUsers} currentUser={currentUser} />;
       case 'documents':
         return <DocumentsPage deals={deals} initialFilterDealId={documentFilterId} onAddDocument={() => {}} onDeleteDocument={() => {}} />;
-      case 'communications':
-        return <CommunicationsPage user={currentUser} onUpdateUser={handleUpdateProfile} />;
       case 'lead-gen':
         return <LeadGenPage logs={leadGenLogs} onSaveLog={(l) => {
           if(currentUser) {
@@ -149,7 +145,7 @@ const AppContent: React.FC = () => {
           }
         }} />;
       default:
-        return <DashboardPage activeTab="dashboard" deals={deals} onAddDeal={() => { setDealModalInitialData(null); setIsDealModalOpen(true); }} onDealClick={(id) => { setSelectedDealId(id); setActiveTab('deal-details'); }} onDeleteDeal={handleDeleteDeal} onRouteChange={setActiveTab} onOpenAi={() => setIsChatOpen(true)} />;
+        return <DashboardPage activeTab="dashboard" deals={deals} onAddDeal={() => { setDealModalInitialData(null); setIsDealModalOpen(true); }} onDealClick={(id) => { setSelectedDealId(id); setActiveTab('deal-details'); }} onDeleteDeal={handleDeleteDeal} onRouteChange={setActiveTab} onOpenAi={() => setIsChatOpen(true)} onSaveDeal={handleSaveDeal} />;
     }
   };
 

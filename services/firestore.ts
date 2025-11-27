@@ -131,7 +131,8 @@ export const api = {
 
   updateUserStatus: async (userId: string, status: 'active' | 'denied') => {
     checkDbConnection();
-    await updateDoc(doc(db, 'users', userId), {
+    const ref = doc(db, 'users', userId);
+    await updateDoc(ref, {
       status,
       approvedAt: status === 'active' ? serverTimestamp() : null
     });
@@ -216,6 +217,11 @@ export const api = {
     } else {
        await addDoc(collection(db, 'leadLogs'), rest);
     }
+  },
+
+  deleteLeadLog: async (logId: string) => {
+    checkDbConnection();
+    await deleteDoc(doc(db, 'leadLogs', logId));
   },
 
   getLeadLogs: async (userId: string) => {

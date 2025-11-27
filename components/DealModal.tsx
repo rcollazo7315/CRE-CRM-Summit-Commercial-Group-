@@ -34,7 +34,7 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
       setFormData({
         propertyAddress: initialData.propertyAddress,
         propertyType: initialData.propertyType,
-        askingPrice: initialData.askingPrice,
+        askingPrice: initialData.askingPrice.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}),
         ownerName: initialData.owner.name,
         ownerEmail: initialData.owner.email,
         ownerPhone: initialData.owner.phone,
@@ -62,6 +62,43 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
 
   if (!isOpen) return null;
 
+  const formatPhoneNumber = (value: string) => {
+    // Strip all non-numeric characters
+    const phoneNumber = value.replace(/\D/g, '');
+    
+    // Format based on length
+    if (phoneNumber.length < 4) return phoneNumber;
+    if (phoneNumber.length < 7) return `(${phoneNumber.slice(0, 3)}) ${phoneNumber.slice(3)}`;
+    return `(${phoneNumber.slice(0, 3)}) ${phoneNumber.slice(3, 6)}-${phoneNumber.slice(6, 10)}`;
+  };
+
+  const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const formatted = formatPhoneNumber(e.target.value);
+    setFormData(prev => ({ ...prev, ownerPhone: formatted }));
+  };
+
+  const handlePriceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    // Remove non-numeric/decimal chars first to clean input
+    let val = e.target.value.replace(/[^0-9.]/g, '');
+    
+    // Prevent multiple decimals
+    const parts = val.split('.');
+    if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
+    
+    setFormData(prev => ({ ...prev, askingPrice: val }));
+  };
+
+  const handlePriceBlur = () => {
+    if (!formData.askingPrice) return;
+    const num = parseFloat(formData.askingPrice.toString());
+    if (!isNaN(num)) {
+      setFormData(prev => ({
+        ...prev,
+        askingPrice: num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      }));
+    }
+  };
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
@@ -85,11 +122,13 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
       return;
     }
     
+    const cleanPrice = parseFloat(formData.askingPrice.toString().replace(/,/g, ''));
+
     setLoadingAi(true);
     const desc = await generateListingDescription(
       formData.propertyAddress,
       formData.propertyType,
-      Number(formData.askingPrice),
+      cleanPrice,
       formData.notes || "Standard commercial features"
     );
     setFormData(prev => ({ ...prev, description: desc }));
@@ -99,11 +138,14 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Parse price back to number
+    const numericPrice = parseFloat(formData.askingPrice.toString().replace(/,/g, ''));
+
     const dealPayload = {
       ...initialData, // Keep existing ID/dates if editing
       propertyAddress: formData.propertyAddress,
       propertyType: formData.propertyType,
-      askingPrice: Number(formData.askingPrice),
+      askingPrice: numericPrice,
       status: formData.status,
       description: formData.description,
       notes: formData.notes,
@@ -173,16 +215,20 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Asking Price ($)</label>
-                <input 
-                  required
-                  name="askingPrice"
-                  value={formData.askingPrice}
-                  onChange={handleChange}
-                  type="number" 
-                  className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent focus:border-summit-accent outline-none"
-                  placeholder="e.g. 5000000"
-                />
+                <label className="block text-sm font-medium text-slate-700 mb-1">Asking Price</label>
+                <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">$</span>
+                    <input 
+                    required
+                    name="askingPrice"
+                    value={formData.askingPrice}
+                    onChange={handlePriceChange}
+                    onBlur={handlePriceBlur}
+                    type="text" 
+                    className="w-full pl-7 p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent focus:border-summit-accent outline-none"
+                    placeholder="5,000,000.00"
+                    />
+                </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
@@ -252,7 +298,9 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
                 <input 
                   name="ownerPhone"
                   value={formData.ownerPhone}
-                  onChange={handleChange}
+                  onChange={handlePhoneChange}
+                  maxLength={14}
+                  placeholder="(555) 555-5555"
                   type="tel" 
                   className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:border-summit-accent"
                 />

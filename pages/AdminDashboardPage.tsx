@@ -1,23 +1,24 @@
 
 import React, { useEffect, useState } from 'react';
 import { Shield, Users, UserCheck, UserX, FileText, Download, TrendingUp, BarChart3, AlertTriangle } from 'lucide-react';
-import { mockApi } from '../services/mockApi';
+import { api } from '../services/firestore';
 import { UserAccount, Deal } from '../types';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { useAuth } from '../context/AuthContext';
 
 const AdminDashboardPage: React.FC = () => {
+  const { currentUser } = useAuth();
   const [users, setUsers] = useState<UserAccount[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
 
   const loadData = async () => {
     setLoading(true);
-    const u = await mockApi.getUsers();
+    const u = await api.getUsers();
     setUsers(u);
-    const currentUser = JSON.parse(localStorage.getItem('summit_currentUser') || '{}');
-    if (currentUser.id) {
-       const d = await mockApi.getDeals(currentUser.id, true); // true = isAdmin
+    if (currentUser?.id) {
+       const d = await api.getDeals(currentUser.id, true); // true = isAdmin
        setDeals(d);
     }
     setLoading(false);
@@ -25,55 +26,107 @@ const AdminDashboardPage: React.FC = () => {
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [currentUser]);
 
   const handleApprove = async (userId: string) => {
-    await mockApi.updateUserStatus(userId, 'active');
+    await api.updateUserStatus(userId, 'active');
     loadData();
-    alert("User approved and notified via simulated email.");
+    alert("User approved.");
   };
 
   const handleDeny = async (userId: string) => {
     if (confirm("Are you sure you want to deny this user?")) {
-      await mockApi.updateUserStatus(userId, 'denied');
+      await api.updateUserStatus(userId, 'denied');
       loadData();
     }
   };
 
   const generatePDF = () => {
     const doc = new jsPDF();
+    const today = new Date().toLocaleDateString();
     
     // Header
     doc.setFontSize(22);
+    doc.setTextColor(15, 23, 42); // slate-900
     doc.text("Summit Commercial Group", 14, 20);
+    
     doc.setFontSize(12);
-    doc.text("Performance Report", 14, 30);
-    doc.text(`Generated: ${new Date().toLocaleDateString()}`, 14, 36);
+    doc.setTextColor(100);
+    doc.text("Comprehensive Agent Activity Report", 14, 30);
+    doc.text(`Generated: ${today}`, 14, 36);
 
     // Summary Stats
     const totalVolume = deals.reduce((acc, d) => acc + (d.status === 'Completed' ? d.askingPrice : 0), 0);
     const totalCommissions = totalVolume * 0.03; 
 
-    doc.text(`Total Agents: ${users.filter(u => u.role === 'agent').length}`, 14, 50);
-    doc.text(`Total Closed Volume: $${(totalVolume / 1000000).toFixed(2)}M`, 14, 56);
-    doc.text(`Total Commission Revenue: $${(totalCommissions / 1000).toFixed(0)}k`, 14, 62);
+    doc.setFillColor(241, 245, 249); // slate-100
+    doc.rect(14, 45, 180, 25, 'F');
+    
+    doc.setFontSize(10);
+    doc.setTextColor(71, 85, 105);
+    doc.text(`Active Agents: ${users.filter(u => u.role === 'agent' && u.status === 'active').length}`, 20, 55);
+    doc.text(`Total Closed Volume: $${(totalVolume / 1000000).toFixed(2)}M`, 20, 62);
+    doc.text(`Total Commission Revenue: $${(totalCommissions / 1000).toFixed(0)}k`, 100, 62);
 
-    // Agents Table
-    const tableData = users.filter(u => u.role === 'agent').map(u => [
+    // Agents Performance Table
+    doc.setFontSize(14);
+    doc.setTextColor(0);
+    doc.text("Agent Performance Overview", 14, 85);
+
+    const agentTableData = users.filter(u => u.role === 'agent').map(u => [
       `${u.firstName} ${u.lastName}`,
-      u.email,
-      u.status,
-      u.stats?.totalDeals || 0,
+      u.status.toUpperCase(),
+      u.stats?.activeDeals || 0,
+      u.stats?.closedDeals || 0,
       `$${((u.stats?.totalVolume || 0) / 1000000).toFixed(2)}M`
     ]);
 
     autoTable(doc, {
-      startY: 70,
-      head: [['Agent Name', 'Email', 'Status', 'Deals', 'Volume']],
-      body: tableData,
+      startY: 90,
+      head: [['Agent Name', 'Status', 'Active Deals', 'Closed Deals', 'Volume']],
+      body: agentTableData,
+      theme: 'grid',
+      headStyles: { fillColor: [15, 23, 42] }
     });
 
-    doc.save(`Summit_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+    // New Deals Section (Last 30 Days)
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    
+    const newDeals = deals.filter(d => new Date(d.createdAt) > thirtyDaysAgo);
+    
+    // @ts-ignore - autoTable adds lastAutoTable to doc object
+    let finalY = doc.lastAutoTable.finalY + 20;
+    
+    doc.setFontSize(14);
+    doc.text("New Deals (Last 30 Days)", 14, finalY);
+
+    const dealsTableData = newDeals.map(d => {
+        // Find agent name
+        const agent = users.find(u => u.id === d.userId);
+        return [
+            d.propertyAddress,
+            d.propertyType,
+            `$${d.askingPrice.toLocaleString()}`,
+            agent ? `${agent.firstName} ${agent.lastName}` : 'Unknown'
+        ];
+    });
+
+    if (dealsTableData.length > 0) {
+        autoTable(doc, {
+            startY: finalY + 5,
+            head: [['Address', 'Type', 'Asking Price', 'Listing Agent']],
+            body: dealsTableData,
+            theme: 'striped',
+            headStyles: { fillColor: [16, 185, 129] } // emerald
+        });
+    } else {
+        doc.setFontSize(10);
+        doc.setTextColor(100);
+        doc.text("No new deals created in the last 30 days.", 14, finalY + 10);
+    }
+
+    doc.save(`Summit_Full_Report_${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
   const pendingUsers = users.filter(u => u.status === 'pending');

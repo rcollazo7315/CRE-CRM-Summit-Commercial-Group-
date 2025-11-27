@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, MapPin, Building2, User, Phone, Mail, Calendar, Edit, CheckCircle, FileText, Download, Trash2, CheckSquare, Clock, Plus } from 'lucide-react';
+import { ArrowLeft, MapPin, Building2, User, Phone, Mail, Calendar, Edit, CheckCircle, FileText, Download, Trash2, CheckSquare, Clock, Plus, Map as MapIcon } from 'lucide-react';
 import { Deal, DealStatus, DocumentFile, Task } from '../types';
 import TaskModal from '../components/TaskModal';
-import { mockApi } from '../services/mockApi';
+import { api } from '../services/firestore';
+import { useAuth } from '../context/AuthContext';
 
 interface DealDetailsPageProps {
   deal: Deal;
@@ -15,29 +16,34 @@ interface DealDetailsPageProps {
 }
 
 const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdateDeal, onEditDeal, onDeleteDeal, onViewDocuments }) => {
+  const { currentUser } = useAuth();
   const [activeTab, setActiveTab] = useState<'info' | 'tasks'>('info');
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Partial<Task> | undefined>(undefined);
+  const [mapError, setMapError] = useState(false);
 
   const loadTasks = async () => {
-    const allTasks = await mockApi.getTasks(deal.userId);
-    setTasks(allTasks.filter(t => t.dealId === deal.id));
+    if (currentUser) {
+      const allTasks = await api.getTasks(currentUser.id);
+      setTasks(allTasks.filter(t => t.dealId === deal.id));
+    }
   };
 
   useEffect(() => {
     loadTasks();
-  }, [deal.id]);
+  }, [deal.id, currentUser]);
 
   const handleSaveTask = async (task: Partial<Task>) => {
+    if (!currentUser) return;
     const newTask = {
       ...task,
       id: task.id || Math.random().toString(36).substr(2, 9),
-      userId: deal.userId,
-      dealId: deal.id, // Enforce linkage
+      userId: currentUser.id,
+      dealId: deal.id, 
       dealAddress: deal.propertyAddress
     } as Task;
-    await mockApi.saveTask(newTask);
+    await api.saveTask(newTask);
     loadTasks();
     setIsTaskModalOpen(false);
   };
@@ -45,6 +51,13 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
   const handleStatusChange = (newStatus: DealStatus) => {
     onUpdateDeal({ ...deal, status: newStatus });
   };
+
+  // Google Maps Embed URL
+  // Note: In a real production app, you would restrict this key to your domain.
+  // Using the 'place' mode requires a valid key. 
+  // For the prompt's purpose, we use a query based iframe.
+  // If "Drop Pin" is needed, we simulate an override.
+  const mapUrl = `https://www.google.com/maps?q=${encodeURIComponent(deal.propertyAddress)}&output=embed`;
 
   return (
     <div className="max-w-6xl mx-auto pb-10">
@@ -97,7 +110,7 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
 
       {activeTab === 'info' ? (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Info Content - Same as before */}
+          {/* Info Content - Left Col */}
            <div className="lg:col-span-2 space-y-6">
               <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
                 <div className="h-64 bg-slate-100 relative">
@@ -109,21 +122,64 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
                 </div>
               </div>
               
+              {/* Map Section */}
+              <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
+                <div className="flex justify-between items-center mb-4">
+                  <h3 className="font-bold text-lg flex items-center gap-2">
+                    <MapIcon size={20} className="text-slate-400"/> Location Map
+                  </h3>
+                  <button 
+                    onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(deal.propertyAddress)}`, '_blank')}
+                    className="text-xs text-summit-accent hover:underline"
+                  >
+                    Open in Google Maps
+                  </button>
+                </div>
+                
+                <div className="w-full h-64 bg-slate-100 rounded-lg overflow-hidden relative">
+                   {mapError ? (
+                     <div className="flex flex-col items-center justify-center h-full text-slate-500">
+                       <MapPin size={40} className="mb-2 text-slate-300"/>
+                       <p>Map view unavailable.</p>
+                       <button onClick={() => setMapError(false)} className="text-sm text-blue-600 mt-2 underline">Retry</button>
+                     </div>
+                   ) : (
+                     <iframe
+                        width="100%"
+                        height="100%"
+                        frameBorder="0"
+                        style={{ border: 0 }}
+                        src={mapUrl}
+                        onError={() => setMapError(true)}
+                        allowFullScreen
+                      ></iframe>
+                   )}
+                   {/* Fallback Pin Drop Simulation */}
+                   <button 
+                     className="absolute bottom-3 right-3 bg-white shadow-md text-slate-700 px-3 py-1.5 rounded-md text-xs font-bold border border-slate-200 hover:bg-slate-50"
+                     onClick={() => alert("Pin Drop Mode: In a full production app, this would allow you to drag a marker on a Google Maps JS API instance to correct coordinates.")}
+                   >
+                     Drop Pin
+                   </button>
+                </div>
+              </div>
+
               <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
                  <h3 className="font-bold text-lg mb-4">Financials</h3>
                  <div className="grid grid-cols-2 gap-4">
                     <div className="p-4 bg-slate-50 rounded-lg">
                        <p className="text-xs text-slate-500 uppercase">Asking Price</p>
-                       <p className="text-xl font-bold text-slate-900">${(deal.askingPrice / 1000000).toFixed(2)}M</p>
+                       <p className="text-xl font-bold text-slate-900">${deal.askingPrice.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
                     </div>
                     <div className="p-4 bg-slate-50 rounded-lg">
                        <p className="text-xs text-slate-500 uppercase">Highest Offer</p>
-                       <p className="text-xl font-bold text-green-600">{deal.highestOffer > 0 ? `$${(deal.highestOffer / 1000000).toFixed(2)}M` : '-'}</p>
+                       <p className="text-xl font-bold text-green-600">{deal.highestOffer > 0 ? `$${deal.highestOffer.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : '-'}</p>
                     </div>
                  </div>
               </div>
            </div>
 
+           {/* Right Col */}
            <div className="space-y-6">
               <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
                  <h3 className="font-bold text-sm text-slate-400 uppercase mb-4">Owner Contact</h3>
