@@ -51,7 +51,7 @@ export const api = {
       id: uid,
       username: userData.username,
       email: userData.email,
-      passwordHash: 'PROTECTED', 
+      passwordHash: 'PROTECTED', // Don't store actual hash in DB if using Firebase Auth
       firstName: userData.firstName,
       lastName: userData.lastName,
       phone: userData.phone,
@@ -92,6 +92,9 @@ export const api = {
       await signOut(auth);
       throw new Error('Account request denied.');
     }
+    
+    // Allow login for 'pending' so they can see the pending screen, 
+    // but app logic will block access to dashboard.
     
     // Update last login
     await updateDoc(doc(db, 'users', uid), {
@@ -148,12 +151,13 @@ export const api = {
     if (isAdmin) {
       q = query(collection(db, 'deals'), orderBy('lastUpdated', 'desc'));
     } else {
-      q = query(collection(db, 'deals'), where('userId', '==', userId)); 
+      q = query(collection(db, 'deals'), where('userId', '==', userId)); // Client-side sort if index missing
     }
     
     const snapshot = await getDocs(q);
     const deals = snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Deal[];
     
+    // Sort client side to avoid complex index requirements during setup
     return deals.sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime());
   },
 

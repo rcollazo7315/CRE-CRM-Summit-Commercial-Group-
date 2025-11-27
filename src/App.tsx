@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
@@ -11,13 +12,11 @@ import CommunicationsPage from './pages/CommunicationsPage';
 import LeadGenPage from './pages/LeadGenPage';
 import AdminDashboardPage from './pages/AdminDashboardPage';
 import MortgageCalculatorPage from './pages/MortgageCalculatorPage';
-import SetupPage from './pages/SetupPage';
 import DealModal from './components/DealModal';
 import AiChatModal from './components/AiChatModal';
 import { Deal, LeadGenLog, UserAccount } from './types';
 import { api } from './services/firestore';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { isFirebaseInitialized } from './firebase/config';
 
 // Wrapper to handle Auth State Loading
 const AppContent: React.FC = () => {
@@ -167,11 +166,6 @@ const AppContent: React.FC = () => {
 };
 
 const App: React.FC = () => {
-  // CRITICAL CHECK: If keys are missing, show Setup Page immediately
-  if (!isFirebaseInitialized()) {
-    return <SetupPage />;
-  }
-
   return (
     <AuthProvider>
       <HashRouter>

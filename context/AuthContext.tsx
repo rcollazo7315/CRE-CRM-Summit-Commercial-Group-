@@ -1,6 +1,6 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { auth } from '../firebase/config';
+import { auth, isFirebaseInitialized } from '../firebase/config';
 import { api } from '../services/firestore';
 import { UserAccount } from '../types';
 
@@ -25,7 +25,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   const refreshUser = async () => {
-    if (auth.currentUser) {
+    if (auth && auth.currentUser) {
       try {
         const userData = await api.getCurrentUser(auth.currentUser.uid);
         setCurrentUser(userData);
@@ -36,6 +36,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
+    // 1. Check if Firebase failed to init
+    if (!isFirebaseInitialized()) {
+      console.error("Firebase not initialized in AuthContext");
+      setLoading(false);
+      return;
+    }
+
+    // 2. Set up listener
     const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
       if (firebaseUser) {
         try {
@@ -65,6 +73,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   return (
     <AuthContext.Provider value={value}>
       {!loading && children}
+      {loading && (
+        <div className="h-screen w-full flex items-center justify-center bg-slate-50">
+          <div className="text-slate-400 font-medium animate-pulse">Initializing Summit...</div>
+        </div>
+      )}
     </AuthContext.Provider>
   );
 };
