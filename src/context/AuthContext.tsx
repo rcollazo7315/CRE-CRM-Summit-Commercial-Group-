@@ -1,6 +1,5 @@
 
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { User } from 'firebase/auth';
 import { auth } from '../firebase/config';
 import { api } from '../services/firestore';
 import { UserAccount } from '../types';
@@ -26,7 +25,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   const refreshUser = async () => {
-    if (auth.currentUser) {
+    if (auth && auth.currentUser) {
       try {
         const userData = await api.getCurrentUser(auth.currentUser.uid);
         setCurrentUser(userData);
@@ -37,10 +36,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
+    // If auth isn't initialized (missing keys), stop here.
+    if (!auth) {
+      setLoading(false);
+      return;
+    }
+
     const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
       if (firebaseUser) {
         try {
-          // Fetch full user profile from Firestore
           const userData = await api.getCurrentUser(firebaseUser.uid);
           setCurrentUser(userData);
         } catch (err) {

@@ -12,11 +12,13 @@ import CommunicationsPage from './pages/CommunicationsPage';
 import LeadGenPage from './pages/LeadGenPage';
 import AdminDashboardPage from './pages/AdminDashboardPage';
 import MortgageCalculatorPage from './pages/MortgageCalculatorPage';
+import SetupPage from './pages/SetupPage';
 import DealModal from './components/DealModal';
 import AiChatModal from './components/AiChatModal';
 import { Deal, LeadGenLog, UserAccount } from './types';
 import { api } from './services/firestore';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { isFirebaseInitialized } from './firebase/config';
 
 // Wrapper to handle Auth State Loading
 const AppContent: React.FC = () => {
@@ -73,7 +75,6 @@ const AppContent: React.FC = () => {
     const dealWithUser = { ...dealData, userId: currentUser.id };
     await api.saveDeal(dealWithUser);
     loadUserData(currentUser.id, currentUser.role === 'admin');
-    // Also refresh user stats
     refreshUser();
   };
 
@@ -97,12 +98,10 @@ const AppContent: React.FC = () => {
   if (loading) return <div className="h-screen flex items-center justify-center bg-slate-50 text-slate-400">Loading SummitCG...</div>;
 
   const renderContent = () => {
-    // Admin Specific Route
     if (activeTab === 'admin-dashboard' && currentUser?.role === 'admin') {
       return <AdminDashboardPage />;
     }
 
-    // Shared Routes (Agents & Admins)
     switch (activeTab) {
       case 'dashboard':
       case 'deals':
@@ -169,6 +168,11 @@ const AppContent: React.FC = () => {
 };
 
 const App: React.FC = () => {
+  // CRITICAL CHECK: If keys are missing, show Setup Page immediately
+  if (!isFirebaseInitialized()) {
+    return <SetupPage />;
+  }
+
   return (
     <AuthProvider>
       <HashRouter>
