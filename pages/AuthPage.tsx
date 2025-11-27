@@ -1,7 +1,6 @@
-
 import React, { useState } from 'react';
 import { Building2, AlertCircle, User, Phone, Mail, Lock, Loader2, ShieldCheck, ArrowRight } from 'lucide-react';
-import { mockApi } from '../services/mockApi';
+import { api } from '../services/firestore';
 import { UserAccount } from '../types';
 
 interface AuthPageProps {
@@ -36,22 +35,30 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
           throw new Error("Password must be at least 6 characters");
         }
 
-        await mockApi.register({
+        await api.register({
           firstName: formData.firstName,
           lastName: formData.lastName,
           email: formData.email,
           phone: formData.phone,
-          passwordHash: formData.password, // Simulated hashing
+          passwordHash: formData.password,
           username: formData.email.split('@')[0]
         });
 
         setViewState('pending');
       } else if (viewState === 'login') {
-        const user = await mockApi.login(formData.email, formData.password);
-        onLogin(user);
+        const user = await api.login(formData.email, formData.password);
+        
+        if (user.status === 'pending') {
+          setViewState('pending');
+        } else {
+          onLogin(user);
+        }
       }
     } catch (err: any) {
       setError(err.message || 'An error occurred');
+      if (err.message && err.message.includes('pending')) {
+        setViewState('pending');
+      }
     } finally {
       setIsSubmitting(false);
     }
@@ -68,14 +75,17 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
           <h2 className="text-2xl font-bold text-slate-800 mb-2">Registration Submitted</h2>
           <p className="text-slate-600 mb-6 leading-relaxed">
             Your account request is currently <strong>PENDING APPROVAL</strong>.<br/>
-            An administrator (Raphael) has been notified. You will receive an email once your account is active.
+            An administrator must review your application before you can access the dashboard.
           </p>
           <div className="bg-blue-50 p-4 rounded-lg text-sm text-blue-800 mb-6 text-left border border-blue-100">
             <strong>System Note:</strong><br/>
-            Wait for the admin to approve your request from the dashboard.
+            We have sent a notification to the admin team. You will be able to log in once your status is updated.
           </div>
           <button 
-            onClick={() => setViewState('login')}
+            onClick={() => {
+              api.logout();
+              setViewState('login');
+            }}
             className="text-slate-500 hover:text-summit-900 font-medium text-sm underline flex items-center justify-center gap-1 mx-auto"
           >
             Back to Login <ArrowRight size={14} />

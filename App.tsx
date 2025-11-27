@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
@@ -15,17 +14,18 @@ import MortgageCalculatorPage from './pages/MortgageCalculatorPage';
 import DealModal from './components/DealModal';
 import AiChatModal from './components/AiChatModal';
 import { Deal, LeadGenLog, UserAccount } from './types';
-import { mockApi } from './services/mockApi';
+import { api } from './services/firestore';
+import { AuthProvider, useAuth } from './context/AuthContext';
 
-const App: React.FC = () => {
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
+// Wrapper to handle Auth State Loading
+const AppContent: React.FC = () => {
+  const { currentUser, loading, refreshUser } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
   
   // -- Data State --
   const [deals, setDeals] = useState<Deal[]>([]);
-  const [allUsers, setAllUsers] = useState<UserAccount[]>([]); // For reports
-  const [leadGenLogs, setLeadGenLogs] = useState<LeadGenLog[]>([]); // Clean state
+  const [allUsers, setAllUsers] = useState<UserAccount[]>([]);
+  const [leadGenLogs, setLeadGenLogs] = useState<LeadGenLog[]>([]);
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
 
   // -- UI State --
@@ -34,77 +34,51 @@ const App: React.FC = () => {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [documentFilterId, setDocumentFilterId] = useState<string | null>(null);
 
-  // -- Initialize App --
+  // Load Data on User Change
   useEffect(() => {
-    // Check for existing session
-    const storedUser = localStorage.getItem('summit_currentUser');
-    if (storedUser) {
-      const user = JSON.parse(storedUser);
-      setCurrentUser(user);
-      setIsAuthenticated(true);
-      loadUserData(user.id, user.role === 'admin');
+    if (currentUser) {
+      loadUserData(currentUser.id, currentUser.role === 'admin');
+    } else {
+      setDeals([]);
     }
-  }, []);
-
-  // -- Task Reminder Interval --
-  useEffect(() => {
-    if (!isAuthenticated || !currentUser) return;
-    
-    const checkReminders = async () => {
-      // In a real app this would be a backend cron, here we simulate polling
-      // Just a placeholder to show where logic goes as requested
-      // console.log("Checking for due tasks...");
-    };
-
-    const timer = setInterval(checkReminders, 60000); // Check every minute
-    return () => clearInterval(timer);
-  }, [isAuthenticated, currentUser]);
+  }, [currentUser]);
 
   const loadUserData = async (userId: string, isAdmin: boolean) => {
     try {
-      const userDeals = await mockApi.getDeals(userId, isAdmin);
+      const userDeals = await api.getDeals(userId, isAdmin);
       setDeals(userDeals);
       
       // Load users for reports/admin views
       if (isAdmin) {
-        const users = await mockApi.getUsers();
+        const users = await api.getUsers();
         setAllUsers(users);
       } else {
-        // For agents, we might just want their own stats, but to render the table safely:
-        const self = await mockApi.getUsers(); // simplified for mock, fetching all
-        setAllUsers(self);
+        const self = await api.getCurrentUser(userId);
+        if(self) setAllUsers([self]);
       }
     } catch (e) {
       console.error("Failed to load user data", e);
     }
   };
 
-  const handleLogin = (user: UserAccount) => {
-    setCurrentUser(user);
-    setIsAuthenticated(true);
-    localStorage.setItem('summit_currentUser', JSON.stringify(user));
-    loadUserData(user.id, user.role === 'admin');
-    setActiveTab(user.role === 'admin' ? 'admin-dashboard' : 'dashboard');
-  };
-
-  const handleLogout = () => {
-    setIsAuthenticated(false);
-    setCurrentUser(null);
-    localStorage.removeItem('summit_currentUser');
-    setDeals([]);
+  const handleLogout = async () => {
+    await api.logout();
+    setActiveTab('dashboard');
   };
 
   // -- Data Handlers --
   const handleSaveDeal = async (dealData: Deal) => {
     if (!currentUser) return;
     const dealWithUser = { ...dealData, userId: currentUser.id };
-    await mockApi.saveDeal(dealWithUser);
+    await api.saveDeal(dealWithUser);
     loadUserData(currentUser.id, currentUser.role === 'admin');
+    // Also refresh user stats
+    refreshUser();
   };
 
   const handleDeleteDeal = async (dealId: string) => {
     if (confirm("Are you sure you want to delete this deal? This action cannot be undone.") && currentUser) {
-       await mockApi.deleteDeal(dealId, currentUser.id);
+       await api.deleteDeal(dealId, currentUser.id);
        loadUserData(currentUser.id, currentUser.role === 'admin');
        if (selectedDealId === dealId) {
          setSelectedDealId(null);
@@ -115,10 +89,11 @@ const App: React.FC = () => {
 
   const handleUpdateProfile = async (updatedData: Partial<UserAccount>) => {
     if (!currentUser) return;
-    const updatedUser = await mockApi.updateUserProfile(currentUser.id, updatedData);
-    setCurrentUser(updatedUser);
-    localStorage.setItem('summit_currentUser', JSON.stringify(updatedUser));
+    await api.updateUserProfile(currentUser.id, updatedData);
+    refreshUser();
   };
+
+  if (loading) return <div className="h-screen flex items-center justify-center bg-slate-50 text-slate-400">Loading SummitCG...</div>;
 
   const renderContent = () => {
     // Admin Specific Route
@@ -165,26 +140,40 @@ const App: React.FC = () => {
       case 'communications':
         return <CommunicationsPage user={currentUser} onUpdateUser={handleUpdateProfile} />;
       case 'lead-gen':
-        return <LeadGenPage logs={leadGenLogs} onSaveLog={(l) => setLeadGenLogs([l, ...leadGenLogs])} />;
+        return <LeadGenPage logs={leadGenLogs} onSaveLog={(l) => {
+          if(currentUser) {
+            const log = { ...l, userId: currentUser.id };
+            api.saveLeadLog(log);
+            setLeadGenLogs([log, ...leadGenLogs]);
+          }
+        }} />;
       default:
         return <DashboardPage activeTab="dashboard" deals={deals} onAddDeal={() => { setDealModalInitialData(null); setIsDealModalOpen(true); }} onDealClick={(id) => { setSelectedDealId(id); setActiveTab('deal-details'); }} onDeleteDeal={handleDeleteDeal} onRouteChange={setActiveTab} onOpenAi={() => setIsChatOpen(true)} />;
     }
   };
 
   return (
-    <HashRouter>
-      <Routes>
-        <Route path="/login" element={!isAuthenticated ? <AuthPage onLogin={handleLogin} /> : <Navigate to="/" />} />
-        <Route path="/" element={isAuthenticated && currentUser ? (
-            <Layout activeTab={activeTab} setActiveTab={setActiveTab} user={currentUser} onLogout={handleLogout}>
-              {renderContent()}
-              <DealModal isOpen={isDealModalOpen} onClose={() => setIsDealModalOpen(false)} onSave={handleSaveDeal} initialData={dealModalInitialData} />
-              <AiChatModal isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
-            </Layout>
-          ) : <Navigate to="/login" />
-        } />
-      </Routes>
-    </HashRouter>
+    <Routes>
+      <Route path="/login" element={!currentUser ? <AuthPage onLogin={() => {}} /> : <Navigate to="/" />} />
+      <Route path="/" element={currentUser ? (
+          <Layout activeTab={activeTab} setActiveTab={setActiveTab} user={currentUser} onLogout={handleLogout}>
+            {renderContent()}
+            <DealModal isOpen={isDealModalOpen} onClose={() => setIsDealModalOpen(false)} onSave={handleSaveDeal} initialData={dealModalInitialData} />
+            <AiChatModal isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
+          </Layout>
+        ) : <Navigate to="/login" />
+      } />
+    </Routes>
+  );
+};
+
+const App: React.FC = () => {
+  return (
+    <AuthProvider>
+      <HashRouter>
+        <AppContent />
+      </HashRouter>
+    </AuthProvider>
   );
 };
 

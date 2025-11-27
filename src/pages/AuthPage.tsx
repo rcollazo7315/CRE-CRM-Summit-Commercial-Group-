@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Building2, AlertCircle, User, Phone, Mail, Lock, Loader2, ShieldCheck, ArrowRight } from 'lucide-react';
 import { api } from '../services/firestore';
@@ -52,12 +51,12 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
         if (user.status === 'pending') {
           setViewState('pending');
         } else {
-          onLogin(user); // Triggers App to redirect
+          onLogin(user);
         }
       }
     } catch (err: any) {
       setError(err.message || 'An error occurred');
-      if (err.message.includes('pending')) {
+      if (err.message && err.message.includes('pending')) {
         setViewState('pending');
       }
     } finally {
@@ -170,4 +169,76 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
                       placeholder="Phone Number"
                       className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none"
                       value={formData.phone}
-                      onChange={e => setFormData
+                      onChange={e => setFormData({...formData, phone: e.target.value})}
+                    />
+                  </div>
+                </>
+              )}
+
+              <div className="relative">
+                <Mail className="absolute left-3 top-3.5 text-slate-400" size={18} />
+                <input
+                  type="email"
+                  placeholder="Email Address"
+                  required
+                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none"
+                  value={formData.email}
+                  onChange={e => setFormData({...formData, email: e.target.value})}
+                />
+              </div>
+
+              <div className="relative">
+                <Lock className="absolute left-3 top-3.5 text-slate-400" size={18} />
+                <input
+                  type="password"
+                  placeholder="Password"
+                  required
+                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none"
+                  value={formData.password}
+                  onChange={e => setFormData({...formData, password: e.target.value})}
+                />
+              </div>
+
+              {viewState === 'register' && (
+                <div className="relative">
+                  <Lock className="absolute left-3 top-3.5 text-slate-400" size={18} />
+                  <input
+                    type="password"
+                    placeholder="Confirm Password"
+                    required
+                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none"
+                    value={formData.confirmPassword}
+                    onChange={e => setFormData({...formData, confirmPassword: e.target.value})}
+                  />
+                </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={isSubmitting}
+                className="w-full bg-summit-900 text-white py-3 rounded-lg font-semibold hover:bg-summit-800 shadow-lg shadow-summit-900/20 transition-all transform hover:-translate-y-0.5 disabled:opacity-70 disabled:cursor-not-allowed flex justify-center items-center"
+              >
+                {isSubmitting ? <Loader2 className="animate-spin mr-2" /> : (viewState === 'register' ? 'Submit Application' : 'Sign In')}
+              </button>
+            </form>
+
+            <div className="mt-6 text-center text-sm text-slate-500">
+              {viewState === 'register' ? 'Already have an account? ' : 'Need an account? '}
+              <button 
+                onClick={() => {
+                  setError('');
+                  setViewState(viewState === 'login' ? 'register' : 'login');
+                }}
+                className="text-summit-accent font-semibold hover:underline"
+              >
+                {viewState === 'register' ? 'Sign In' : 'Apply Now'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default AuthPage;
