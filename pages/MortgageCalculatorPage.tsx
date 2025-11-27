@@ -2,11 +2,15 @@
 import React, { useState, useEffect } from 'react';
 import { Calculator, Save, Printer, RefreshCw, DollarSign, Info, Download } from 'lucide-react';
 import { MortgageCalculation } from '../types';
-import { mockApi } from '../services/mockApi';
+import { api } from '../services/firestore'; // Switched to real Firestore API
+import { useAuth } from '../context/AuthContext';
 
 const MortgageCalculatorPage: React.FC = () => {
-  // Input State
-  const [loanAmount, setLoanAmount] = useState<number>(2500000);
+  // Input State - Updated for Purchase Price & Down Payment
+  const [purchasePrice, setPurchasePrice] = useState<number>(2500000);
+  const [downPaymentValue, setDownPaymentValue] = useState<number>(20);
+  const [downPaymentMode, setDownPaymentMode] = useState<'percent' | 'amount'>('percent');
+  
   const [interestRate, setInterestRate] = useState<number>(6.5);
   const [loanTermYears, setLoanTermYears] = useState<number>(25);
   const [annualTax, setAnnualTax] = useState<number>(35000);
@@ -19,31 +23,50 @@ const MortgageCalculatorPage: React.FC = () => {
   const [monthlyIncome, setMonthlyIncome] = useState<number>(25000);
 
   // Computed State
+  const [loanAmount, setLoanAmount] = useState<number>(0);
   const [monthlyPaymentPI, setMonthlyPaymentPI] = useState(0);
   const [totalMonthlyPayment, setTotalMonthlyPayment] = useState(0);
   const [totalInterest, setTotalInterest] = useState(0);
   const [totalCost, setTotalCost] = useState(0);
   const [savedCalculations, setSavedCalculations] = useState<MortgageCalculation[]>([]);
 
+  const { currentUser } = useAuth();
+
   // Calculate whenever inputs change
   useEffect(() => {
     calculateMortgage();
-  }, [loanAmount, interestRate, loanTermYears, annualTax, annualInsurance, annualHOA]);
+  }, [purchasePrice, downPaymentValue, downPaymentMode, interestRate, loanTermYears, annualTax, annualInsurance, annualHOA]);
 
   useEffect(() => {
     loadSavedCalculations();
-  }, []);
+  }, [currentUser]);
 
   const loadSavedCalculations = async () => {
-    const currentUser = JSON.parse(localStorage.getItem('summit_currentUser') || '{}');
-    if (currentUser.id) {
-        const saved = await mockApi.getCalculations(currentUser.id);
-        setSavedCalculations(saved);
+    try {
+        if (currentUser?.id) {
+            const saved = await api.getCalculations(currentUser.id);
+            setSavedCalculations(saved);
+        }
+    } catch (e) {
+        console.error("Error loading calculations", e);
     }
   };
 
   const calculateMortgage = () => {
-    const principal = Number(loanAmount) || 0;
+    let principal = 0;
+    
+    // Calculate Loan Amount based on Purchase Price and Down Payment
+    if (downPaymentMode === 'percent') {
+        const dpAmount = purchasePrice * (downPaymentValue / 100);
+        principal = purchasePrice - dpAmount;
+    } else {
+        principal = purchasePrice - downPaymentValue;
+    }
+    
+    // Ensure positive
+    if (principal < 0) principal = 0;
+    setLoanAmount(principal);
+
     const rate = Number(interestRate) || 0;
     const years = Number(loanTermYears) || 0;
 
@@ -53,7 +76,7 @@ const MortgageCalculatorPage: React.FC = () => {
 
     let pi = 0;
     if (rate === 0) {
-        pi = principal / n;
+        pi = n > 0 ? principal / n : 0;
     } else {
         pi = (principal * r) / (1 - Math.pow(1 + r, -n));
     }
@@ -82,7 +105,8 @@ const MortgageCalculatorPage: React.FC = () => {
   };
 
   const handleClear = () => {
-    setLoanAmount(0);
+    setPurchasePrice(0);
+    setDownPaymentValue(0);
     setInterestRate(0);
     setLoanTermYears(0);
     setAnnualTax(0);
@@ -94,11 +118,18 @@ const MortgageCalculatorPage: React.FC = () => {
   };
 
   const handleSave = async () => {
-    const currentUser = JSON.parse(localStorage.getItem('summit_currentUser') || '{}');
+    if (!currentUser) {
+        alert("You must be logged in to save.");
+        return;
+    }
+    
     const calc: MortgageCalculation = {
         id: Math.random().toString(36).substr(2, 9),
-        userId: currentUser.id || 'guest',
+        userId: currentUser.id,
         timestamp: new Date().toISOString(),
+        purchasePrice,
+        downPaymentValue,
+        downPaymentMode,
         loanAmount,
         interestRate,
         loanTermYears,
@@ -110,7 +141,7 @@ const MortgageCalculatorPage: React.FC = () => {
         propertyValue,
         annualNOI
     };
-    await mockApi.saveCalculation(calc);
+    await api.saveCalculation(calc);
     alert("Calculation saved to history.");
     loadSavedCalculations();
   };
@@ -122,7 +153,7 @@ const MortgageCalculatorPage: React.FC = () => {
   // --- Amortization Preview (First 12 Months) ---
   const renderAmortization = () => {
     const r = (Number(interestRate) || 0) / 100 / 12;
-    let balance = Number(loanAmount) || 0;
+    let balance = loanAmount;
     const payment = monthlyPaymentPI;
     const rows = [];
     const today = new Date();
@@ -183,26 +214,59 @@ const MortgageCalculatorPage: React.FC = () => {
          {/* LEFT COLUMN: Inputs & Breakdown */}
          <div className="space-y-8 print:space-y-4">
             
-            {/* Section 1: Loan Details */}
+            {/* Section 1: Loan Details (Replaces Loan Amount with Purchase Price) */}
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border-slate-300 print:mb-4 print:break-inside-avoid">
                <div className="bg-blue-50 p-4 border-b border-blue-100">
                   <h2 className="font-bold text-slate-800 flex items-center gap-2 text-lg">
-                     <Calculator size={20} className="text-summit-900" /> Loan Details
+                     <Calculator size={20} className="text-summit-900" /> Loan Inputs
                   </h2>
                </div>
                <div className="p-6 space-y-4">
+                  
+                  {/* Purchase Price */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
-                     <label className="font-bold text-slate-700">Loan Amount:</label>
+                     <label className="font-bold text-slate-700">Purchase Price:</label>
                      <div className="relative">
                         <DollarSign size={16} className="absolute left-3 top-3 text-slate-400" />
                         <input 
                           type="number" 
-                          value={loanAmount}
-                          onChange={(e) => setLoanAmount(Number(e.target.value))}
+                          value={purchasePrice}
+                          onChange={(e) => setPurchasePrice(Number(e.target.value))}
                           className="w-full pl-9 pr-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900" 
                         />
                      </div>
                   </div>
+
+                  {/* Down Payment */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+                     <label className="font-bold text-slate-700">Down Payment:</label>
+                     <div className="flex gap-2">
+                        <input 
+                           type="number" 
+                           value={downPaymentValue}
+                           onChange={(e) => setDownPaymentValue(Number(e.target.value))}
+                           className="w-full px-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900" 
+                        />
+                        <div className="flex rounded-lg border border-slate-300 overflow-hidden shrink-0">
+                           <button 
+                             onClick={() => setDownPaymentMode('percent')}
+                             className={`px-3 py-1 text-xs font-bold ${downPaymentMode === 'percent' ? 'bg-summit-900 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+                           >%</button>
+                           <button 
+                             onClick={() => setDownPaymentMode('amount')}
+                             className={`px-3 py-1 text-xs font-bold ${downPaymentMode === 'amount' ? 'bg-summit-900 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}
+                           >$</button>
+                        </div>
+                     </div>
+                  </div>
+
+                  {/* Calculated Loan Amount (Read-only display) */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center pt-2 border-t border-slate-100">
+                     <label className="text-slate-500 font-medium">Financed Amount:</label>
+                     <div className="text-right text-lg font-bold text-blue-600">${loanAmount.toLocaleString()}</div>
+                  </div>
+
+                  {/* Interest Rate */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
                      <label className="font-bold text-slate-700">Interest Rate (%):</label>
                      <input 
@@ -212,6 +276,8 @@ const MortgageCalculatorPage: React.FC = () => {
                         className="w-full px-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900 text-right" 
                      />
                   </div>
+
+                  {/* Loan Term */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
                      <label className="font-bold text-slate-700">Loan Term (Years):</label>
                      <input 
@@ -220,10 +286,6 @@ const MortgageCalculatorPage: React.FC = () => {
                         onChange={(e) => setLoanTermYears(Number(e.target.value))}
                         className="w-full px-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900 text-right" 
                      />
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center pt-2 border-t border-slate-100">
-                     <label className="text-slate-500 font-medium">Term in Months:</label>
-                     <div className="text-right text-slate-600 font-medium">{loanTermYears * 12}</div>
                   </div>
                </div>
             </div>
@@ -284,7 +346,7 @@ const MortgageCalculatorPage: React.FC = () => {
                </div>
                <div className="p-6 space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
-                     <label className="font-bold text-slate-700">Property Value:</label>
+                     <label className="font-bold text-slate-700">Property Value (Appraised):</label>
                      <input type="number" value={propertyValue} onChange={e => setPropertyValue(Number(e.target.value))} className="w-full p-2 bg-amber-50 border border-slate-300 rounded font-bold" />
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
@@ -416,10 +478,10 @@ const MortgageCalculatorPage: React.FC = () => {
                       <thead className="text-slate-500 uppercase font-bold text-xs bg-slate-50">
                           <tr>
                               <th className="p-2">Date</th>
+                              <th className="p-2">Purchase Price</th>
                               <th className="p-2">Loan Amt</th>
                               <th className="p-2">Rate</th>
                               <th className="p-2">Payment</th>
-                              <th className="p-2">Total Cost</th>
                               <th className="p-2">Action</th>
                           </tr>
                       </thead>
@@ -427,14 +489,15 @@ const MortgageCalculatorPage: React.FC = () => {
                           {savedCalculations.map(c => (
                               <tr key={c.id} className="border-b border-slate-100 hover:bg-slate-50">
                                   <td className="p-2">{new Date(c.timestamp).toLocaleDateString()}</td>
+                                  <td className="p-2 font-mono">${(c.purchasePrice || 0).toLocaleString()}</td>
                                   <td className="p-2 font-mono">${c.loanAmount.toLocaleString()}</td>
                                   <td className="p-2">{c.interestRate}%</td>
                                   <td className="p-2 font-mono font-bold">${c.monthlyPayment.toLocaleString()}</td>
-                                  <td className="p-2 font-mono">${c.totalCostOfLoan.toLocaleString()}</td>
                                   <td className="p-2">
                                       <button 
                                         onClick={() => {
-                                            setLoanAmount(c.loanAmount);
+                                            setPurchasePrice(c.purchasePrice || 0);
+                                            setDownPaymentValue(c.downPaymentValue || 0);
                                             setInterestRate(c.interestRate);
                                             setLoanTermYears(c.loanTermYears);
                                             setAnnualTax(c.annualTax);

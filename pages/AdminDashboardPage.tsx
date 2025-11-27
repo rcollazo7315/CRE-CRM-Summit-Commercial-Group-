@@ -1,10 +1,8 @@
 
 import React, { useEffect, useState } from 'react';
-import { Shield, Users, UserCheck, UserX, FileText, Download, TrendingUp, BarChart3, AlertTriangle } from 'lucide-react';
+import { Shield, Users, UserCheck, UserX, Download, AlertTriangle } from 'lucide-react';
 import { api } from '../services/firestore';
 import { UserAccount, Deal } from '../types';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
 import { useAuth } from '../context/AuthContext';
 
 const AdminDashboardPage: React.FC = () => {
@@ -41,92 +39,27 @@ const AdminDashboardPage: React.FC = () => {
     }
   };
 
-  const generatePDF = () => {
-    const doc = new jsPDF();
-    const today = new Date().toLocaleDateString();
+  const generateReport = () => {
+    // Generate CSV Report instead of PDF to ensure stability in all browser environments
+    const today = new Date().toISOString().split('T')[0];
+    const header = "Agent Name,Status,Active Deals,Closed Deals,Total Volume,Total Commission\n";
     
-    // Header
-    doc.setFontSize(22);
-    doc.setTextColor(15, 23, 42); // slate-900
-    doc.text("Summit Commercial Group", 14, 20);
+    const agentRows = users.filter(u => u.role === 'agent').map(u => {
+        const vol = (u.stats?.totalVolume || 0);
+        const comm = vol * 0.03;
+        return `"${u.firstName} ${u.lastName}",${u.status},${u.stats?.activeDeals || 0},${u.stats?.closedDeals || 0},${vol},${comm}`;
+    }).join("\n");
+
+    const csvContent = header + agentRows;
     
-    doc.setFontSize(12);
-    doc.setTextColor(100);
-    doc.text("Comprehensive Agent Activity Report", 14, 30);
-    doc.text(`Generated: ${today}`, 14, 36);
-
-    // Summary Stats
-    const totalVolume = deals.reduce((acc, d) => acc + (d.status === 'Completed' ? d.askingPrice : 0), 0);
-    const totalCommissions = totalVolume * 0.03; 
-
-    doc.setFillColor(241, 245, 249); // slate-100
-    doc.rect(14, 45, 180, 25, 'F');
-    
-    doc.setFontSize(10);
-    doc.setTextColor(71, 85, 105);
-    doc.text(`Active Agents: ${users.filter(u => u.role === 'agent' && u.status === 'active').length}`, 20, 55);
-    doc.text(`Total Closed Volume: $${(totalVolume / 1000000).toFixed(2)}M`, 20, 62);
-    doc.text(`Total Commission Revenue: $${(totalCommissions / 1000).toFixed(0)}k`, 100, 62);
-
-    // Agents Performance Table
-    doc.setFontSize(14);
-    doc.setTextColor(0);
-    doc.text("Agent Performance Overview", 14, 85);
-
-    const agentTableData = users.filter(u => u.role === 'agent').map(u => [
-      `${u.firstName} ${u.lastName}`,
-      u.status.toUpperCase(),
-      u.stats?.activeDeals || 0,
-      u.stats?.closedDeals || 0,
-      `$${((u.stats?.totalVolume || 0) / 1000000).toFixed(2)}M`
-    ]);
-
-    autoTable(doc, {
-      startY: 90,
-      head: [['Agent Name', 'Status', 'Active Deals', 'Closed Deals', 'Volume']],
-      body: agentTableData,
-      theme: 'grid',
-      headStyles: { fillColor: [15, 23, 42] }
-    });
-
-    // New Deals Section (Last 30 Days)
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    
-    const newDeals = deals.filter(d => new Date(d.createdAt) > thirtyDaysAgo);
-    
-    // @ts-ignore - autoTable adds lastAutoTable to doc object
-    let finalY = doc.lastAutoTable.finalY + 20;
-    
-    doc.setFontSize(14);
-    doc.text("New Deals (Last 30 Days)", 14, finalY);
-
-    const dealsTableData = newDeals.map(d => {
-        // Find agent name
-        const agent = users.find(u => u.id === d.userId);
-        return [
-            d.propertyAddress,
-            d.propertyType,
-            `$${d.askingPrice.toLocaleString()}`,
-            agent ? `${agent.firstName} ${agent.lastName}` : 'Unknown'
-        ];
-    });
-
-    if (dealsTableData.length > 0) {
-        autoTable(doc, {
-            startY: finalY + 5,
-            head: [['Address', 'Type', 'Asking Price', 'Listing Agent']],
-            body: dealsTableData,
-            theme: 'striped',
-            headStyles: { fillColor: [16, 185, 129] } // emerald
-        });
-    } else {
-        doc.setFontSize(10);
-        doc.setTextColor(100);
-        doc.text("No new deals created in the last 30 days.", 14, finalY + 10);
-    }
-
-    doc.save(`Summit_Full_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Summit_Agent_Report_${today}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
 
   const pendingUsers = users.filter(u => u.status === 'pending');
@@ -139,8 +72,8 @@ const AdminDashboardPage: React.FC = () => {
            <h1 className="text-2xl font-bold text-slate-900">Admin Dashboard</h1>
            <p className="text-slate-500">Manage agents and monitor system performance.</p>
         </div>
-        <button onClick={generatePDF} className="bg-summit-900 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-summit-800 transition-colors">
-          <Download size={18} /> Generate Report PDF
+        <button onClick={generateReport} className="bg-summit-900 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-summit-800 transition-colors">
+          <Download size={18} /> Export Agent Report (CSV)
         </button>
       </div>
 
