@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Shield, Save, AlertTriangle } from 'lucide-react';
 
@@ -18,8 +17,9 @@ const SetupPage: React.FC = () => {
 
   const handleSave = () => {
     // Save to LocalStorage so the config.ts file can read them on reload
+    // We explicitly trim whitespace to avoid copy-paste errors
     Object.entries(keys).forEach(([key, value]) => {
-      localStorage.setItem(key, (value as string).trim());
+      localStorage.setItem(key, String(value).trim());
     });
     // Force reload to re-run config.ts
     window.location.reload();

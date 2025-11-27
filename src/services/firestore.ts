@@ -26,10 +26,18 @@ const convertTimestamps = (data: any) => {
   return result;
 };
 
+// Defensive helper
+const checkDbConnection = () => {
+  if (!db || !auth) {
+    throw new Error("Database connecting... If this persists, refresh the page.");
+  }
+};
+
 export const api = {
   // --- AUTH & USER ---
 
   register: async (userData: any) => {
+    checkDbConnection();
     // 1. Create Auth User
     const userCredential = await createUserWithEmailAndPassword(auth, userData.email, userData.passwordHash);
     const uid = userCredential.user.uid;
@@ -43,7 +51,7 @@ export const api = {
       id: uid,
       username: userData.username,
       email: userData.email,
-      passwordHash: 'PROTECTED', // Don't store actual hash in DB if using Firebase Auth
+      passwordHash: 'PROTECTED', 
       firstName: userData.firstName,
       lastName: userData.lastName,
       phone: userData.phone,
@@ -70,12 +78,13 @@ export const api = {
   },
 
   login: async (email: string, password: string) => {
+    checkDbConnection();
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     const uid = userCredential.user.uid;
     
     // Fetch profile
     const userDoc = await getDoc(doc(db, 'users', uid));
-    if (!userDoc.exists()) throw new Error('User profile not found.');
+    if (!userDoc.exists()) throw new Error('User profile not found. Please contact admin.');
     
     const userData = convertTimestamps(userDoc.data()) as UserAccount;
     
@@ -83,9 +92,6 @@ export const api = {
       await signOut(auth);
       throw new Error('Account request denied.');
     }
-    
-    // Allow login for 'pending' so they can see the pending screen, 
-    // but app logic will block access to dashboard.
     
     // Update last login
     await updateDoc(doc(db, 'users', uid), {
@@ -96,16 +102,18 @@ export const api = {
   },
 
   logout: async () => {
-    await signOut(auth);
+    if (auth) await signOut(auth);
   },
 
   getCurrentUser: async (uid: string) => {
+    checkDbConnection();
     const userDoc = await getDoc(doc(db, 'users', uid));
     if (!userDoc.exists()) return null;
     return convertTimestamps({ id: userDoc.id, ...userDoc.data() }) as UserAccount;
   },
 
   updateUserProfile: async (userId: string, updates: Partial<UserAccount>) => {
+    checkDbConnection();
     const ref = doc(db, 'users', userId);
     await updateDoc(ref, {
       ...updates,
@@ -118,12 +126,14 @@ export const api = {
   // --- USERS (ADMIN) ---
 
   getUsers: async () => {
+    checkDbConnection();
     const q = query(collection(db, 'users'), orderBy('createdAt', 'desc'));
     const snapshot = await getDocs(q);
     return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as UserAccount[];
   },
 
   updateUserStatus: async (userId: string, status: 'active' | 'denied') => {
+    checkDbConnection();
     await updateDoc(doc(db, 'users', userId), {
       status,
       approvedAt: status === 'active' ? serverTimestamp() : null
@@ -133,31 +143,28 @@ export const api = {
   // --- DEALS ---
 
   getDeals: async (userId: string, isAdmin = false) => {
+    checkDbConnection();
     let q;
     if (isAdmin) {
       q = query(collection(db, 'deals'), orderBy('lastUpdated', 'desc'));
     } else {
-      q = query(collection(db, 'deals'), where('userId', '==', userId)); // Client-side sort if index missing
+      q = query(collection(db, 'deals'), where('userId', '==', userId)); 
     }
     
     const snapshot = await getDocs(q);
     const deals = snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Deal[];
     
-    // Sort client side to avoid complex index requirements during setup
     return deals.sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime());
   },
 
   saveDeal: async (deal: Deal) => {
-    // If it has an ID and exists, update. Else create.
+    checkDbConnection();
     const dealData = {
       ...deal,
       lastUpdated: serverTimestamp()
     };
 
     if (deal.id && deal.id.length > 10) { 
-      // Assuming generated IDs are long, mock IDs were short. 
-      // In real usage, we check if we are "creating" or "updating" based on context.
-      // Here, let's look for the doc.
       const ref = doc(db, 'deals', deal.id);
       const snap = await getDoc(ref);
       
@@ -167,8 +174,6 @@ export const api = {
         await setDoc(ref, { ...dealData, createdAt: serverTimestamp() });
       }
     } else {
-      // New deal (or migration of mock deal without valid ID)
-      // Remove ID to let Firestore generate one, or use the one provided if migrating
       const { id, ...rest } = dealData;
       await addDoc(collection(db, 'deals'), {
         ...rest,
@@ -180,6 +185,7 @@ export const api = {
   },
 
   deleteDeal: async (dealId: string, userId: string) => {
+    checkDbConnection();
     await deleteDoc(doc(db, 'deals', dealId));
     await api.recalcUserStats(userId);
   },
@@ -187,17 +193,16 @@ export const api = {
   // --- TASKS ---
 
   getTasks: async (userId: string) => {
+    checkDbConnection();
     const q = query(collection(db, 'tasks'), where('userId', '==', userId));
     const snapshot = await getDocs(q);
     return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Task[];
   },
 
   saveTask: async (task: Task) => {
-    // Check if task exists to determine add vs update
-    // For simplicity in this port, if ID is provided, try update
+    checkDbConnection();
     if (task.id) {
        const ref = doc(db, 'tasks', task.id);
-       // We use setDoc with merge to handle cases where ID is generated client side for optimistic UI
        await setDoc(ref, task, { merge: true });
     } else {
        await addDoc(collection(db, 'tasks'), task);
@@ -208,6 +213,7 @@ export const api = {
   // --- LOGS & CALCS ---
 
   saveLeadLog: async (log: LeadGenLog) => {
+    checkDbConnection();
     const { id, ...rest } = log;
     if (id) {
        await setDoc(doc(db, 'leadLogs', id), rest, { merge: true });
@@ -217,13 +223,14 @@ export const api = {
   },
 
   getLeadLogs: async (userId: string) => {
-    // Mock API didn't have this, but needed for real persistence
+    checkDbConnection();
     const q = query(collection(db, 'leadLogs'), where('userId', '==', userId));
     const snapshot = await getDocs(q);
     return snapshot.docs.map(d => ({ id: d.id, ...d.data() })) as LeadGenLog[];
   },
 
   saveCalculation: async (calc: MortgageCalculation) => {
+    checkDbConnection();
     const { id, ...rest } = calc;
     await addDoc(collection(db, 'mortgageCalculations'), {
       ...rest,
@@ -232,6 +239,7 @@ export const api = {
   },
 
   getCalculations: async (userId: string) => {
+    checkDbConnection();
     const q = query(collection(db, 'mortgageCalculations'), where('userId', '==', userId), orderBy('timestamp', 'desc'));
     const snapshot = await getDocs(q);
     return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as MortgageCalculation[];
@@ -240,7 +248,7 @@ export const api = {
   // --- UTILS ---
 
   recalcUserStats: async (userId: string) => {
-    // Get all deals and tasks for user to agg
+    checkDbConnection();
     const deals = await api.getDeals(userId);
     const tasks = await api.getTasks(userId);
     
@@ -254,39 +262,5 @@ export const api = {
     };
 
     await updateDoc(doc(db, 'users', userId), { stats });
-  },
-
-  // Migration Utility (Called from Admin Dashboard)
-  migrateFromLocalStorage: async () => {
-    const DEALS_KEY = 'summit_deals';
-    const TASKS_KEY = 'summit_tasks';
-    const localDeals = JSON.parse(localStorage.getItem(DEALS_KEY) || '[]');
-    const localTasks = JSON.parse(localStorage.getItem(TASKS_KEY) || '[]');
-    const currentUser = auth.currentUser;
-
-    if (!currentUser) return;
-
-    const batch = writeBatch(db);
-
-    localDeals.forEach((d: any) => {
-       const ref = doc(collection(db, 'deals'));
-       batch.set(ref, { 
-           ...d, 
-           userId: currentUser.uid, 
-           createdAt: serverTimestamp(), 
-           lastUpdated: serverTimestamp() 
-       });
-    });
-
-    localTasks.forEach((t: any) => {
-        const ref = doc(collection(db, 'tasks'));
-        batch.set(ref, { 
-            ...t, 
-            userId: currentUser.uid 
-        });
-    });
-
-    await batch.commit();
-    console.log("Migration Complete");
   }
 };
