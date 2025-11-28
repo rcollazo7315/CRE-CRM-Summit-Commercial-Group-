@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect, useRef } from 'react';
-import { FileText, Upload, Filter, Search, MoreVertical, Download, Trash2, FolderOpen } from 'lucide-react';
+import { FileText, Upload, Filter, Search, MoreVertical, Download, Trash2, FolderOpen, Loader2 } from 'lucide-react';
 import { Deal, DocumentFile } from '../types';
 
 interface DocumentsPageProps {
@@ -12,6 +13,7 @@ interface DocumentsPageProps {
 const DocumentsPage: React.FC<DocumentsPageProps> = ({ deals, initialFilterDealId, onAddDocument, onDeleteDocument }) => {
   const [selectedDealId, setSelectedDealId] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
+  const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -26,59 +28,61 @@ const DocumentsPage: React.FC<DocumentsPageProps> = ({ deals, initialFilterDealI
     fileInputRef.current?.click();
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
     if (selectedDealId === 'all') return;
 
-    // Create a mock document object
-    const newDoc: DocumentFile = {
-      id: Math.random().toString(36).substr(2, 9),
-      name: file.name,
-      type: file.name.split('.').pop()?.toUpperCase() || 'FILE',
-      size: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
-      uploadDate: new Date().toISOString(),
-      dealId: selectedDealId,
-      url: URL.createObjectURL(file) // Create a blob URL for immediate access
-    };
+    setIsUploading(true);
 
-    onAddDocument(selectedDealId, newDoc);
-    
-    // Reset input
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
+    try {
+      // Convert file to Base64 to store in Firestore (since we aren't using Firebase Storage bucket in this setup)
+      const base64Data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = error => reject(error);
+      });
 
-  const handleDownload = (doc: DocumentFile) => {
-    // If we have a blob URL (from fresh upload), use it. 
-    // Otherwise, simulate a download for mock data.
-    const url = doc.url || `https://example.com/mock-doc-${doc.id}.pdf`;
-    
-    // For mock data simulation
-    if (!doc.url) {
-      const blob = new Blob([`Simulated content for ${doc.name}`], { type: 'text/plain' });
-      const mockUrl = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = mockUrl;
-      a.download = doc.name;
-      a.click();
-      window.URL.revokeObjectURL(mockUrl);
-    } else {
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = doc.name;
-      a.click();
+      const newDoc: DocumentFile = {
+        id: Math.random().toString(36).substr(2, 9),
+        name: file.name,
+        type: file.name.split('.').pop()?.toUpperCase() || 'FILE',
+        size: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
+        uploadDate: new Date().toISOString(),
+        dealId: selectedDealId,
+        url: base64Data // Store actual data
+      };
+
+      await onAddDocument(selectedDealId, newDoc);
+    } catch (error) {
+      console.error("Error uploading file:", error);
+      alert("Failed to upload document. Please try again.");
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
-  // Flatten documents from deals for the view
-  const allDocs = deals.flatMap(deal => 
-    deal.documents.map((doc) => ({
+  const handleDownload = (doc: DocumentFile) => {
+    const a = document.createElement('a');
+    a.href = doc.url || '';
+    a.download = doc.name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
+  // Flatten documents from deals for the view with strict array check
+  const allDocs = deals.flatMap(deal => {
+    const docs = Array.isArray(deal.documents) ? deal.documents : [];
+    return docs.map((doc) => ({
       ...doc,
       dealAddress: deal.propertyAddress,
       dealId: deal.id
-    }))
-  );
+    }));
+  });
 
   const filteredDocs = allDocs.filter(doc => {
     const matchesDeal = selectedDealId === 'all' || doc.dealId === selectedDealId;
@@ -102,9 +106,11 @@ const DocumentsPage: React.FC<DocumentsPageProps> = ({ deals, initialFilterDealI
           />
           <button 
             onClick={handleUploadClick}
-            className="bg-summit-accent text-white px-6 py-3 rounded-lg font-bold shadow-lg shadow-emerald-900/10 hover:bg-emerald-600 transition-colors flex items-center gap-2"
+            disabled={isUploading}
+            className="bg-summit-accent text-white px-6 py-3 rounded-lg font-bold shadow-lg shadow-emerald-900/10 hover:bg-emerald-600 transition-colors flex items-center gap-2 disabled:opacity-70 disabled:cursor-not-allowed"
           >
-            <Upload size={20} /> Upload Document
+            {isUploading ? <Loader2 size={20} className="animate-spin" /> : <Upload size={20} />}
+            {isUploading ? 'Uploading...' : 'Upload Document'}
           </button>
         </div>
       </div>

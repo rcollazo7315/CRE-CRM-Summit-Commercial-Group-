@@ -1,16 +1,17 @@
 
 import { 
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, 
-  query, where, orderBy, serverTimestamp, Timestamp, writeBatch 
+  query, where, orderBy, serverTimestamp, Timestamp, writeBatch, arrayUnion, arrayRemove
 } from 'firebase/firestore';
 import { 
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword, 
   signOut,
-  updateProfile
+  updateProfile,
+  updatePassword
 } from 'firebase/auth';
 import { db, auth } from '../firebase/config';
-import { UserAccount, Deal, Task, LeadGenLog, MortgageCalculation } from '../types';
+import { UserAccount, Deal, Task, LeadGenLog, MortgageCalculation, DocumentFile } from '../types';
 
 // Helper to convert Firestore timestamps to ISO strings for the frontend
 const convertTimestamps = (data: any) => {
@@ -38,42 +39,51 @@ export const api = {
 
   register: async (userData: any) => {
     checkDbConnection();
-    // 1. Create Auth User
-    const userCredential = await createUserWithEmailAndPassword(auth, userData.email, userData.passwordHash);
-    const uid = userCredential.user.uid;
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, userData.email, userData.passwordHash);
+      const uid = userCredential.user.uid;
 
-    await updateProfile(userCredential.user, {
-      displayName: `${userData.firstName} ${userData.lastName}`
-    });
+      await updateProfile(userCredential.user, {
+        displayName: `${userData.firstName} ${userData.lastName}`
+      });
 
-    // 2. Create Firestore User Doc
-    const newUser: UserAccount = {
-      id: uid,
-      username: userData.username,
-      email: userData.email,
-      passwordHash: 'PROTECTED', 
-      firstName: userData.firstName,
-      lastName: userData.lastName,
-      phone: userData.phone,
-      role: 'agent',
-      status: 'pending',
-      avatar: `https://ui-avatars.com/api/?name=${userData.firstName}+${userData.lastName}&background=random`,
-      notifications: {
-        email: { dealUpdates: true, taskReminders: true, newMessages: true, systemAlerts: true },
-        sms: { dealUpdates: false, taskReminders: true, newMessages: false, systemAlerts: false }
-      },
-      stats: { totalDeals: 0, totalCommissions: 0, activeDeals: 0, closedDeals: 0, pendingTasks: 0, totalVolume: 0 },
-      gmailIntegration: { connected: false },
-      createdAt: new Date().toISOString()
-    };
+      const newUser: UserAccount = {
+        id: uid,
+        username: userData.username,
+        email: userData.email,
+        passwordHash: 'PROTECTED', 
+        firstName: userData.firstName,
+        lastName: userData.lastName,
+        phone: userData.phone,
+        role: 'agent',
+        status: 'pending',
+        avatar: `https://ui-avatars.com/api/?name=${userData.firstName}+${userData.lastName}&background=random`,
+        notifications: {
+          email: { dealUpdates: true, taskReminders: true, newMessages: true, systemAlerts: true },
+          sms: { dealUpdates: false, taskReminders: true, newMessages: false, systemAlerts: false }
+        },
+        stats: { totalDeals: 0, totalCommissions: 0, activeDeals: 0, closedDeals: 0, pendingTasks: 0, totalVolume: 0 },
+        gmailIntegration: { connected: false },
+        createdAt: new Date().toISOString()
+      };
 
-    await setDoc(doc(db, 'users', uid), {
-      ...newUser,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    });
+      await setDoc(doc(db, 'users', uid), {
+        ...newUser,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
 
-    return newUser;
+      return newUser;
+    } catch (error: any) {
+      if (error.code === 'permission-denied') {
+        const currentUser = auth.currentUser;
+        if (currentUser) {
+          await currentUser.delete();
+        }
+        throw new Error("Registration unavailable. Database permissions are locked. Please contact admin.");
+      }
+      throw error;
+    }
   },
 
   login: async (email: string, password: string) => {
@@ -118,6 +128,21 @@ export const api = {
     });
     const updated = await getDoc(ref);
     return convertTimestamps({ id: updated.id, ...updated.data() }) as UserAccount;
+  },
+
+  updateUserPassword: async (newPassword: string) => {
+    checkDbConnection();
+    const user = auth.currentUser;
+    if (!user) throw new Error("No authenticated user found");
+    
+    try {
+      await updatePassword(user, newPassword);
+    } catch (error: any) {
+      if (error.code === 'auth/requires-recent-login') {
+        throw new Error("For security, please logout and login again before changing your password.");
+      }
+      throw error;
+    }
   },
 
   // --- USERS (ADMIN) ---
@@ -187,6 +212,34 @@ export const api = {
     await api.recalcUserStats(userId);
   },
 
+  // --- DOCUMENTS ---
+  saveDocument: async (dealId: string, document: DocumentFile) => {
+    checkDbConnection();
+    const dealRef = doc(db, 'deals', dealId);
+    
+    // We store documents inside the deal object for this simplified implementation
+    await updateDoc(dealRef, {
+      documents: arrayUnion(document),
+      lastUpdated: serverTimestamp()
+    });
+  },
+
+  deleteDocument: async (dealId: string, documentId: string) => {
+    checkDbConnection();
+    const dealRef = doc(db, 'deals', dealId);
+    const dealSnap = await getDoc(dealRef);
+    
+    if (dealSnap.exists()) {
+      const dealData = dealSnap.data();
+      const updatedDocs = (dealData.documents || []).filter((d: DocumentFile) => d.id !== documentId);
+      
+      await updateDoc(dealRef, {
+        documents: updatedDocs,
+        lastUpdated: serverTimestamp()
+      });
+    }
+  },
+
   // --- TASKS ---
 
   getTasks: async (userId: string) => {
@@ -242,9 +295,14 @@ export const api = {
 
   getCalculations: async (userId: string) => {
     checkDbConnection();
-    const q = query(collection(db, 'mortgageCalculations'), where('userId', '==', userId), orderBy('timestamp', 'desc'));
+    // Removed orderBy('timestamp', 'desc') to avoid needing a composite index in Firebase
+    // We will sort client-side instead
+    const q = query(collection(db, 'mortgageCalculations'), where('userId', '==', userId));
     const snapshot = await getDocs(q);
-    return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as MortgageCalculation[];
+    const calcs = snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as MortgageCalculation[];
+    
+    // Sort client-side
+    return calcs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   },
 
   // --- UTILS ---

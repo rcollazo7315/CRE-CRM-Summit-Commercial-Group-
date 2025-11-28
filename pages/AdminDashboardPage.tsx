@@ -27,20 +27,31 @@ const AdminDashboardPage: React.FC = () => {
   }, [currentUser]);
 
   const handleApprove = async (userId: string) => {
-    await api.updateUserStatus(userId, 'active');
-    loadData();
-    alert("User approved.");
+    try {
+        await api.updateUserStatus(userId, 'active');
+        // Optimistic update
+        setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: 'active' } : u));
+        alert("User approved successfully.");
+    } catch (e) {
+        console.error(e);
+        alert("Failed to approve user.");
+    }
   };
 
   const handleDeny = async (userId: string) => {
-    if (confirm("Are you sure you want to deny this user?")) {
-      await api.updateUserStatus(userId, 'denied');
-      loadData();
+    if (confirm("Are you sure you want to deny this user? Access will be revoked.")) {
+      try {
+        await api.updateUserStatus(userId, 'denied');
+        // Optimistic update
+        setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: 'denied' } : u));
+      } catch (e) {
+        console.error(e);
+        alert("Failed to deny user.");
+      }
     }
   };
 
   const generateReport = () => {
-    // Generate CSV Report instead of PDF to ensure stability in all browser environments
     const today = new Date().toISOString().split('T')[0];
     const header = "Agent Name,Status,Active Deals,Closed Deals,Total Volume,Total Commission\n";
     
@@ -99,7 +110,7 @@ const AdminDashboardPage: React.FC = () => {
 
       {/* Pending Approvals Section */}
       {pendingUsers.length > 0 && (
-        <div className="bg-amber-50 border border-amber-100 rounded-xl overflow-hidden">
+        <div className="bg-amber-50 border border-amber-100 rounded-xl overflow-hidden animate-in fade-in slide-in-from-top-4">
            <div className="p-4 bg-amber-100/50 flex items-center gap-2 text-amber-800 font-bold">
               <AlertTriangle size={20} /> Pending Registrations ({pendingUsers.length})
            </div>
@@ -117,10 +128,10 @@ const AdminDashboardPage: React.FC = () => {
                      </div>
                   </div>
                   <div className="flex gap-2">
-                     <button onClick={() => handleApprove(user.id)} className="px-3 py-1.5 bg-green-600 text-white text-sm font-medium rounded hover:bg-green-700 flex items-center gap-1">
+                     <button onClick={() => handleApprove(user.id)} className="px-3 py-1.5 bg-green-600 text-white text-sm font-medium rounded hover:bg-green-700 flex items-center gap-1 shadow-sm">
                         <UserCheck size={16} /> Approve
                      </button>
-                     <button onClick={() => handleDeny(user.id)} className="px-3 py-1.5 bg-red-600 text-white text-sm font-medium rounded hover:bg-red-700 flex items-center gap-1">
+                     <button onClick={() => handleDeny(user.id)} className="px-3 py-1.5 bg-red-600 text-white text-sm font-medium rounded hover:bg-red-700 flex items-center gap-1 shadow-sm">
                         <UserX size={16} /> Deny
                      </button>
                   </div>
@@ -150,10 +161,10 @@ const AdminDashboardPage: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-slate-100">
                  {users.filter(u => u.role === 'agent').map(user => (
-                   <tr key={user.id} className="hover:bg-slate-50">
+                   <tr key={user.id} className="hover:bg-slate-50 transition-colors">
                       <td className="p-4">
                          <div className="flex items-center gap-3">
-                            <img src={user.avatar} className="w-8 h-8 rounded-full bg-slate-200" alt="Avatar" />
+                            <img src={user.avatar} className="w-8 h-8 rounded-full bg-slate-200 object-cover" alt="Avatar" />
                             <span className="font-semibold text-slate-700">{user.firstName} {user.lastName}</span>
                          </div>
                       </td>
@@ -162,7 +173,10 @@ const AdminDashboardPage: React.FC = () => {
                          <div className="text-xs text-slate-400">{user.phone}</div>
                       </td>
                       <td className="p-4">
-                         <span className={`px-2 py-0.5 rounded text-xs font-bold capitalize ${user.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-600'}`}>
+                         <span className={`px-2 py-0.5 rounded text-xs font-bold capitalize ${
+                           user.status === 'active' ? 'bg-green-100 text-green-700' : 
+                           user.status === 'denied' ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-700'
+                         }`}>
                            {user.status}
                          </span>
                       </td>

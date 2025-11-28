@@ -43,7 +43,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, user
         </button>
       </div>
 
-      {/* Sidebar Navigation */}
+      {/* Sidebar Navigation - Hidden on Print */}
       <aside className={`
         fixed md:sticky top-0 left-0 h-screen w-64 bg-summit-900 text-slate-300 flex flex-col transition-transform duration-300 z-40 print:hidden
         ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
@@ -98,8 +98,9 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, user
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden">
-        {/* Top Header */}
+      {/* Updated: print styles allow overflow so content can span multiple pages */}
+      <main className="flex-1 flex flex-col h-screen overflow-hidden print:h-auto print:overflow-visible">
+        {/* Top Header - Hidden on Print */}
         <header className="bg-white border-b border-slate-200 h-16 flex items-center justify-between px-6 sticky top-0 z-30 print:hidden">
           <div className="flex items-center flex-1 max-w-xl">
             {activeTab === 'admin-dashboard' ? (

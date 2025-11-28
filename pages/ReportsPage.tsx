@@ -22,7 +22,6 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals, users, currentUser }) 
   const avgPrice = deals.length > 0 ? totalVolume / deals.length : 0;
 
   // 2. Avg Days to Close
-  // Calculate difference between createdAt and closedDate (if exists), or just random mock logic based on real dates if closedDate missing
   const daysToCloseSum = closedDeals.reduce((acc, d) => {
     const start = new Date(d.createdAt).getTime();
     const end = d.closedDate ? new Date(d.closedDate).getTime() : new Date().getTime();
@@ -43,7 +42,6 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals, users, currentUser }) 
   };
 
   // 4. Agent Performance List
-  // If user is admin, show all. If agent, show self.
   const displayAgents = currentUser?.role === 'admin' 
     ? users.filter(u => u.role === 'agent') 
     : users.filter(u => u.id === currentUser?.id);
@@ -72,15 +70,26 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals, users, currentUser }) 
   };
 
   return (
-    <div className="max-w-7xl mx-auto pb-10 print:max-w-none print:pb-0">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 print:hidden">
+    <div className="max-w-7xl mx-auto pb-10 print:max-w-none print:pb-0 print:w-full">
+      <style>{`
+        @media print {
+          @page { margin: 1cm; size: landscape; }
+          body { -webkit-print-color-adjust: exact; }
+          .print-hidden { display: none !important; }
+        }
+      `}</style>
+
+      {/* Header */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 print:mb-4 print:border-b-2 print:border-slate-800 print:pb-4">
         <div>
-           <h1 className="text-2xl font-bold text-slate-900">Performance Reports</h1>
-           <p className="text-slate-500">Market analysis and portfolio performance metrics.</p>
+           <div className="hidden print:block text-2xl font-bold text-summit-900 mb-1">Summit Commercial Group</div>
+           <h1 className="text-2xl font-bold text-slate-900 print:text-xl">Performance Reports</h1>
+           <p className="text-slate-500 print:text-sm">Market analysis and portfolio performance metrics.</p>
+           <p className="hidden print:block text-xs text-slate-400 mt-1">Generated on {new Date().toLocaleDateString()}</p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-3 print-hidden">
            <button onClick={handlePrint} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg font-medium hover:bg-slate-50 flex items-center gap-2">
-             <Printer size={16} /> Print
+             <Printer size={16} /> Print PDF
            </button>
            <button onClick={handleExport} className="bg-summit-900 text-white px-4 py-2 rounded-lg font-medium hover:bg-summit-800 flex items-center gap-2 shadow-lg shadow-summit-900/10">
              <Download size={16} /> Export CSV
@@ -89,7 +98,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals, users, currentUser }) 
       </div>
 
       {/* KPI Row */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8 print:grid-cols-4 print:gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8 print:grid-cols-4 print:gap-4 print:mb-6">
          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 print:border-slate-300">
             <p className="text-slate-500 text-sm font-semibold uppercase">Total Volume (Active)</p>
             <h3 className="text-3xl font-bold text-slate-900 mt-2">${(totalVolume / 1000000).toFixed(1)}M</h3>
@@ -128,12 +137,12 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals, users, currentUser }) 
          </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 print:grid-cols-2">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 print:grid-cols-2 print:gap-6">
         
         {/* Deal Status Distribution */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 print:border-slate-300 break-inside-avoid">
            <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
-             <PieChart size={20} className="text-summit-accent" /> Deal Pipeline Distribution
+             <PieChart size={20} className="text-summit-accent print:text-slate-800" /> Deal Pipeline Distribution
            </h3>
            <div className="space-y-4">
               {deals.length > 0 ? [
@@ -148,7 +157,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals, users, currentUser }) 
                       <span className="text-slate-900 font-bold">{item.val}%</span>
                    </div>
                    <div className="w-full bg-slate-100 rounded-full h-2.5 print:bg-slate-200">
-                      <div className={`h-2.5 rounded-full ${item.color} print:bg-slate-600`} style={{ width: `${item.val}%` }}></div>
+                      <div className={`h-2.5 rounded-full ${item.color} print:bg-slate-800`} style={{ width: `${item.val}%` }}></div>
                    </div>
                 </div>
               )) : (
@@ -159,10 +168,10 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals, users, currentUser }) 
            </div>
         </div>
 
-        {/* Revenue Forecast (Using mock buckets based on real volume for visual) */}
+        {/* Revenue Forecast */}
         <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 print:border-slate-300 break-inside-avoid">
            <h3 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
-             <BarChart size={20} className="text-summit-accent" /> Revenue Volume
+             <BarChart size={20} className="text-summit-accent print:text-slate-800" /> Revenue Volume
            </h3>
            {closedVolume > 0 || totalVolume > 0 ? (
              <div className="flex items-end justify-between h-48 pt-4 gap-2">
@@ -170,7 +179,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals, users, currentUser }) 
                    const val = (totalVolume * (h/100)).toFixed(0);
                    return (
                      <div key={i} className="w-full flex flex-col items-center group">
-                        <div className="mb-2 opacity-0 group-hover:opacity-100 text-xs font-bold text-slate-600 transition-opacity">
+                        <div className="mb-2 opacity-0 group-hover:opacity-100 text-xs font-bold text-slate-600 transition-opacity print:opacity-100">
                           ${val}
                         </div>
                         <div 
@@ -192,8 +201,8 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals, users, currentUser }) 
         </div>
 
         {/* Agent Performance Table */}
-        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden print:col-span-2 print:border-slate-300 break-inside-avoid mt-6">
-           <div className="p-6 border-b border-slate-100 print:border-slate-300">
+        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden print:col-span-2 print:border-slate-300 break-inside-avoid mt-6 print:mt-0">
+           <div className="p-6 border-b border-slate-100 print:border-slate-300 print:bg-slate-50">
               <h3 className="font-bold text-slate-800">Agent Performance</h3>
            </div>
            {sortedAgents.length > 0 ? (
@@ -204,17 +213,17 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals, users, currentUser }) 
                       <th className="p-4">Deals Closed</th>
                       <th className="p-4">Volume</th>
                       <th className="p-4">Commission (Est)</th>
-                      <th className="p-4">Trend</th>
+                      <th className="p-4 print-hidden">Trend</th>
                    </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 print:divide-slate-200">
                    {sortedAgents.map((agent) => (
-                     <tr key={agent.id} className="hover:bg-slate-50">
+                     <tr key={agent.id} className="hover:bg-slate-50 print:bg-white">
                         <td className="p-4 font-bold text-slate-800">{agent.firstName} {agent.lastName}</td>
                         <td className="p-4 text-slate-600">{agent.stats?.closedDeals || 0}</td>
                         <td className="p-4 text-slate-600">${((agent.stats?.totalVolume || 0) / 1000000).toFixed(1)}M</td>
                         <td className="p-4 font-mono text-green-600 font-medium">${((agent.stats?.totalCommissions || 0) / 1000).toFixed(1)}k</td>
-                        <td className="p-4">
+                        <td className="p-4 print-hidden">
                           {(agent.stats?.closedDeals || 0) > 0 ? (
                             <TrendingUp size={16} className="text-green-500" />
                           ) : (

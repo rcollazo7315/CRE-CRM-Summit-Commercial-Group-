@@ -1,16 +1,23 @@
 
 import { 
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, 
-  query, where, orderBy, serverTimestamp, Timestamp, writeBatch 
+  query, where, orderBy, serverTimestamp, Timestamp, writeBatch, arrayUnion, arrayRemove
 } from 'firebase/firestore';
 import { 
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword, 
   signOut,
-  updateProfile
+  updateProfile,
+  updatePassword
 } from 'firebase/auth';
-import { db, auth } from '../firebase/config';
-import { UserAccount, Deal, Task, LeadGenLog, MortgageCalculation } from '../types';
+import { 
+  ref, 
+  uploadBytes, 
+  getDownloadURL, 
+  deleteObject 
+} from 'firebase/storage';
+import { db, auth, storage } from '../firebase/config';
+import { UserAccount, Deal, Task, LeadGenLog, MortgageCalculation, DocumentFile } from '../types';
 
 // Helper to convert Firestore timestamps to ISO strings for the frontend
 const convertTimestamps = (data: any) => {
@@ -29,7 +36,7 @@ const convertTimestamps = (data: any) => {
 // Defensive helper
 const checkDbConnection = () => {
   if (!db || !auth) {
-    throw new Error("Database connecting... If this persists, refresh the page.");
+    throw new Error("Database not connected. Please refresh the page.");
   }
 };
 
@@ -38,43 +45,51 @@ export const api = {
 
   register: async (userData: any) => {
     checkDbConnection();
-    // 1. Create Auth User
-    const userCredential = await createUserWithEmailAndPassword(auth, userData.email, userData.passwordHash);
-    const uid = userCredential.user.uid;
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, userData.email, userData.passwordHash);
+      const uid = userCredential.user.uid;
 
-    await updateProfile(userCredential.user, {
-      displayName: `${userData.firstName} ${userData.lastName}`
-    });
+      await updateProfile(userCredential.user, {
+        displayName: `${userData.firstName} ${userData.lastName}`
+      });
 
-    // 2. Create Firestore User Doc
-    const newUser: UserAccount = {
-      id: uid,
-      username: userData.username,
-      email: userData.email,
-      passwordHash: 'PROTECTED', // Don't store actual hash in DB if using Firebase Auth
-      firstName: userData.firstName,
-      lastName: userData.lastName,
-      phone: userData.phone,
-      role: 'agent',
-      status: 'pending', // Requires approval
-      avatar: `https://ui-avatars.com/api/?name=${userData.firstName}+${userData.lastName}&background=random`,
-      notifications: {
-        email: { dealUpdates: true, taskReminders: true, newMessages: true, systemAlerts: true },
-        sms: { dealUpdates: false, taskReminders: true, newMessages: false, systemAlerts: false }
-      },
-      stats: { totalDeals: 0, totalCommissions: 0, activeDeals: 0, closedDeals: 0, pendingTasks: 0, totalVolume: 0 },
-      gmailIntegration: { connected: false },
-      createdAt: new Date().toISOString()
-    };
+      const newUser: UserAccount = {
+        id: uid,
+        username: userData.username,
+        email: userData.email,
+        passwordHash: 'PROTECTED', 
+        firstName: userData.firstName,
+        lastName: userData.lastName,
+        phone: userData.phone,
+        role: 'agent',
+        status: 'pending',
+        avatar: `https://ui-avatars.com/api/?name=${userData.firstName}+${userData.lastName}&background=random`,
+        notifications: {
+          email: { dealUpdates: true, taskReminders: true, newMessages: true, systemAlerts: true },
+          sms: { dealUpdates: false, taskReminders: true, newMessages: false, systemAlerts: false }
+        },
+        stats: { totalDeals: 0, totalCommissions: 0, activeDeals: 0, closedDeals: 0, pendingTasks: 0, totalVolume: 0 },
+        gmailIntegration: { connected: false },
+        createdAt: new Date().toISOString()
+      };
 
-    // Save using server timestamp for creation
-    await setDoc(doc(db, 'users', uid), {
-      ...newUser,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp()
-    });
+      await setDoc(doc(db, 'users', uid), {
+        ...newUser,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp()
+      });
 
-    return newUser;
+      return newUser;
+    } catch (error: any) {
+      if (error.code === 'permission-denied') {
+        const currentUser = auth.currentUser;
+        if (currentUser) {
+          await currentUser.delete();
+        }
+        throw new Error("Registration unavailable. Database permissions are locked. Please contact admin.");
+      }
+      throw error;
+    }
   },
 
   login: async (email: string, password: string) => {
@@ -82,7 +97,6 @@ export const api = {
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     const uid = userCredential.user.uid;
     
-    // Fetch profile
     const userDoc = await getDoc(doc(db, 'users', uid));
     if (!userDoc.exists()) throw new Error('User profile not found. Please contact admin.');
     
@@ -93,10 +107,6 @@ export const api = {
       throw new Error('Account request denied.');
     }
     
-    // Allow login for 'pending' so they can see the pending screen, 
-    // but app logic will block access to dashboard.
-    
-    // Update last login
     await updateDoc(doc(db, 'users', uid), {
       lastLogin: serverTimestamp()
     });
@@ -126,6 +136,21 @@ export const api = {
     return convertTimestamps({ id: updated.id, ...updated.data() }) as UserAccount;
   },
 
+  updateUserPassword: async (newPassword: string) => {
+    checkDbConnection();
+    const user = auth.currentUser;
+    if (!user) throw new Error("No authenticated user found");
+    
+    try {
+      await updatePassword(user, newPassword);
+    } catch (error: any) {
+      if (error.code === 'auth/requires-recent-login') {
+        throw new Error("For security, please logout and login again before changing your password.");
+      }
+      throw error;
+    }
+  },
+
   // --- USERS (ADMIN) ---
 
   getUsers: async () => {
@@ -137,7 +162,8 @@ export const api = {
 
   updateUserStatus: async (userId: string, status: 'active' | 'denied') => {
     checkDbConnection();
-    await updateDoc(doc(db, 'users', userId), {
+    const ref = doc(db, 'users', userId);
+    await updateDoc(ref, {
       status,
       approvedAt: status === 'active' ? serverTimestamp() : null
     });
@@ -151,13 +177,11 @@ export const api = {
     if (isAdmin) {
       q = query(collection(db, 'deals'), orderBy('lastUpdated', 'desc'));
     } else {
-      q = query(collection(db, 'deals'), where('userId', '==', userId)); // Client-side sort if index missing
+      q = query(collection(db, 'deals'), where('userId', '==', userId));
     }
     
     const snapshot = await getDocs(q);
     const deals = snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Deal[];
-    
-    // Sort client side to avoid complex index requirements during setup
     return deals.sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime());
   },
 
@@ -194,6 +218,77 @@ export const api = {
     await api.recalcUserStats(userId);
   },
 
+  // --- DOCUMENTS (With Storage) ---
+  
+  saveDocument: async (dealId: string, document: DocumentFile, file?: File) => {
+    checkDbConnection();
+    
+    if (!storage) {
+      throw new Error("Storage is not initialized. Check firebase/config.ts export.");
+    }
+    
+    if (!file) throw new Error("No file provided for upload.");
+
+    try {
+      const dealRef = doc(db, 'deals', dealId);
+      
+      // 1. Upload file to Firebase Storage
+      // Path: deals/{dealId}/{timestamp}_{filename}
+      const uniqueFilename = `${Date.now()}_${file.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
+      const storagePath = `deals/${dealId}/${uniqueFilename}`;
+      const storageRef = ref(storage, storagePath);
+
+      console.log(`Uploading to: ${storagePath}`);
+      await uploadBytes(storageRef, file);
+
+      // 2. Get Download URL
+      const downloadURL = await getDownloadURL(storageRef);
+
+      // 3. Save Metadata to Firestore with URL and StoragePath
+      await updateDoc(dealRef, {
+        documents: arrayUnion({
+          ...document,
+          url: downloadURL,
+          storagePath: storagePath, // Save path for deletion later
+          lastUpdated: serverTimestamp()
+        })
+      });
+
+    } catch (error: any) {
+      console.error("Save Document Error:", error);
+      throw new Error("Failed to save document. " + error.message);
+    }
+  },
+
+  deleteDocument: async (dealId: string, documentId: string) => {
+    checkDbConnection();
+    const dealRef = doc(db, 'deals', dealId);
+    const dealSnap = await getDoc(dealRef);
+    
+    if (dealSnap.exists()) {
+      const dealData = dealSnap.data();
+      const docToDelete = (dealData.documents || []).find((d: DocumentFile) => d.id === documentId);
+      const updatedDocs = (dealData.documents || []).filter((d: DocumentFile) => d.id !== documentId);
+      
+      // 1. Remove from Firestore
+      await updateDoc(dealRef, {
+        documents: updatedDocs,
+        lastUpdated: serverTimestamp()
+      });
+
+      // 2. Remove from Storage Bucket (if path exists)
+      if (docToDelete && docToDelete.storagePath && storage) {
+        try {
+          const storageRef = ref(storage, docToDelete.storagePath);
+          await deleteObject(storageRef);
+          console.log("Deleted file from storage:", docToDelete.storagePath);
+        } catch (err) {
+          console.error("Error deleting file from storage (may not exist):", err);
+        }
+      }
+    }
+  },
+
   // --- TASKS ---
 
   getTasks: async (userId: string) => {
@@ -226,6 +321,11 @@ export const api = {
     }
   },
 
+  deleteLeadLog: async (logId: string) => {
+    checkDbConnection();
+    await deleteDoc(doc(db, 'leadLogs', logId));
+  },
+
   getLeadLogs: async (userId: string) => {
     checkDbConnection();
     const q = query(collection(db, 'leadLogs'), where('userId', '==', userId));
@@ -244,9 +344,14 @@ export const api = {
 
   getCalculations: async (userId: string) => {
     checkDbConnection();
-    const q = query(collection(db, 'mortgageCalculations'), where('userId', '==', userId), orderBy('timestamp', 'desc'));
+    // Removed orderBy('timestamp', 'desc') to avoid needing a composite index in Firebase
+    // We will sort client-side instead
+    const q = query(collection(db, 'mortgageCalculations'), where('userId', '==', userId));
     const snapshot = await getDocs(q);
-    return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as MortgageCalculation[];
+    const calcs = snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as MortgageCalculation[];
+    
+    // Sort client-side
+    return calcs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   },
 
   // --- UTILS ---

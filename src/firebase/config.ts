@@ -2,9 +2,10 @@
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
 import { getFirestore, Firestore } from 'firebase/firestore';
 import { getAuth, Auth } from 'firebase/auth';
+import { getStorage, FirebaseStorage } from 'firebase/storage';
 
-// Hardcoded keys provided to ensure immediate connectivity
-// bypassing local environment variable issues.
+// DIRECTLY HARDCODED KEYS
+// This bypasses .env.local issues entirely.
 const firebaseConfig = {
   apiKey: "AIzaSyD00EHnA1iFfB20ybdcAXBgZBp4JqaT5gg",
   authDomain: "summit-crm-3c378.firebaseapp.com",
@@ -17,8 +18,10 @@ const firebaseConfig = {
 let app: FirebaseApp;
 let db: Firestore;
 let auth: Auth;
+let storage: FirebaseStorage;
 
 try {
+  // Prevent double initialization in hot-reload environments
   if (!getApps().length) {
     app = initializeApp(firebaseConfig);
   } else {
@@ -27,13 +30,16 @@ try {
   
   db = getFirestore(app);
   auth = getAuth(app);
+  storage = getStorage(app); // Initialize Storage
   console.log("Firebase initialized successfully with hardcoded keys");
 } catch (error) {
-  console.error("Firebase Initialization Error:", error);
+  console.error("Firebase Initialization Critical Error:", error);
 }
 
-// Export instances
-export { app, db, auth };
+// Export instances - Added storage to export
+export { app, db, auth, storage };
 
-// Always return true since we are using hardcoded keys
-export const isFirebaseInitialized = () => true;
+// Helper to check if we are good to go
+export const isFirebaseInitialized = () => {
+  return !!app && !!db && !!auth && !!storage;
+};

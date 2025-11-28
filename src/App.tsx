@@ -14,7 +14,7 @@ import AdminDashboardPage from './pages/AdminDashboardPage';
 import MortgageCalculatorPage from './pages/MortgageCalculatorPage';
 import DealModal from './components/DealModal';
 import AiChatModal from './components/AiChatModal';
-import { Deal, LeadGenLog, UserAccount } from './types';
+import { Deal, LeadGenLog, UserAccount, DocumentFile } from './types';
 import { api } from './services/firestore';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
@@ -93,6 +93,29 @@ const AppContent: React.FC = () => {
     refreshUser();
   };
 
+  // Document Handlers
+  const handleAddDocument = async (dealId: string, doc: DocumentFile, file: File) => {
+    if (!currentUser) return;
+    try {
+      await api.saveDocument(dealId, doc, file);
+      // Reload deals to reflect new document
+      loadUserData(currentUser.id, currentUser.role === 'admin');
+    } catch (error) {
+      console.error("Failed to save document:", error);
+      alert("Failed to save document. Please ensure you have enabled Firebase Storage in your console.");
+    }
+  };
+
+  const handleDeleteDocument = async (dealId: string, docId: string) => {
+    if (!currentUser) return;
+    try {
+      await api.deleteDocument(dealId, docId);
+      loadUserData(currentUser.id, currentUser.role === 'admin');
+    } catch (error) {
+      console.error("Failed to delete document:", error);
+    }
+  };
+
   if (loading) return <div className="h-screen flex items-center justify-center bg-slate-50 text-slate-400">Loading SummitCG...</div>;
 
   const renderContent = () => {
@@ -103,6 +126,7 @@ const AppContent: React.FC = () => {
     switch (activeTab) {
       case 'dashboard':
       case 'deals':
+      case 'closed-deals':
         return (
           <DashboardPage 
             activeTab={activeTab} 
@@ -112,6 +136,7 @@ const AppContent: React.FC = () => {
             onDeleteDeal={handleDeleteDeal}
             onRouteChange={setActiveTab}
             onOpenAi={() => setIsChatOpen(true)}
+            onSaveDeal={handleSaveDeal}
           />
         );
       case 'deal-details':
@@ -125,6 +150,8 @@ const AppContent: React.FC = () => {
             onEditDeal={() => { setDealModalInitialData(deal); setIsDealModalOpen(true); }}
             onDeleteDeal={() => handleDeleteDeal(deal.id)}
             onViewDocuments={() => { setDocumentFilterId(deal.id); setActiveTab('documents'); }}
+            onAddDocument={handleAddDocument}
+            onDeleteDocument={handleDeleteDocument}
           />
         );
       case 'calculator':
@@ -134,7 +161,14 @@ const AppContent: React.FC = () => {
       case 'reports':
         return <ReportsPage deals={deals} users={allUsers} currentUser={currentUser} />;
       case 'documents':
-        return <DocumentsPage deals={deals} initialFilterDealId={documentFilterId} onAddDocument={() => {}} onDeleteDocument={() => {}} />;
+        return (
+          <DocumentsPage 
+            deals={deals} 
+            initialFilterDealId={documentFilterId} 
+            onAddDocument={handleAddDocument} 
+            onDeleteDocument={handleDeleteDocument} 
+          />
+        );
       case 'communications':
         return <CommunicationsPage user={currentUser} onUpdateUser={handleUpdateProfile} />;
       case 'lead-gen':
@@ -144,9 +178,9 @@ const AppContent: React.FC = () => {
             api.saveLeadLog(log);
             setLeadGenLogs([log, ...leadGenLogs]);
           }
-        }} />;
+        }} onDeleteLog={(id) => api.deleteLeadLog(id).then(() => setLeadGenLogs(prev => prev.filter(l => l.id !== id)))} />;
       default:
-        return <DashboardPage activeTab="dashboard" deals={deals} onAddDeal={() => { setDealModalInitialData(null); setIsDealModalOpen(true); }} onDealClick={(id) => { setSelectedDealId(id); setActiveTab('deal-details'); }} onDeleteDeal={handleDeleteDeal} onRouteChange={setActiveTab} onOpenAi={() => setIsChatOpen(true)} />;
+        return <DashboardPage activeTab="dashboard" deals={deals} onAddDeal={() => { setDealModalInitialData(null); setIsDealModalOpen(true); }} onDealClick={(id) => { setSelectedDealId(id); setActiveTab('deal-details'); }} onDeleteDeal={handleDeleteDeal} onRouteChange={setActiveTab} onOpenAi={() => setIsChatOpen(true)} onSaveDeal={handleSaveDeal} />;
     }
   };
 

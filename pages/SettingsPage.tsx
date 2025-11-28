@@ -1,7 +1,9 @@
 
 import React, { useState, useRef } from 'react';
-import { Save, User, Mail, Phone, Lock, Bell, Camera, CheckCircle } from 'lucide-react';
+import { Save, User, Mail, Phone, Lock, Bell, Camera, CheckCircle, AlertCircle } from 'lucide-react';
 import { UserAccount } from '../types';
+import { api } from '../services/firestore';
+import { useAuth } from '../context/AuthContext';
 
 interface SettingsPageProps {
   user: UserAccount;
@@ -9,37 +11,62 @@ interface SettingsPageProps {
 }
 
 const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateProfile }) => {
+  const { refreshUser } = useAuth(); // Hook to trigger global user refresh after updates
   const [formData, setFormData] = useState({ ...user });
   const [passwordData, setPasswordData] = useState({ current: '', new: '', confirm: '' });
   const [successMsg, setSuccessMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleProfileSubmit = (e: React.FormEvent) => {
+  const handleProfileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    onUpdateProfile(formData);
-    setSuccessMsg('Profile updated successfully');
-    setTimeout(() => setSuccessMsg(''), 3000);
+    try {
+        await onUpdateProfile(formData);
+        await refreshUser(); // Ensures avatar/name updates in sidebar immediately
+        setSuccessMsg('Profile updated successfully');
+        setTimeout(() => setSuccessMsg(''), 3000);
+    } catch (err: any) {
+        setErrorMsg('Failed to update profile.');
+        setTimeout(() => setErrorMsg(''), 3000);
+    }
   };
 
-  const handlePasswordSubmit = (e: React.FormEvent) => {
+  const handlePasswordSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setErrorMsg('');
+    setSuccessMsg('');
+
     if (passwordData.new !== passwordData.confirm) {
-      alert("New passwords do not match");
+      setErrorMsg("New passwords do not match");
       return;
     }
-    setSuccessMsg('Password changed successfully');
-    setPasswordData({ current: '', new: '', confirm: '' });
-    setTimeout(() => setSuccessMsg(''), 3000);
+    
+    if (passwordData.new.length < 6) {
+        setErrorMsg("Password must be at least 6 characters.");
+        return;
+    }
+
+    try {
+        await api.updateUserPassword(passwordData.new);
+        setSuccessMsg('Password changed successfully');
+        setPasswordData({ current: '', new: '', confirm: '' });
+        setTimeout(() => setSuccessMsg(''), 3000);
+    } catch (err: any) {
+        setErrorMsg(err.message || 'Failed to change password. Please try logging in again.');
+    }
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
       const reader = new FileReader();
-      reader.onloadend = () => {
+      reader.onloadend = async () => {
         const base64String = reader.result as string;
         setFormData(prev => ({ ...prev, avatar: base64String }));
-        onUpdateProfile({ avatar: base64String }); 
+        
+        // Save immediately for better UX
+        await onUpdateProfile({ avatar: base64String }); 
+        await refreshUser();
       };
       reader.readAsDataURL(file);
     }
@@ -60,9 +87,16 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateProfile }) =>
   return (
     <div className="max-w-6xl mx-auto pb-10">
       <h1 className="text-2xl font-bold text-slate-900 mb-6">Account Settings</h1>
+      
       {successMsg && (
-        <div className="mb-6 p-4 bg-green-50 text-green-700 rounded-lg flex items-center gap-2 animate-in fade-in slide-in-from-top-4">
+        <div className="mb-6 p-4 bg-green-50 text-green-700 rounded-lg flex items-center gap-2 animate-in fade-in slide-in-from-top-4 border border-green-100">
           <CheckCircle size={20} /> {successMsg}
+        </div>
+      )}
+
+      {errorMsg && (
+        <div className="mb-6 p-4 bg-red-50 text-red-700 rounded-lg flex items-center gap-2 animate-in fade-in slide-in-from-top-4 border border-red-100">
+          <AlertCircle size={20} /> {errorMsg}
         </div>
       )}
 
@@ -70,9 +104,9 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateProfile }) =>
         {/* Sidebar */}
         <div className="space-y-6">
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6 text-center">
-            <div className="relative inline-block mb-4">
+            <div className="relative inline-block mb-4 group">
               <img src={formData.avatar} alt="Profile" className="w-32 h-32 rounded-full border-4 border-slate-50 object-cover" />
-              <button onClick={() => fileInputRef.current?.click()} className="absolute bottom-0 right-0 bg-summit-900 text-white p-2 rounded-full hover:bg-summit-800 shadow-md transition-colors">
+              <button onClick={() => fileInputRef.current?.click()} className="absolute bottom-0 right-0 bg-summit-900 text-white p-2 rounded-full hover:bg-summit-800 shadow-md transition-colors group-hover:scale-110 transform">
                 <Camera size={16} />
               </button>
               <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
@@ -81,7 +115,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateProfile }) =>
             <p className="text-slate-500 text-sm capitalize">{formData.role}</p>
           </div>
 
-          {/* Notifications Moved Here */}
+          {/* Notifications */}
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
              <div className="px-6 py-4 border-b border-slate-50 bg-slate-50/50">
                <h3 className="font-bold text-sm text-slate-800 flex items-center gap-2">
@@ -159,7 +193,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateProfile }) =>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Email Address</label>
                 <div className="relative">
                   <Mail size={16} className="absolute left-3 top-3.5 text-slate-400" />
-                  <input type="email" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} className="w-full pl-10 p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent/20 focus:border-summit-accent transition-all" />
+                  <input type="email" value={formData.email} disabled className="w-full pl-10 p-2.5 bg-slate-100 border border-slate-200 rounded-lg outline-none text-slate-500 cursor-not-allowed" />
                 </div>
               </div>
               <div>
@@ -195,14 +229,17 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateProfile }) =>
             <h3 className="font-bold text-lg text-slate-800 mb-6 flex items-center gap-2">
               <Lock size={20} className="text-slate-400" /> Security
             </h3>
+            <div className="bg-blue-50 text-blue-800 p-4 rounded-lg text-sm mb-6 border border-blue-100">
+                To update your password, you must be logged in recently. If this fails, please sign out and sign back in.
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">New Password</label>
-                <input type="password" value={passwordData.new} onChange={e => setPasswordData({...passwordData, new: e.target.value})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent/20 focus:border-summit-accent transition-all" minLength={6} />
+                <input type="password" value={passwordData.new} onChange={e => setPasswordData({...passwordData, new: e.target.value})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent/20 focus:border-summit-accent transition-all" minLength={6} placeholder="Min 6 chars" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Confirm Password</label>
-                <input type="password" value={passwordData.confirm} onChange={e => setPasswordData({...passwordData, confirm: e.target.value})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent/20 focus:border-summit-accent transition-all" minLength={6} />
+                <input type="password" value={passwordData.confirm} onChange={e => setPasswordData({...passwordData, confirm: e.target.value})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent/20 focus:border-summit-accent transition-all" minLength={6} placeholder="Retype new password" />
               </div>
             </div>
             <div className="flex justify-end mt-8 pt-6 border-t border-slate-50">

@@ -2,7 +2,7 @@
 import React, { useState, useEffect } from 'react';
 import { Calculator, Save, Printer, RefreshCw, DollarSign, Info, Download } from 'lucide-react';
 import { MortgageCalculation } from '../types';
-import { api } from '../services/firestore'; // Switched to real Firestore API
+import { api } from '../services/firestore';
 import { useAuth } from '../context/AuthContext';
 
 const MortgageCalculatorPage: React.FC = () => {
@@ -188,13 +188,20 @@ const MortgageCalculatorPage: React.FC = () => {
   const breakEven = (monthlyIncome - totalMonthlyPayment) >= 0 ? "Cash Flow Positive" : `$${Math.abs(monthlyIncome - totalMonthlyPayment).toFixed(0)} Shortfall`;
 
   return (
-    <div className="max-w-6xl mx-auto pb-10 print:w-full print:max-w-none">
+    <div className="max-w-6xl mx-auto pb-10 print:w-full print:max-w-none print:pb-0">
+      <style>{`
+        @media print {
+          @page { margin: 0.5cm; }
+          body { -webkit-print-color-adjust: exact; }
+          .print-break-inside-avoid { break-inside: avoid; }
+        }
+      `}</style>
       
       {/* Header Bar */}
-      <div className="bg-summit-900 text-white p-6 rounded-t-xl shadow-lg print:rounded-none flex justify-between items-center mb-6 print:mb-4">
+      <div className="bg-summit-900 text-white p-6 rounded-t-xl shadow-lg print:shadow-none print:rounded-none flex justify-between items-center mb-6 print:mb-8 print:border-b-2 print:border-slate-800">
          <div>
             <h1 className="text-2xl font-bold uppercase tracking-wide">Commercial Mortgage Calculator</h1>
-            <p className="text-slate-300 text-sm opacity-80">Summit Commercial Group | Financial Analysis Tool</p>
+            <p className="text-slate-300 text-sm opacity-80 print:text-slate-100">Summit Commercial Group | Financial Analysis Tool</p>
          </div>
          <div className="flex gap-3 print:hidden">
             <button onClick={handleClear} className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors">
@@ -209,14 +216,14 @@ const MortgageCalculatorPage: React.FC = () => {
          </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 print:block print:gap-0">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 print:grid-cols-2 print:gap-8">
          
          {/* LEFT COLUMN: Inputs & Breakdown */}
-         <div className="space-y-8 print:space-y-4">
+         <div className="space-y-8 print:space-y-6">
             
             {/* Section 1: Loan Details (Replaces Loan Amount with Purchase Price) */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border-slate-300 print:mb-4 print:break-inside-avoid">
-               <div className="bg-blue-50 p-4 border-b border-blue-100">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border print:border-slate-300 print:break-inside-avoid print:shadow-none">
+               <div className="bg-blue-50 p-4 border-b border-blue-100 print:bg-slate-100 print:border-slate-300">
                   <h2 className="font-bold text-slate-800 flex items-center gap-2 text-lg">
                      <Calculator size={20} className="text-summit-900" /> Loan Inputs
                   </h2>
@@ -226,7 +233,7 @@ const MortgageCalculatorPage: React.FC = () => {
                   {/* Purchase Price */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
                      <label className="font-bold text-slate-700">Purchase Price:</label>
-                     <div className="relative">
+                     <div className="relative print:hidden">
                         <DollarSign size={16} className="absolute left-3 top-3 text-slate-400" />
                         <input 
                           type="number" 
@@ -235,12 +242,13 @@ const MortgageCalculatorPage: React.FC = () => {
                           className="w-full pl-9 pr-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900" 
                         />
                      </div>
+                     <div className="hidden print:block text-right font-bold text-slate-900">${purchasePrice.toLocaleString()}</div>
                   </div>
 
                   {/* Down Payment */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
                      <label className="font-bold text-slate-700">Down Payment:</label>
-                     <div className="flex gap-2">
+                     <div className="flex gap-2 print:hidden">
                         <input 
                            type="number" 
                            value={downPaymentValue}
@@ -258,12 +266,15 @@ const MortgageCalculatorPage: React.FC = () => {
                            >$</button>
                         </div>
                      </div>
+                     <div className="hidden print:block text-right font-bold text-slate-900">
+                        {downPaymentMode === 'percent' ? `${downPaymentValue}%` : `$${downPaymentValue.toLocaleString()}`}
+                     </div>
                   </div>
 
                   {/* Calculated Loan Amount (Read-only display) */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center pt-2 border-t border-slate-100">
                      <label className="text-slate-500 font-medium">Financed Amount:</label>
-                     <div className="text-right text-lg font-bold text-blue-600">${loanAmount.toLocaleString()}</div>
+                     <div className="text-right text-lg font-bold text-blue-600 print:text-slate-900">${loanAmount.toLocaleString()}</div>
                   </div>
 
                   {/* Interest Rate */}
@@ -273,8 +284,9 @@ const MortgageCalculatorPage: React.FC = () => {
                         type="number" 
                         value={interestRate}
                         onChange={(e) => setInterestRate(Number(e.target.value))}
-                        className="w-full px-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900 text-right" 
+                        className="w-full px-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900 text-right print:hidden" 
                      />
+                     <div className="hidden print:block text-right font-bold text-slate-900">{interestRate}%</div>
                   </div>
 
                   {/* Loan Term */}
@@ -284,15 +296,16 @@ const MortgageCalculatorPage: React.FC = () => {
                         type="number" 
                         value={loanTermYears}
                         onChange={(e) => setLoanTermYears(Number(e.target.value))}
-                        className="w-full px-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900 text-right" 
+                        className="w-full px-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900 text-right print:hidden" 
                      />
+                     <div className="hidden print:block text-right font-bold text-slate-900">{loanTermYears} Years</div>
                   </div>
                </div>
             </div>
 
             {/* Section 2: Additional Costs */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border-slate-300 print:mb-4 print:break-inside-avoid">
-               <div className="bg-blue-50 p-4 border-b border-blue-100">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border print:border-slate-300 print:break-inside-avoid print:shadow-none">
+               <div className="bg-blue-50 p-4 border-b border-blue-100 print:bg-slate-100 print:border-slate-300">
                   <h2 className="font-bold text-slate-800 flex items-center gap-2 text-lg">
                      <Info size={20} className="text-summit-900" /> Additional Costs
                   </h2>
@@ -300,7 +313,7 @@ const MortgageCalculatorPage: React.FC = () => {
                <div className="p-6 space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
                      <label className="font-bold text-slate-700">Annual Property Tax:</label>
-                     <div className="relative">
+                     <div className="relative print:hidden">
                         <DollarSign size={16} className="absolute left-3 top-3 text-slate-400" />
                         <input 
                           type="number" 
@@ -309,10 +322,11 @@ const MortgageCalculatorPage: React.FC = () => {
                           className="w-full pl-9 pr-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900" 
                         />
                      </div>
+                     <div className="hidden print:block text-right font-bold text-slate-900">${annualTax.toLocaleString()}</div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
                      <label className="font-bold text-slate-700">Annual Insurance:</label>
-                     <div className="relative">
+                     <div className="relative print:hidden">
                         <DollarSign size={16} className="absolute left-3 top-3 text-slate-400" />
                         <input 
                           type="number" 
@@ -321,10 +335,11 @@ const MortgageCalculatorPage: React.FC = () => {
                           className="w-full pl-9 pr-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900" 
                         />
                      </div>
+                     <div className="hidden print:block text-right font-bold text-slate-900">${annualInsurance.toLocaleString()}</div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
                      <label className="font-bold text-slate-700">Annual HOA Fees:</label>
-                     <div className="relative">
+                     <div className="relative print:hidden">
                         <DollarSign size={16} className="absolute left-3 top-3 text-slate-400" />
                         <input 
                           type="number" 
@@ -333,13 +348,14 @@ const MortgageCalculatorPage: React.FC = () => {
                           className="w-full pl-9 pr-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900" 
                         />
                      </div>
+                     <div className="hidden print:block text-right font-bold text-slate-900">${annualHOA.toLocaleString()}</div>
                   </div>
                </div>
             </div>
 
             {/* Section 4: Summary Stats Inputs */}
-             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border-slate-300 print:break-inside-avoid">
-               <div className="bg-blue-50 p-4 border-b border-blue-100">
+             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border print:border-slate-300 print:break-inside-avoid print:shadow-none">
+               <div className="bg-blue-50 p-4 border-b border-blue-100 print:bg-slate-100 print:border-slate-300">
                   <h2 className="font-bold text-slate-800 flex items-center gap-2 text-lg">
                      <Info size={20} className="text-summit-900" /> Analysis Inputs
                   </h2>
@@ -347,15 +363,18 @@ const MortgageCalculatorPage: React.FC = () => {
                <div className="p-6 space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
                      <label className="font-bold text-slate-700">Property Value (Appraised):</label>
-                     <input type="number" value={propertyValue} onChange={e => setPropertyValue(Number(e.target.value))} className="w-full p-2 bg-amber-50 border border-slate-300 rounded font-bold" />
+                     <input type="number" value={propertyValue} onChange={e => setPropertyValue(Number(e.target.value))} className="w-full p-2 bg-amber-50 border border-slate-300 rounded font-bold print:hidden" />
+                     <div className="hidden print:block text-right font-bold text-slate-900">${propertyValue.toLocaleString()}</div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
                      <label className="font-bold text-slate-700">Annual NOI:</label>
-                     <input type="number" value={annualNOI} onChange={e => setAnnualNOI(Number(e.target.value))} className="w-full p-2 bg-amber-50 border border-slate-300 rounded font-bold" />
+                     <input type="number" value={annualNOI} onChange={e => setAnnualNOI(Number(e.target.value))} className="w-full p-2 bg-amber-50 border border-slate-300 rounded font-bold print:hidden" />
+                     <div className="hidden print:block text-right font-bold text-slate-900">${annualNOI.toLocaleString()}</div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
                      <label className="font-bold text-slate-700">Monthly Gross Income:</label>
-                     <input type="number" value={monthlyIncome} onChange={e => setMonthlyIncome(Number(e.target.value))} className="w-full p-2 bg-amber-50 border border-slate-300 rounded font-bold" />
+                     <input type="number" value={monthlyIncome} onChange={e => setMonthlyIncome(Number(e.target.value))} className="w-full p-2 bg-amber-50 border border-slate-300 rounded font-bold print:hidden" />
+                     <div className="hidden print:block text-right font-bold text-slate-900">${monthlyIncome.toLocaleString()}</div>
                   </div>
                </div>
             </div>
@@ -363,11 +382,11 @@ const MortgageCalculatorPage: React.FC = () => {
          </div>
 
          {/* RIGHT COLUMN: Results */}
-         <div className="space-y-8 print:space-y-4">
+         <div className="space-y-8 print:space-y-6">
             
             {/* Section 3: Calculation Results */}
-            <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden print:border-slate-300 print:mb-4 print:shadow-none print:break-inside-avoid">
-               <div className="bg-green-100 p-4 border-b border-green-200">
+            <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden print:border print:border-slate-300 print:break-inside-avoid print:shadow-none">
+               <div className="bg-green-100 p-4 border-b border-green-200 print:bg-green-50 print:border-green-100">
                   <h2 className="font-bold text-green-900 flex items-center gap-2 text-lg">
                      Payment Breakdown
                   </h2>
@@ -390,7 +409,7 @@ const MortgageCalculatorPage: React.FC = () => {
                      <span className="font-mono text-lg">${(annualHOA/12).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                   </div>
                   
-                  <div className="bg-yellow-200 p-4 rounded-lg mt-4 flex justify-between items-center border border-yellow-300">
+                  <div className="bg-yellow-200 p-4 rounded-lg mt-4 flex justify-between items-center border border-yellow-300 print:bg-yellow-100 print:border-yellow-200">
                      <span className="font-bold text-xl text-yellow-900">TOTAL MONTHLY:</span>
                      <span className="font-bold text-2xl text-yellow-900">${totalMonthlyPayment.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                   </div>
@@ -398,8 +417,8 @@ const MortgageCalculatorPage: React.FC = () => {
             </div>
 
             {/* Life of Loan */}
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border-slate-300 print:break-inside-avoid">
-               <div className="bg-blue-50 p-4 border-b border-blue-100">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border print:border-slate-300 print:break-inside-avoid print:shadow-none">
+               <div className="bg-blue-50 p-4 border-b border-blue-100 print:bg-slate-100 print:border-slate-300">
                   <h2 className="font-bold text-slate-800 text-lg">Life of Loan Breakdown</h2>
                </div>
                <div className="p-6 space-y-3">
@@ -411,7 +430,7 @@ const MortgageCalculatorPage: React.FC = () => {
                      <span className="font-bold text-slate-700">Total Tax & Insurance:</span>
                      <span className="font-mono text-lg">${((annualTax + annualInsurance + annualHOA) * loanTermYears).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                   </div>
-                  <div className="bg-red-50 p-4 rounded-lg mt-4 flex justify-between items-center border border-red-100">
+                  <div className="bg-red-50 p-4 rounded-lg mt-4 flex justify-between items-center border border-red-100 print:bg-red-50 print:border-red-100">
                      <span className="font-bold text-xl text-red-900">TOTAL COST OF LOAN:</span>
                      <span className="font-bold text-2xl text-red-900">${totalCost.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                   </div>
@@ -419,8 +438,8 @@ const MortgageCalculatorPage: React.FC = () => {
             </div>
 
              {/* KPIs */}
-             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border-slate-300 print:break-inside-avoid">
-               <div className="bg-blue-50 p-4 border-b border-blue-100">
+             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border print:border-slate-300 print:break-inside-avoid print:shadow-none">
+               <div className="bg-blue-50 p-4 border-b border-blue-100 print:bg-slate-100 print:border-slate-300">
                   <h2 className="font-bold text-slate-800 text-lg">Loan Metrics</h2>
                </div>
                <div className="p-6 grid grid-cols-2 gap-6">
@@ -432,7 +451,7 @@ const MortgageCalculatorPage: React.FC = () => {
                       <p className="text-xs font-bold uppercase text-slate-500">DSCR</p>
                       <p className={`text-2xl font-bold ${dscr < 1.25 ? 'text-red-700' : 'text-green-700'}`}>{dscr.toFixed(2)}</p>
                   </div>
-                  <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 col-span-2">
+                  <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 col-span-2 print:border-slate-300">
                       <p className="text-xs font-bold uppercase text-slate-500">Break-even Analysis</p>
                       <p className="text-xl font-bold text-slate-700">{breakEven}</p>
                   </div>
@@ -443,13 +462,13 @@ const MortgageCalculatorPage: React.FC = () => {
       </div>
 
       {/* Amortization Table */}
-      <div className="mt-8 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border-slate-300 print:mt-4 print:break-inside-avoid">
-         <div className="bg-blue-50 p-4 border-b border-blue-100">
+      <div className="mt-8 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border print:border-slate-300 print:break-inside-avoid print:shadow-none print:mt-6">
+         <div className="bg-blue-50 p-4 border-b border-blue-100 print:bg-slate-100 print:border-slate-300">
              <h2 className="font-bold text-slate-800 text-lg">First Year Amortization Schedule</h2>
          </div>
          <div className="overflow-x-auto">
             <table className="w-full text-left">
-               <thead className="bg-slate-50 text-slate-600 uppercase text-xs font-bold">
+               <thead className="bg-slate-50 text-slate-600 uppercase text-xs font-bold print:bg-slate-100">
                   <tr>
                      <th className="p-3 border-b border-slate-200">#</th>
                      <th className="p-3 border-b border-slate-200">Date</th>

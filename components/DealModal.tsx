@@ -63,10 +63,7 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
   if (!isOpen) return null;
 
   const formatPhoneNumber = (value: string) => {
-    // Strip all non-numeric characters
     const phoneNumber = value.replace(/\D/g, '');
-    
-    // Format based on length
     if (phoneNumber.length < 4) return phoneNumber;
     if (phoneNumber.length < 7) return `(${phoneNumber.slice(0, 3)}) ${phoneNumber.slice(3)}`;
     return `(${phoneNumber.slice(0, 3)}) ${phoneNumber.slice(3, 6)}-${phoneNumber.slice(6, 10)}`;
@@ -78,13 +75,9 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
   };
 
   const handlePriceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    // Remove non-numeric/decimal chars first to clean input
     let val = e.target.value.replace(/[^0-9.]/g, '');
-    
-    // Prevent multiple decimals
     const parts = val.split('.');
     if (parts.length > 2) val = parts[0] + '.' + parts.slice(1).join('');
-    
     setFormData(prev => ({ ...prev, askingPrice: val }));
   };
 
@@ -121,9 +114,7 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
       alert("Please enter at least address and price to generate a description.");
       return;
     }
-    
     const cleanPrice = parseFloat(formData.askingPrice.toString().replace(/,/g, ''));
-
     setLoadingAi(true);
     const desc = await generateListingDescription(
       formData.propertyAddress,
@@ -137,12 +128,10 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    
-    // Parse price back to number
     const numericPrice = parseFloat(formData.askingPrice.toString().replace(/,/g, ''));
 
     const dealPayload = {
-      ...initialData, // Keep existing ID/dates if editing
+      ...initialData,
       propertyAddress: formData.propertyAddress,
       propertyType: formData.propertyType,
       askingPrice: numericPrice,
@@ -155,7 +144,6 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
         email: formData.ownerEmail,
         phone: formData.ownerPhone
       },
-      // Defaults for new deals if ID doesn't exist
       id: initialData?.id || Math.random().toString(36).substr(2, 9),
       offersReceived: initialData?.offersReceived || 0,
       highestOffer: initialData?.highestOffer || 0,
@@ -181,7 +169,6 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
         </div>
 
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
-          {/* Property Info Section */}
           <div className="space-y-4">
             <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide border-b border-slate-100 pb-2">Property Details</h3>
             
@@ -245,7 +232,6 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
               </div>
             </div>
 
-            {/* Deal Photo Upload */}
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">Deal Photo</label>
               <div className="flex items-center gap-4">
@@ -268,7 +254,6 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
             </div>
           </div>
 
-          {/* Owner Info Section */}
           <div className="space-y-4">
             <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide border-b border-slate-100 pb-2">Owner Information</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -308,7 +293,6 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
             </div>
           </div>
 
-          {/* Description Section with AI */}
           <div className="space-y-4">
              <div className="flex justify-between items-center border-b border-slate-100 pb-2">
               <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide">Listing Description</h3>
