@@ -25,8 +25,9 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
   const [editingTask, setEditingTask] = useState<Partial<Task> | undefined>(undefined);
   const [mapError, setMapError] = useState(false);
   
-  // Document Upload State
+  // Document Upload/Delete State
   const [isUploading, setIsUploading] = useState(false);
+  const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadTasks = async () => {
@@ -72,19 +73,38 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
         id: Math.random().toString(36).substr(2, 9),
         name: file.name,
         type: file.name.split('.').pop()?.toUpperCase() || 'FILE',
-        size: `${(file.size / 1024).toFixed(0)} KB`,
+        size: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
         uploadDate: new Date().toISOString(),
         dealId: deal.id,
         url: '' // API will populate
       };
 
       await onAddDocument(deal.id, newDoc, file);
-    } catch (error: any) {
+    } catch (error) {
       console.error("Upload error:", error);
-      alert(`Failed to upload document: ${error.message}`);
+      alert("Failed to upload document.");
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleDeleteDocument = async (docId: string) => {
+    const doc = deal.documents?.find(d => d.id === docId);
+    
+    if (!confirm(`Are you sure you want to delete "${doc?.name}"? This action cannot be undone.`)) {
+      return;
+    }
+    
+    setDeletingDocId(docId);
+    
+    try {
+      await onDeleteDocument(deal.id, docId);
+    } catch (error: any) {
+      console.error('Delete error:', error);
+      alert(`Failed to delete document: ${error.message || 'Unknown error'}`);
+    } finally {
+      setDeletingDocId(null);
     }
   };
 
@@ -95,6 +115,10 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
     }
     window.open(doc.url, '_blank');
   };
+
+  // Filter valid docs with strict array safety
+  const docs = Array.isArray(deal.documents) ? deal.documents : [];
+  const validDocs = docs.filter(d => d && d.url);
 
   return (
     <div className="max-w-6xl mx-auto pb-10">
@@ -143,7 +167,7 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
               Tasks <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-xs">{tasks.filter(t => t.status === 'pending').length}</span>
            </button>
            <button onClick={() => setActiveTab('documents')} className={`pb-3 font-medium text-sm border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'documents' ? 'border-summit-accent text-summit-900' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-              Documents <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-xs">{(deal.documents || []).length}</span>
+              Documents <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-xs">{validDocs.length}</span>
            </button>
         </div>
       </div>
@@ -284,9 +308,9 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
           </div>
           
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
-             {(deal.documents || []).length > 0 ? (
+             {validDocs.length > 0 ? (
                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-6">
-                 {(deal.documents || []).map(doc => (
+                 {validDocs.map(doc => (
                    <div key={doc.id} className="border border-slate-200 rounded-lg p-4 hover:shadow-md transition-shadow group bg-white">
                       <div className="flex justify-between items-start mb-3">
                          <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center font-bold text-xs">
@@ -304,10 +328,16 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
                             <Download size={14} /> Download
                          </button>
                          <button 
-                           onClick={() => { if(confirm('Delete file?')) onDeleteDocument(deal.id, doc.id); }} 
-                           className="text-slate-400 hover:text-red-600"
+                           onClick={() => handleDeleteDocument(doc.id)}
+                           disabled={deletingDocId === doc.id}
+                           className="text-slate-400 hover:text-red-600 disabled:opacity-50"
+                           title="Delete document"
                          >
-                           <Trash2 size={14} />
+                           {deletingDocId === doc.id ? (
+                             <Loader2 size={14} className="animate-spin" />
+                           ) : (
+                             <Trash2 size={14} />
+                           )}
                          </button>
                       </div>
                    </div>

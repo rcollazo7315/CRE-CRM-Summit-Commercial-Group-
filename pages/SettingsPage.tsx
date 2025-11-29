@@ -1,6 +1,6 @@
 
 import React, { useState, useRef } from 'react';
-import { Save, User, Mail, Phone, Lock, Bell, Camera, CheckCircle, AlertCircle } from 'lucide-react';
+import { Save, User, Mail, Phone, Lock, Bell, Camera, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import { UserAccount } from '../types';
 import { api } from '../services/firestore';
 import { useAuth } from '../context/AuthContext';
@@ -11,23 +11,55 @@ interface SettingsPageProps {
 }
 
 const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateProfile }) => {
-  const { refreshUser } = useAuth(); // Hook to trigger global user refresh after updates
+  const { refreshUser } = useAuth();
   const [formData, setFormData] = useState({ ...user });
   const [passwordData, setPasswordData] = useState({ current: '', new: '', confirm: '' });
   const [successMsg, setSuccessMsg] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [validationErrors, setValidationErrors] = useState<{[key: string]: string}>({});
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const validateProfile = () => {
+    const errors: {[key: string]: string} = {};
+    
+    if (!formData.firstName?.trim()) {
+      errors.firstName = 'First name is required';
+    }
+    
+    if (!formData.lastName?.trim()) {
+      errors.lastName = 'Last name is required';
+    }
+    
+    if (!formData.phone?.trim()) {
+      errors.phone = 'Phone number is required';
+    }
+    
+    setValidationErrors(errors);
+    return Object.keys(errors).length === 0;
+  };
 
   const handleProfileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    
+    if (!validateProfile()) {
+      setErrorMsg('Please fix the errors below');
+      setTimeout(() => setErrorMsg(''), 3000);
+      return;
+    }
+
+    setIsSaving(true);
     try {
         await onUpdateProfile(formData);
-        await refreshUser(); // Ensures avatar/name updates in sidebar immediately
+        await refreshUser();
         setSuccessMsg('Profile updated successfully');
+        setValidationErrors({});
         setTimeout(() => setSuccessMsg(''), 3000);
     } catch (err: any) {
         setErrorMsg('Failed to update profile.');
         setTimeout(() => setErrorMsg(''), 3000);
+    } finally {
+        setIsSaving(false);
     }
   };
 
@@ -64,7 +96,6 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateProfile }) =>
         const base64String = reader.result as string;
         setFormData(prev => ({ ...prev, avatar: base64String }));
         
-        // Save immediately for better UX
         await onUpdateProfile({ avatar: base64String }); 
         await refreshUser();
       };
@@ -180,11 +211,13 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateProfile }) =>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">First Name</label>
-                <input type="text" value={formData.firstName} onChange={e => setFormData({...formData, firstName: e.target.value})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent/20 focus:border-summit-accent transition-all" />
+                <input type="text" value={formData.firstName} onChange={e => setFormData({...formData, firstName: e.target.value})} className={`w-full p-2.5 bg-slate-50 border ${validationErrors.firstName ? 'border-red-300' : 'border-slate-200'} rounded-lg outline-none focus:ring-2 focus:ring-summit-accent/20 focus:border-summit-accent transition-all`} />
+                {validationErrors.firstName && <p className="text-red-500 text-sm mt-1">{validationErrors.firstName}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">Last Name</label>
-                <input type="text" value={formData.lastName} onChange={e => setFormData({...formData, lastName: e.target.value})} className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent/20 focus:border-summit-accent transition-all" />
+                <input type="text" value={formData.lastName} onChange={e => setFormData({...formData, lastName: e.target.value})} className={`w-full p-2.5 bg-slate-50 border ${validationErrors.lastName ? 'border-red-300' : 'border-slate-200'} rounded-lg outline-none focus:ring-2 focus:ring-summit-accent/20 focus:border-summit-accent transition-all`} />
+                {validationErrors.lastName && <p className="text-red-500 text-sm mt-1">{validationErrors.lastName}</p>}
               </div>
             </div>
             
@@ -205,10 +238,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateProfile }) =>
                     value={formData.phone} 
                     onChange={handlePhoneChange} 
                     maxLength={14}
-                    className="w-full pl-10 p-2.5 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent/20 focus:border-summit-accent transition-all" 
+                    className={`w-full pl-10 p-2.5 bg-slate-50 border ${validationErrors.phone ? 'border-red-300' : 'border-slate-200'} rounded-lg outline-none focus:ring-2 focus:ring-summit-accent/20 focus:border-summit-accent transition-all`}
                     placeholder="(555) 555-5555"
                   />
                 </div>
+                {validationErrors.phone && <p className="text-red-500 text-sm mt-1">{validationErrors.phone}</p>}
               </div>
             </div>
 
@@ -218,8 +252,13 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateProfile }) =>
             </div>
 
             <div className="flex justify-end pt-6 border-t border-slate-50">
-              <button type="submit" className="bg-summit-900 text-white px-6 py-2.5 rounded-lg font-medium hover:bg-summit-800 shadow-lg shadow-summit-900/10 transition-all flex items-center gap-2">
-                <Save size={18} /> Save Changes
+              <button 
+                type="submit" 
+                disabled={isSaving}
+                className="bg-summit-900 text-white px-6 py-2.5 rounded-lg font-medium hover:bg-summit-800 shadow-lg shadow-summit-900/10 transition-all flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
+                {isSaving ? 'Saving...' : 'Save Changes'}
               </button>
             </div>
           </form>

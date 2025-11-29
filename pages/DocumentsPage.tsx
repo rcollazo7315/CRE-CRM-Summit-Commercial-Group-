@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { FileText, Upload, Filter, Search, MoreVertical, Download, Trash2, FolderOpen, Loader2, AlertCircle, X } from 'lucide-react';
 import { Deal, DocumentFile } from '../types';
@@ -36,17 +37,13 @@ const DocumentsPage: React.FC<DocumentsPageProps> = ({ deals, initialFilterDealI
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (selectedDealId === 'all') {
-      alert("Please select a specific property first");
-      return;
-    }
+    if (selectedDealId === 'all') return;
 
     setIsUploading(true);
+    setErrorMsg(null);
 
     try {
-      console.log(`📁 File selected: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
-      
-      // Create metadata object (NO Base64 conversion - pass File directly)
+      // Create metadata object
       const newDoc: DocumentFile = {
         id: Math.random().toString(36).substr(2, 9),
         name: file.name,
@@ -54,29 +51,16 @@ const DocumentsPage: React.FC<DocumentsPageProps> = ({ deals, initialFilterDealI
         size: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
         uploadDate: new Date().toISOString(),
         dealId: selectedDealId,
-        url: '' // Will be populated by Firebase Storage
+        url: '' // Will be populated by storage URL in the API
       };
 
-      console.log(`📤 Calling onAddDocument with File object...`);
-      
-      // Pass the actual File object (not Base64)
+      // Pass raw file to App handler -> API
       await onAddDocument(selectedDealId, newDoc, file);
-      
-      console.log(`✅ Upload handler completed successfully`);
-      
+
     } catch (error: any) {
-      console.error("❌ Upload error:", error);
-      
-      let errorMsg = "Failed to upload document. ";
-      if (error.message.includes("Storage is not initialized")) {
-        errorMsg += "Firebase Storage not enabled.";
-      } else if (error.message.includes("Permission denied")) {
-        errorMsg += "Check Storage security rules.";
-      } else {
-        errorMsg += error.message || "Unknown error.";
-      }
-      
-      alert(errorMsg);
+      console.error("Error uploading file:", error);
+      setErrorMsg("Failed to upload. " + (error.message || ''));
+      setTimeout(() => setErrorMsg(null), 5000);
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -85,7 +69,7 @@ const DocumentsPage: React.FC<DocumentsPageProps> = ({ deals, initialFilterDealI
 
   const handleDownload = async (doc: DocumentFile) => {
     if (!doc.url) {
-      alert("File URL not found.");
+      alert("File URL not found. It may still be processing.");
       return;
     }
     window.open(doc.url, '_blank');
@@ -94,11 +78,13 @@ const DocumentsPage: React.FC<DocumentsPageProps> = ({ deals, initialFilterDealI
   // Flatten documents from deals for the view with strict array check
   const allDocs = deals.flatMap(deal => {
     const docs = Array.isArray(deal.documents) ? deal.documents : [];
-    return docs.map((doc) => ({
-      ...doc,
-      dealAddress: deal.propertyAddress,
-      dealId: deal.id
-    }));
+    return docs
+      .filter(doc => doc && doc.url)
+      .map((doc) => ({
+        ...doc,
+        dealAddress: deal.propertyAddress,
+        dealId: deal.id
+      }));
   });
 
   const filteredDocs = allDocs.filter(doc => {

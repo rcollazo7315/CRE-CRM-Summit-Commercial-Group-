@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
@@ -76,13 +77,54 @@ const AppContent: React.FC = () => {
   };
 
   const handleDeleteDeal = async (dealId: string) => {
-    if (confirm("Are you sure you want to delete this deal? This action cannot be undone.") && currentUser) {
+    if (!currentUser) return;
+
+    const deal = deals.find(d => d.id === dealId);
+    if (!deal) {
+        alert('Deal not found');
+        return;
+    }
+    
+    // Check for documents
+    const hasDocuments = deal.documents && deal.documents.length > 0;
+    
+    // Construct appropriate warning message
+    const warningMessage = hasDocuments 
+        ? `⚠️ WARNING: This deal has ${deal.documents.length} attached document(s).\n\nAre you sure you want to delete "${deal.propertyAddress}"?\n\nThis will:\n- Delete the deal permanently\n- Delete all attached documents\n- Remove from all reports\n- Cannot be undone\n\nType "DELETE" to confirm:`
+        : `Are you sure you want to delete "${deal.propertyAddress}"?\n\nThis action cannot be undone.`;
+    
+    // Ask for confirmation
+    const confirmation = hasDocuments 
+        ? prompt(warningMessage)
+        : confirm(warningMessage);
+    
+    // Verify confirmation
+    if (hasDocuments && confirmation !== 'DELETE') {
+        if (confirmation !== null) {
+            alert('Deletion cancelled. You must type "DELETE" to confirm.');
+        }
+        return;
+    }
+    
+    if (!hasDocuments && !confirmation) {
+        return;
+    }
+
+    try {
        await api.deleteDeal(dealId, currentUser.id);
        await loadUserData(currentUser.id, currentUser.role === 'admin');
+       
        if (selectedDealId === dealId) {
          setSelectedDealId(null);
          setActiveTab('deals');
        }
+       // Only alert if we are still on the same view (optional UX choice)
+       if (activeTab === 'deal-details') {
+          setActiveTab('deals');
+       }
+    } catch (error: any) {
+       console.error("Delete failed", error);
+       alert(`Failed to delete deal: ${error.message}`);
     }
   };
 
@@ -93,54 +135,26 @@ const AppContent: React.FC = () => {
   };
 
   // Document Handlers
-  const handleAddDocument = async (dealId: string, docFile: DocumentFile, file: File) => {
-    if (!currentUser) {
-      alert("You must be logged in to upload documents.");
-      return;
-    }
-    
+  const handleAddDocument = async (dealId: string, doc: DocumentFile, file: File) => {
+    if (!currentUser) return;
     try {
-      console.log(`📤 Uploading "${docFile.name}" (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
-      
-      // Call API with file data - this will upload to Storage AND save metadata to Firestore
-      await api.saveDocument(dealId, docFile, file);
-      
-      console.log(`✅ Upload complete, reloading deals to refresh UI...`);
-      
-      // CRITICAL: Reload deals from Firestore to get updated documents array
+      await api.saveDocument(dealId, doc, file);
+      // Reload deals to reflect new document
       await loadUserData(currentUser.id, currentUser.role === 'admin');
-      
-      console.log(`🎉 Document now visible in app!`);
-      
-    } catch (error: any) {
-      console.error("❌ Upload failed:", error);
-      alert(`Failed to upload: ${error.message || 'Unknown error'}`);
-      throw error;
+    } catch (error) {
+      console.error("Failed to save document:", error);
+      alert("Failed to save document. Please ensure you have enabled Firebase Storage in your console.");
     }
   };
 
   const handleDeleteDocument = async (dealId: string, docId: string) => {
-    if (!currentUser) {
-      alert("You must be logged in to delete documents.");
-      return;
-    }
-    
+    if (!currentUser) return;
     try {
-      console.log(`🗑️ Deleting document ${docId}...`);
-      
-      // Delete from Storage AND Firestore
       await api.deleteDocument(dealId, docId);
-      
-      console.log(`✅ Delete complete, reloading deals...`);
-      
-      // Reload deals to update UI
       await loadUserData(currentUser.id, currentUser.role === 'admin');
-      
-      console.log(`🎉 Document removed from app!`);
-      
-    } catch (error: any) {
-      console.error("❌ Delete failed:", error);
-      alert(`Failed to delete: ${error.message || 'Unknown error'}`);
+    } catch (error) {
+      console.error("Failed to delete document:", error);
+      throw error; // Re-throw to let the component handle UI feedback
     }
   };
 

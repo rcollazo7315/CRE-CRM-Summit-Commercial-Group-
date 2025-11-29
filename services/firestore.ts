@@ -19,17 +19,30 @@ import { db, auth, storage } from '../firebase/config';
 import { UserAccount, Deal, Task, LeadGenLog, MortgageCalculation, DocumentFile } from '../types';
 
 // Helper to convert Firestore timestamps to ISO strings for the frontend
-const convertTimestamps = (data: any) => {
+const convertTimestamps = (data: any): any => {
   if (!data) return data;
-  const result = { ...data };
-  for (const key in result) {
-    if (result[key] instanceof Timestamp) {
-      result[key] = result[key].toDate().toISOString();
-    } else if (typeof result[key] === 'object' && result[key] !== null) {
-      result[key] = convertTimestamps(result[key]);
-    }
+  
+  // Handle arrays properly - check BEFORE spreading
+  if (Array.isArray(data)) {
+    return data.map(item => convertTimestamps(item));
   }
-  return result;
+  
+  // Handle Timestamp objects
+  if (data instanceof Timestamp) {
+    return data.toDate().toISOString();
+  }
+  
+  // Handle plain objects (but not arrays - already handled above)
+  if (typeof data === 'object' && data !== null) {
+    const result: any = {};
+    for (const key in data) {
+      result[key] = convertTimestamps(data[key]);
+    }
+    return result;
+  }
+  
+  // Return primitives as-is
+  return data;
 };
 
 // Defensive helper
@@ -180,7 +193,16 @@ export const api = {
     }
     
     const snapshot = await getDocs(q);
-    const deals = snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Deal[];
+    const deals = snapshot.docs.map(d => {
+      const data = d.data();
+      // Ensure documents is always an array to prevent "filter is not a function" errors
+      const docs = Array.isArray(data.documents) ? data.documents : [];
+      return convertTimestamps({ 
+        id: d.id, 
+        ...data,
+        documents: docs
+      });
+    }) as Deal[];
     return deals.sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime());
   },
 
@@ -224,12 +246,10 @@ export const api = {
     
     console.log(`💾 saveDocument called for deal ${dealId}`);
     
-    // Check if Storage is initialized
     if (!storage) {
       throw new Error("Firebase Storage is not initialized. Check firebase/config.ts");
     }
     
-    // Require file data for uploads
     if (!fileData) {
       throw new Error("No file data provided for upload");
     }
@@ -242,7 +262,6 @@ export const api = {
       if (!dealSnap.exists()) {
         throw new Error(`Deal ${dealId} not found in database`);
       }
-      console.log(`✅ Deal verified: ${dealSnap.data().propertyAddress}`);
       
       // 2. Upload file to Firebase Storage
       const timestamp = Date.now();
@@ -251,22 +270,19 @@ export const api = {
       const storageRef = ref(storage, storagePath);
 
       console.log(`📤 Step 2: Uploading to Storage: ${storagePath}`);
-      console.log(`📊 File size: ${fileData.size} bytes (${(fileData.size / 1024 / 1024).toFixed(2)} MB)`);
-      
       await uploadBytes(storageRef, fileData);
       console.log(`✅ File uploaded to Storage successfully!`);
       
       // 3. Get download URL
-      console.log(`🔗 Step 3: Getting download URL...`);
       const downloadURL = await getDownloadURL(storageRef);
-      console.log(`✅ Download URL: ${downloadURL.substring(0, 50)}...`);
+      console.log(`✅ Download URL acquired`);
 
       // 4. Save metadata to Firestore
-      console.log(`💾 Step 4: Saving metadata to Firestore...`);
+      console.log(`💾 Step 3: Saving metadata to Firestore...`);
       const docMetadata = {
         ...document,
         url: downloadURL,
-        storagePath: storagePath, // Store path for deletion
+        storagePath: storagePath,
         uploadDate: new Date().toISOString()
       };
       
@@ -274,23 +290,45 @@ export const api = {
         documents: arrayUnion(docMetadata),
         lastUpdated: serverTimestamp()
       });
-      
       console.log(`✅ Metadata saved to Firestore successfully!`);
-      console.log(`🎉 COMPLETE: Document "${document.name}" ready to display in app`);
+
+      // 5. CRITICAL VERIFICATION STEP
+      // Wait and verify that Firestore actually returns the new document in the array
+      // This solves "eventual consistency" issues where the UI reloads before data is visible
+      console.log(`🔍 Step 4: Verifying data persistence...`);
       
+      let attempts = 0;
+      let verified = false;
+      const maxAttempts = 5;
+
+      while (attempts < maxAttempts && !verified) {
+        attempts++;
+        // Short delay to allow propagation
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
+        const freshSnap = await getDoc(dealRef);
+        const data = freshSnap.data();
+        const docs = data?.documents || [];
+        
+        // Check if our specific document ID exists in the array
+        if (docs.some((d: any) => d.id === document.id)) {
+           verified = true;
+           console.log(`✅ Verified: Document found in Firestore (Attempt ${attempts})`);
+        } else {
+           console.log(`⏳ Verification attempt ${attempts} pending...`);
+        }
+      }
+
+      if (!verified) {
+        console.warn("⚠️ Document uploaded but verification timed out. UI update may be delayed.");
+      } else {
+        console.log(`🎉 COMPLETE: Document confirmed ready for display.`);
+      }
+
     } catch (error: any) {
       console.error("❌ Storage upload error:", error);
-      console.error("Error details:", {
-        code: error.code,
-        message: error.message,
-        dealId,
-        docName: document.name
-      });
-      
       if (error.code === 'storage/unauthorized') {
         throw new Error("Permission denied. Check Firebase Storage security rules.");
-      } else if (error.message.includes("not found")) {
-        throw error;
       } else {
         throw new Error(`Upload failed: ${error.message}`);
       }
@@ -301,49 +339,39 @@ export const api = {
     checkDbConnection();
     
     try {
-      console.log(`🗑️ Deleting document ${documentId} from deal ${dealId}`);
-      
+      console.log(`🗑️ Deleting document ${documentId}`);
       const dealRef = doc(db, 'deals', dealId);
       const dealSnap = await getDoc(dealRef);
       
-      if (!dealSnap.exists()) {
-        throw new Error(`Deal ${dealId} not found`);
-      }
+      if (!dealSnap.exists()) throw new Error(`Deal ${dealId} not found`);
 
       const dealData = dealSnap.data();
       const docs = dealData.documents || [];
       const docToDelete = docs.find((d: any) => d.id === documentId);
       
       if (!docToDelete) {
-        throw new Error(`Document ${documentId} not found in deal`);
+        console.warn("Document not found in array, might already be deleted");
+        return;
       }
 
-      console.log(`📄 Found document: ${docToDelete.name}`);
-
-      // 1. Delete from Firebase Storage if path exists
+      // 1. Delete from Firebase Storage
       if (docToDelete.storagePath && storage) {
         try {
-          console.log(`🗑️ Deleting from Storage: ${docToDelete.storagePath}`);
           const storageRef = ref(storage, docToDelete.storagePath);
           await deleteObject(storageRef);
           console.log(`✅ Deleted from Storage`);
         } catch (storageError: any) {
           console.warn(`⚠️ Storage deletion warning:`, storageError.message);
-          // Don't fail if Storage deletion fails (file may already be gone)
         }
       }
 
       // 2. Remove metadata from Firestore
-      console.log(`💾 Removing metadata from Firestore...`);
       const updatedDocs = docs.filter((d: any) => d.id !== documentId);
-      
       await updateDoc(dealRef, {
         documents: updatedDocs,
         lastUpdated: serverTimestamp()
       });
-      
       console.log(`✅ Metadata removed from Firestore`);
-      console.log(`🎉 Document deletion complete`);
       
     } catch (error: any) {
       console.error("❌ Delete error:", error);

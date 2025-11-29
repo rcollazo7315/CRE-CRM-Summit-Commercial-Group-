@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Plus, ArrowUpRight, DollarSign, Clock, ChevronDown, MessageSquare, Briefcase, FileText, CheckCircle, Trash2, MapPin, Undo2 } from 'lucide-react';
+import { Plus, ArrowUpRight, DollarSign, Clock, ChevronDown, MessageSquare, Briefcase, FileText, CheckCircle, Trash2, MapPin, Undo2, Loader2 } from 'lucide-react';
 import { Deal, DealStatus, Task } from '../types';
 import { api } from '../services/firestore';
 import TaskModal from '../components/TaskModal';
@@ -11,7 +11,7 @@ interface DashboardPageProps {
   deals: Deal[];
   onAddDeal: () => void;
   onDealClick: (dealId: string) => void;
-  onDeleteDeal: (dealId: string) => void;
+  onDeleteDeal: (dealId: string) => Promise<void>;
   onRouteChange: (route: string) => void;
   onOpenAi: () => void;
   onSaveDeal: (deal: Deal) => void; // Added to support reopening
@@ -23,6 +23,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Partial<Task> | undefined>(undefined);
+  const [deletingDealId, setDeletingDealId] = useState<string | null>(null);
   
   // -- Fetch Tasks --
   const loadTasks = async () => {
@@ -64,6 +65,16 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
     e.stopPropagation();
     if(confirm('Do you want to reopen this deal? It will be moved back to Active Deals.')) {
         onSaveDeal({ ...deal, status: DealStatus.ACTIVE });
+    }
+  };
+
+  const handleDeleteClick = async (e: React.MouseEvent, dealId: string) => {
+    e.stopPropagation();
+    setDeletingDealId(dealId);
+    try {
+        await onDeleteDeal(dealId);
+    } finally {
+        setDeletingDealId(null);
     }
   };
 
@@ -142,7 +153,6 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
                   </div>
                 )}
                 
-                {/* REMOVED: "New Deal" Button from Closed Deals Tab */}
                 {activeTab !== 'closed-deals' && (
                     <button 
                     onClick={onAddDeal}
@@ -211,11 +221,16 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
                             </button>
                           )}
                           <button 
-                            onClick={(e) => { e.stopPropagation(); onDeleteDeal(deal.id); }}
-                            className="text-slate-400 hover:text-red-600 p-2 rounded-full hover:bg-red-50 transition-colors"
+                            onClick={(e) => handleDeleteClick(e, deal.id)}
+                            disabled={deletingDealId === deal.id}
+                            className="text-slate-400 hover:text-red-600 p-2 rounded-full hover:bg-red-50 transition-colors disabled:opacity-50"
                             title="Delete Deal"
                           >
-                            <Trash2 size={16} />
+                            {deletingDealId === deal.id ? (
+                                <Loader2 size={16} className="animate-spin" />
+                            ) : (
+                                <Trash2 size={16} />
+                            )}
                           </button>
                         </td>
                       </tr>

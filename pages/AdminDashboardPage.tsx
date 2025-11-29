@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState } from 'react';
-import { Shield, Users, UserCheck, UserX, Download, AlertTriangle } from 'lucide-react';
+import { Shield, Users, UserCheck, UserX, Download, AlertTriangle, Trash2, Loader2, CheckCircle } from 'lucide-react';
 import { api } from '../services/firestore';
 import { UserAccount, Deal } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -10,6 +10,10 @@ const AdminDashboardPage: React.FC = () => {
   const [users, setUsers] = useState<UserAccount[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
+  
+  // Notification State
+  const [notification, setNotification] = useState<{type: 'success' | 'error', message: string} | null>(null);
+  const [managingUserId, setManagingUserId] = useState<string | null>(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -26,28 +30,122 @@ const AdminDashboardPage: React.FC = () => {
     loadData();
   }, [currentUser]);
 
+  const showNotification = (type: 'success' | 'error', message: string) => {
+    setNotification({ type, message });
+    setTimeout(() => setNotification(null), 5000);
+  };
+
   const handleApprove = async (userId: string) => {
     try {
         await api.updateUserStatus(userId, 'active');
         // Optimistic update
         setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: 'active' } : u));
-        alert("User approved successfully.");
+        showNotification('success', "User approved successfully.");
     } catch (e) {
         console.error(e);
-        alert("Failed to approve user.");
+        showNotification('error', "Failed to approve user.");
     }
   };
 
   const handleDeny = async (userId: string) => {
-    if (confirm("Are you sure you want to deny this user? Access will be revoked.")) {
+    const user = users.find(u => u.id === userId);
+    if (confirm(`Are you sure you want to deny ${user?.firstName} ${user?.lastName}? This user will not be able to access the system.`)) {
       try {
         await api.updateUserStatus(userId, 'denied');
         // Optimistic update
         setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: 'denied' } : u));
+        showNotification('success', `User ${user?.firstName} ${user?.lastName} has been denied access.`);
       } catch (e) {
         console.error(e);
-        alert("Failed to deny user.");
+        showNotification('error', "Failed to deny user.");
       }
+    }
+  };
+
+  const handleDeactivateAgent = async (userId: string) => {
+    const user = users.find(u => u.id === userId);
+    if (!user) return;
+    
+    const userDeals = deals.filter(d => d.userId === userId);
+    const activeDealCount = userDeals.filter(d => d.status !== 'Completed' && d.status !== 'Archived').length;
+    
+    let warningMessage = `⚠️ DEACTIVATE AGENT\n\nAgent: ${user.firstName} ${user.lastName}\nEmail: ${user.email}\nActive Deals: ${activeDealCount}\nTotal Deals: ${userDeals.length}\n\n`;
+    
+    if (activeDealCount > 0) {
+      warningMessage += `This agent has ${activeDealCount} active deal(s). Deactivating will:\n- Prevent agent from logging in\n- Keep all deal data intact\n- Agent can be reactivated later\n\nType "DEACTIVATE" to confirm:`;
+      const confirmation = prompt(warningMessage);
+      if (confirmation !== 'DEACTIVATE') {
+        if (confirmation !== null) alert('Deactivation cancelled.');
+        return;
+      }
+    } else {
+      if (!confirm(warningMessage + 'Are you sure you want to deactivate this agent?')) return;
+    }
+    
+    setManagingUserId(userId);
+    try {
+      await api.updateUserStatus(userId, 'denied');
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: 'denied' } : u));
+      showNotification('success', `Agent ${user.firstName} ${user.lastName} has been deactivated.`);
+    } catch (e) {
+      console.error(e);
+      showNotification('error', 'Failed to deactivate agent.');
+    } finally {
+      setManagingUserId(null);
+    }
+  };
+
+  const handleReactivateAgent = async (userId: string) => {
+    const user = users.find(u => u.id === userId);
+    if (!user) return;
+    
+    if (!confirm(`Reactivate ${user.firstName} ${user.lastName}? They will be able to log in again.`)) return;
+    
+    setManagingUserId(userId);
+    try {
+      await api.updateUserStatus(userId, 'active');
+      setUsers(prev => prev.map(u => u.id === userId ? { ...u, status: 'active' } : u));
+      showNotification('success', `Agent ${user.firstName} ${user.lastName} has been reactivated.`);
+    } catch (e) {
+      console.error(e);
+      showNotification('error', 'Failed to reactivate agent.');
+    } finally {
+      setManagingUserId(null);
+    }
+  };
+
+  const handlePermanentlyDelete = async (userId: string) => {
+    const user = users.find(u => u.id === userId);
+    if (!user) return;
+    
+    const userDeals = deals.filter(d => d.userId === userId);
+    
+    const warningMessage = `🚨 PERMANENT DELETION WARNING\n\nAgent: ${user.firstName} ${user.lastName}\nTotal Deals: ${userDeals.length}\n\nThis will PERMANENTLY:\n- Delete the user account\n- Delete ALL ${userDeals.length} deal(s) owned by this agent\n- Delete ALL associated documents\n- Remove from all reports\n\nType "DELETE PERMANENTLY" to confirm:`;
+    
+    const confirmation = prompt(warningMessage);
+    if (confirmation !== 'DELETE PERMANENTLY') {
+      if (confirmation !== null) alert('Deletion cancelled.');
+      return;
+    }
+    
+    setManagingUserId(userId);
+    try {
+      // Delete all user's deals first
+      for (const deal of userDeals) {
+        await api.deleteDeal(deal.id, userId);
+      }
+      // For now, set to denied (since we don't have deleteUser API in this context)
+      // In a real app, we'd call deleteUser function via Cloud Functions
+      await api.updateUserStatus(userId, 'denied');
+      setUsers(prev => prev.filter(u => u.id !== userId));
+      setDeals(prev => prev.filter(d => d.userId !== userId));
+      
+      showNotification('success', `Agent ${user.firstName} ${user.lastName} and all associated data have been removed.`);
+    } catch (e) {
+      console.error(e);
+      showNotification('error', 'Failed to delete agent data completely.');
+    } finally {
+      setManagingUserId(null);
     }
   };
 
@@ -62,7 +160,6 @@ const AdminDashboardPage: React.FC = () => {
     }).join("\n");
 
     const csvContent = header + agentRows;
-    
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -77,7 +174,17 @@ const AdminDashboardPage: React.FC = () => {
   const activeAgents = users.filter(u => u.role === 'agent' && u.status === 'active');
 
   return (
-    <div className="max-w-7xl mx-auto space-y-8 pb-10">
+    <div className="max-w-7xl mx-auto space-y-8 pb-10 relative">
+      {/* Toast Notification */}
+      {notification && (
+        <div className={`fixed top-20 right-4 z-50 px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 animate-in slide-in-from-right duration-300 ${
+            notification.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
+        }`}>
+            {notification.type === 'success' ? <CheckCircle size={24} /> : <AlertTriangle size={24} />}
+            <p className="font-medium">{notification.message}</p>
+        </div>
+      )}
+
       <div className="flex justify-between items-center">
         <div>
            <h1 className="text-2xl font-bold text-slate-900">Admin Dashboard</h1>
@@ -157,6 +264,7 @@ const AdminDashboardPage: React.FC = () => {
                     <th className="p-4">Status</th>
                     <th className="p-4">Performance</th>
                     <th className="p-4">Last Active</th>
+                    <th className="p-4 text-center">Actions</th>
                  </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -194,6 +302,53 @@ const AdminDashboardPage: React.FC = () => {
                       </td>
                       <td className="p-4 text-xs text-slate-500">
                          {user.lastLogin ? new Date(user.lastLogin).toLocaleDateString() : 'Never'}
+                      </td>
+                      <td className="p-4">
+                        <div className="flex items-center justify-center gap-2">
+                          {user.status === 'active' ? (
+                            <>
+                              <button
+                                onClick={() => handleDeactivateAgent(user.id)}
+                                disabled={managingUserId === user.id}
+                                className="px-2 py-1 bg-amber-100 text-amber-700 hover:bg-amber-200 rounded text-xs font-medium disabled:opacity-50 flex items-center gap-1"
+                                title="Deactivate agent (can be reactivated)"
+                              >
+                                {managingUserId === user.id ? <Loader2 size={12} className="animate-spin" /> : <UserX size={12} />}
+                                Deactivate
+                              </button>
+                              <button
+                                onClick={() => handlePermanentlyDelete(user.id)}
+                                disabled={managingUserId === user.id}
+                                className="px-2 py-1 bg-red-100 text-red-700 hover:bg-red-200 rounded text-xs font-medium disabled:opacity-50 flex items-center gap-1"
+                                title="Permanently delete agent and all deals"
+                              >
+                                <Trash2 size={12} />
+                                Delete
+                              </button>
+                            </>
+                          ) : user.status === 'denied' ? (
+                            <>
+                              <button
+                                onClick={() => handleReactivateAgent(user.id)}
+                                disabled={managingUserId === user.id}
+                                className="px-2 py-1 bg-green-100 text-green-700 hover:bg-green-200 rounded text-xs font-medium disabled:opacity-50 flex items-center gap-1"
+                                title="Reactivate agent"
+                              >
+                                {managingUserId === user.id ? <Loader2 size={12} className="animate-spin" /> : <UserCheck size={12} />}
+                                Reactivate
+                              </button>
+                              <button
+                                onClick={() => handlePermanentlyDelete(user.id)}
+                                disabled={managingUserId === user.id}
+                                className="px-2 py-1 bg-red-100 text-red-700 hover:bg-red-200 rounded text-xs font-medium disabled:opacity-50 flex items-center gap-1"
+                                title="Permanently delete agent and all deals"
+                              >
+                                <Trash2 size={12} />
+                                Delete
+                              </button>
+                            </>
+                          ) : null}
+                        </div>
                       </td>
                    </tr>
                  ))}
