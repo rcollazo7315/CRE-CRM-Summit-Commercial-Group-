@@ -1,4 +1,3 @@
-
 import { 
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, 
   query, where, orderBy, serverTimestamp, Timestamp, writeBatch, arrayUnion, arrayRemove
@@ -10,7 +9,13 @@ import {
   updateProfile,
   updatePassword
 } from 'firebase/auth';
-import { db, auth } from '../firebase/config';
+import { 
+  ref, 
+  uploadBytes, 
+  getDownloadURL, 
+  deleteObject 
+} from 'firebase/storage';
+import { db, auth, storage } from '../firebase/config';
 import { UserAccount, Deal, Task, LeadGenLog, MortgageCalculation, DocumentFile } from '../types';
 
 // Helper to convert Firestore timestamps to ISO strings for the frontend
@@ -186,7 +191,7 @@ export const api = {
       lastUpdated: serverTimestamp()
     };
 
-    if (deal.id && deal.id.length > 10) { 
+    if (deal.id && deal.id.length >= 9) { 
       const ref = doc(db, 'deals', deal.id);
       const snap = await getDoc(ref);
       
@@ -212,31 +217,137 @@ export const api = {
     await api.recalcUserStats(userId);
   },
 
-  // --- DOCUMENTS ---
-  saveDocument: async (dealId: string, document: DocumentFile) => {
+  // --- DOCUMENTS (With Storage) ---
+  
+  saveDocument: async (dealId: string, document: DocumentFile, fileData?: Blob | File) => {
     checkDbConnection();
-    const dealRef = doc(db, 'deals', dealId);
     
-    // We store documents inside the deal object for this simplified implementation
-    await updateDoc(dealRef, {
-      documents: arrayUnion(document),
-      lastUpdated: serverTimestamp()
-    });
+    console.log(`💾 saveDocument called for deal ${dealId}`);
+    
+    // Check if Storage is initialized
+    if (!storage) {
+      throw new Error("Firebase Storage is not initialized. Check firebase/config.ts");
+    }
+    
+    // Require file data for uploads
+    if (!fileData) {
+      throw new Error("No file data provided for upload");
+    }
+
+    try {
+      console.log(`📋 Step 1: Verifying deal exists...`);
+      const dealRef = doc(db, 'deals', dealId);
+      const dealSnap = await getDoc(dealRef);
+      
+      if (!dealSnap.exists()) {
+        throw new Error(`Deal ${dealId} not found in database`);
+      }
+      console.log(`✅ Deal verified: ${dealSnap.data().propertyAddress}`);
+      
+      // 2. Upload file to Firebase Storage
+      const timestamp = Date.now();
+      const sanitizedName = document.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const storagePath = `deals/${dealId}/${timestamp}_${sanitizedName}`;
+      const storageRef = ref(storage, storagePath);
+
+      console.log(`📤 Step 2: Uploading to Storage: ${storagePath}`);
+      console.log(`📊 File size: ${fileData.size} bytes (${(fileData.size / 1024 / 1024).toFixed(2)} MB)`);
+      
+      await uploadBytes(storageRef, fileData);
+      console.log(`✅ File uploaded to Storage successfully!`);
+      
+      // 3. Get download URL
+      console.log(`🔗 Step 3: Getting download URL...`);
+      const downloadURL = await getDownloadURL(storageRef);
+      console.log(`✅ Download URL: ${downloadURL.substring(0, 50)}...`);
+
+      // 4. Save metadata to Firestore
+      console.log(`💾 Step 4: Saving metadata to Firestore...`);
+      const docMetadata = {
+        ...document,
+        url: downloadURL,
+        storagePath: storagePath, // Store path for deletion
+        uploadDate: new Date().toISOString()
+      };
+      
+      await updateDoc(dealRef, {
+        documents: arrayUnion(docMetadata),
+        lastUpdated: serverTimestamp()
+      });
+      
+      console.log(`✅ Metadata saved to Firestore successfully!`);
+      console.log(`🎉 COMPLETE: Document "${document.name}" ready to display in app`);
+      
+    } catch (error: any) {
+      console.error("❌ Storage upload error:", error);
+      console.error("Error details:", {
+        code: error.code,
+        message: error.message,
+        dealId,
+        docName: document.name
+      });
+      
+      if (error.code === 'storage/unauthorized') {
+        throw new Error("Permission denied. Check Firebase Storage security rules.");
+      } else if (error.message.includes("not found")) {
+        throw error;
+      } else {
+        throw new Error(`Upload failed: ${error.message}`);
+      }
+    }
   },
 
   deleteDocument: async (dealId: string, documentId: string) => {
     checkDbConnection();
-    const dealRef = doc(db, 'deals', dealId);
-    const dealSnap = await getDoc(dealRef);
     
-    if (dealSnap.exists()) {
+    try {
+      console.log(`🗑️ Deleting document ${documentId} from deal ${dealId}`);
+      
+      const dealRef = doc(db, 'deals', dealId);
+      const dealSnap = await getDoc(dealRef);
+      
+      if (!dealSnap.exists()) {
+        throw new Error(`Deal ${dealId} not found`);
+      }
+
       const dealData = dealSnap.data();
-      const updatedDocs = (dealData.documents || []).filter((d: DocumentFile) => d.id !== documentId);
+      const docs = dealData.documents || [];
+      const docToDelete = docs.find((d: any) => d.id === documentId);
+      
+      if (!docToDelete) {
+        throw new Error(`Document ${documentId} not found in deal`);
+      }
+
+      console.log(`📄 Found document: ${docToDelete.name}`);
+
+      // 1. Delete from Firebase Storage if path exists
+      if (docToDelete.storagePath && storage) {
+        try {
+          console.log(`🗑️ Deleting from Storage: ${docToDelete.storagePath}`);
+          const storageRef = ref(storage, docToDelete.storagePath);
+          await deleteObject(storageRef);
+          console.log(`✅ Deleted from Storage`);
+        } catch (storageError: any) {
+          console.warn(`⚠️ Storage deletion warning:`, storageError.message);
+          // Don't fail if Storage deletion fails (file may already be gone)
+        }
+      }
+
+      // 2. Remove metadata from Firestore
+      console.log(`💾 Removing metadata from Firestore...`);
+      const updatedDocs = docs.filter((d: any) => d.id !== documentId);
       
       await updateDoc(dealRef, {
         documents: updatedDocs,
         lastUpdated: serverTimestamp()
       });
+      
+      console.log(`✅ Metadata removed from Firestore`);
+      console.log(`🎉 Document deletion complete`);
+      
+    } catch (error: any) {
+      console.error("❌ Delete error:", error);
+      throw new Error(`Failed to delete: ${error.message}`);
     }
   },
 
@@ -295,13 +406,9 @@ export const api = {
 
   getCalculations: async (userId: string) => {
     checkDbConnection();
-    // Removed orderBy('timestamp', 'desc') to avoid needing a composite index in Firebase
-    // We will sort client-side instead
     const q = query(collection(db, 'mortgageCalculations'), where('userId', '==', userId));
     const snapshot = await getDocs(q);
     const calcs = snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as MortgageCalculation[];
-    
-    // Sort client-side
     return calcs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   },
 

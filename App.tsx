@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
@@ -8,12 +7,13 @@ import DealDetailsPage from './pages/DealDetailsPage';
 import SettingsPage from './pages/SettingsPage';
 import ReportsPage from './pages/ReportsPage';
 import DocumentsPage from './pages/DocumentsPage';
+import CommunicationsPage from './pages/CommunicationsPage';
 import LeadGenPage from './pages/LeadGenPage';
 import AdminDashboardPage from './pages/AdminDashboardPage';
 import MortgageCalculatorPage from './pages/MortgageCalculatorPage';
 import DealModal from './components/DealModal';
 import AiChatModal from './components/AiChatModal';
-import { Deal, LeadGenLog, UserAccount } from './types';
+import { Deal, LeadGenLog, UserAccount, DocumentFile } from './types';
 import { api } from './services/firestore';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
@@ -71,14 +71,14 @@ const AppContent: React.FC = () => {
     if (!currentUser) return;
     const dealWithUser = { ...dealData, userId: currentUser.id };
     await api.saveDeal(dealWithUser);
-    loadUserData(currentUser.id, currentUser.role === 'admin');
+    await loadUserData(currentUser.id, currentUser.role === 'admin');
     refreshUser();
   };
 
   const handleDeleteDeal = async (dealId: string) => {
     if (confirm("Are you sure you want to delete this deal? This action cannot be undone.") && currentUser) {
        await api.deleteDeal(dealId, currentUser.id);
-       loadUserData(currentUser.id, currentUser.role === 'admin');
+       await loadUserData(currentUser.id, currentUser.role === 'admin');
        if (selectedDealId === dealId) {
          setSelectedDealId(null);
          setActiveTab('deals');
@@ -90,6 +90,58 @@ const AppContent: React.FC = () => {
     if (!currentUser) return;
     await api.updateUserProfile(currentUser.id, updatedData);
     refreshUser();
+  };
+
+  // Document Handlers
+  const handleAddDocument = async (dealId: string, docFile: DocumentFile, file: File) => {
+    if (!currentUser) {
+      alert("You must be logged in to upload documents.");
+      return;
+    }
+    
+    try {
+      console.log(`📤 Uploading "${docFile.name}" (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+      
+      // Call API with file data - this will upload to Storage AND save metadata to Firestore
+      await api.saveDocument(dealId, docFile, file);
+      
+      console.log(`✅ Upload complete, reloading deals to refresh UI...`);
+      
+      // CRITICAL: Reload deals from Firestore to get updated documents array
+      await loadUserData(currentUser.id, currentUser.role === 'admin');
+      
+      console.log(`🎉 Document now visible in app!`);
+      
+    } catch (error: any) {
+      console.error("❌ Upload failed:", error);
+      alert(`Failed to upload: ${error.message || 'Unknown error'}`);
+      throw error;
+    }
+  };
+
+  const handleDeleteDocument = async (dealId: string, docId: string) => {
+    if (!currentUser) {
+      alert("You must be logged in to delete documents.");
+      return;
+    }
+    
+    try {
+      console.log(`🗑️ Deleting document ${docId}...`);
+      
+      // Delete from Storage AND Firestore
+      await api.deleteDocument(dealId, docId);
+      
+      console.log(`✅ Delete complete, reloading deals...`);
+      
+      // Reload deals to update UI
+      await loadUserData(currentUser.id, currentUser.role === 'admin');
+      
+      console.log(`🎉 Document removed from app!`);
+      
+    } catch (error: any) {
+      console.error("❌ Delete failed:", error);
+      alert(`Failed to delete: ${error.message || 'Unknown error'}`);
+    }
   };
 
   if (loading) return <div className="h-screen flex items-center justify-center bg-slate-50 text-slate-400">Loading SummitCG...</div>;
@@ -112,7 +164,7 @@ const AppContent: React.FC = () => {
             onDeleteDeal={handleDeleteDeal}
             onRouteChange={setActiveTab}
             onOpenAi={() => setIsChatOpen(true)}
-            onSaveDeal={handleSaveDeal} // Passed down for reopening
+            onSaveDeal={handleSaveDeal}
           />
         );
       case 'deal-details':
@@ -126,6 +178,8 @@ const AppContent: React.FC = () => {
             onEditDeal={() => { setDealModalInitialData(deal); setIsDealModalOpen(true); }}
             onDeleteDeal={() => handleDeleteDeal(deal.id)}
             onViewDocuments={() => { setDocumentFilterId(deal.id); setActiveTab('documents'); }}
+            onAddDocument={handleAddDocument}
+            onDeleteDocument={handleDeleteDocument}
           />
         );
       case 'calculator':
@@ -135,7 +189,16 @@ const AppContent: React.FC = () => {
       case 'reports':
         return <ReportsPage deals={deals} users={allUsers} currentUser={currentUser} />;
       case 'documents':
-        return <DocumentsPage deals={deals} initialFilterDealId={documentFilterId} onAddDocument={() => {}} onDeleteDocument={() => {}} />;
+        return (
+          <DocumentsPage 
+            deals={deals} 
+            initialFilterDealId={documentFilterId} 
+            onAddDocument={handleAddDocument} 
+            onDeleteDocument={handleDeleteDocument} 
+          />
+        );
+      case 'communications':
+        return <CommunicationsPage user={currentUser} onUpdateUser={handleUpdateProfile} />;
       case 'lead-gen':
         return <LeadGenPage logs={leadGenLogs} onSaveLog={(l) => {
           if(currentUser) {
@@ -143,7 +206,7 @@ const AppContent: React.FC = () => {
             api.saveLeadLog(log);
             setLeadGenLogs([log, ...leadGenLogs]);
           }
-        }} />;
+        }} onDeleteLog={(id) => api.deleteLeadLog(id).then(() => setLeadGenLogs(prev => prev.filter(l => l.id !== id)))} />;
       default:
         return <DashboardPage activeTab="dashboard" deals={deals} onAddDeal={() => { setDealModalInitialData(null); setIsDealModalOpen(true); }} onDealClick={(id) => { setSelectedDealId(id); setActiveTab('deal-details'); }} onDeleteDeal={handleDeleteDeal} onRouteChange={setActiveTab} onOpenAi={() => setIsChatOpen(true)} onSaveDeal={handleSaveDeal} />;
     }

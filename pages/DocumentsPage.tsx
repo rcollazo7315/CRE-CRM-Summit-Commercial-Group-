@@ -1,12 +1,11 @@
-
 import React, { useState, useEffect, useRef } from 'react';
-import { FileText, Upload, Filter, Search, MoreVertical, Download, Trash2, FolderOpen, Loader2 } from 'lucide-react';
+import { FileText, Upload, Filter, Search, MoreVertical, Download, Trash2, FolderOpen, Loader2, AlertCircle, X } from 'lucide-react';
 import { Deal, DocumentFile } from '../types';
 
 interface DocumentsPageProps {
   deals: Deal[];
   initialFilterDealId?: string | null;
-  onAddDocument: (dealId: string, docFile: DocumentFile) => void;
+  onAddDocument: (dealId: string, docFile: DocumentFile, file: File) => void;
   onDeleteDocument: (dealId: string, docId: string) => void;
 }
 
@@ -14,6 +13,8 @@ const DocumentsPage: React.FC<DocumentsPageProps> = ({ deals, initialFilterDealI
   const [selectedDealId, setSelectedDealId] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [isUploading, setIsUploading] = useState(false);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -22,9 +23,12 @@ const DocumentsPage: React.FC<DocumentsPageProps> = ({ deals, initialFilterDealI
 
   const handleUploadClick = () => {
     if (selectedDealId === 'all') {
-      alert("Please select a specific property from the filter dropdown before uploading.");
+      setErrorMsg("Please select a specific property from the dropdown list above before uploading files.");
+      // Auto-hide error after 5 seconds
+      setTimeout(() => setErrorMsg(null), 5000);
       return;
     }
+    setErrorMsg(null);
     fileInputRef.current?.click();
   };
 
@@ -32,19 +36,17 @@ const DocumentsPage: React.FC<DocumentsPageProps> = ({ deals, initialFilterDealI
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (selectedDealId === 'all') return;
+    if (selectedDealId === 'all') {
+      alert("Please select a specific property first");
+      return;
+    }
 
     setIsUploading(true);
 
     try {
-      // Convert file to Base64 to store in Firestore (since we aren't using Firebase Storage bucket in this setup)
-      const base64Data = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = () => resolve(reader.result as string);
-        reader.onerror = error => reject(error);
-      });
-
+      console.log(`📁 File selected: ${file.name} (${(file.size / 1024 / 1024).toFixed(2)} MB)`);
+      
+      // Create metadata object (NO Base64 conversion - pass File directly)
       const newDoc: DocumentFile = {
         id: Math.random().toString(36).substr(2, 9),
         name: file.name,
@@ -52,26 +54,41 @@ const DocumentsPage: React.FC<DocumentsPageProps> = ({ deals, initialFilterDealI
         size: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
         uploadDate: new Date().toISOString(),
         dealId: selectedDealId,
-        url: base64Data // Store actual data
+        url: '' // Will be populated by Firebase Storage
       };
 
-      await onAddDocument(selectedDealId, newDoc);
-    } catch (error) {
-      console.error("Error uploading file:", error);
-      alert("Failed to upload document. Please try again.");
+      console.log(`📤 Calling onAddDocument with File object...`);
+      
+      // Pass the actual File object (not Base64)
+      await onAddDocument(selectedDealId, newDoc, file);
+      
+      console.log(`✅ Upload handler completed successfully`);
+      
+    } catch (error: any) {
+      console.error("❌ Upload error:", error);
+      
+      let errorMsg = "Failed to upload document. ";
+      if (error.message.includes("Storage is not initialized")) {
+        errorMsg += "Firebase Storage not enabled.";
+      } else if (error.message.includes("Permission denied")) {
+        errorMsg += "Check Storage security rules.";
+      } else {
+        errorMsg += error.message || "Unknown error.";
+      }
+      
+      alert(errorMsg);
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
-  const handleDownload = (doc: DocumentFile) => {
-    const a = document.createElement('a');
-    a.href = doc.url || '';
-    a.download = doc.name;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+  const handleDownload = async (doc: DocumentFile) => {
+    if (!doc.url) {
+      alert("File URL not found.");
+      return;
+    }
+    window.open(doc.url, '_blank');
   };
 
   // Flatten documents from deals for the view with strict array check
@@ -91,7 +108,20 @@ const DocumentsPage: React.FC<DocumentsPageProps> = ({ deals, initialFilterDealI
   });
 
   return (
-    <div className="max-w-6xl mx-auto pb-10">
+    <div className="max-w-6xl mx-auto pb-10 relative">
+      
+      {/* Toast Error Notification */}
+      {errorMsg && (
+        <div className="fixed top-4 right-4 z-50 bg-red-600 text-white px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 animate-in slide-in-from-right duration-300">
+            <AlertCircle size={24} className="flex-shrink-0" />
+            <div>
+                <p className="font-bold text-lg">Action Required</p>
+                <p className="text-sm text-red-100">{errorMsg}</p>
+            </div>
+            <button onClick={() => setErrorMsg(null)} className="ml-2 text-white/80 hover:text-white"><X size={20}/></button>
+        </div>
+      )}
+
       <div className="flex justify-between items-center mb-8">
         <div>
            <h1 className="text-2xl font-bold text-slate-900">Document Center</h1>
@@ -103,6 +133,7 @@ const DocumentsPage: React.FC<DocumentsPageProps> = ({ deals, initialFilterDealI
             ref={fileInputRef} 
             className="hidden" 
             onChange={handleFileChange}
+            accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png,.txt"
           />
           <button 
             onClick={handleUploadClick}
@@ -168,8 +199,14 @@ const DocumentsPage: React.FC<DocumentsPageProps> = ({ deals, initialFilterDealI
                     
                     <div className="flex items-center justify-between pt-3 border-t border-slate-50">
                        <span className="text-xs text-slate-400">{new Date(doc.uploadDate).toLocaleDateString()}</span>
-                       <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => handleDownload(doc)} className="text-slate-400 hover:text-summit-900"><Download size={16} /></button>
+                       <div className="flex gap-2 transition-opacity">
+                          <button 
+                            onClick={() => handleDownload(doc)} 
+                            disabled={downloadingId === doc.id}
+                            className="text-slate-400 hover:text-summit-900 disabled:opacity-50"
+                          >
+                            {downloadingId === doc.id ? <Loader2 size={16} className="animate-spin"/> : <Download size={16} />}
+                          </button>
                           <button 
                             onClick={() => {
                               if(confirm('Are you sure you want to delete this file?')) onDeleteDocument((doc as any).dealId, doc.id);
@@ -187,6 +224,7 @@ const DocumentsPage: React.FC<DocumentsPageProps> = ({ deals, initialFilterDealI
              <div className="flex flex-col items-center justify-center h-full py-20 text-slate-400">
                 <FileText size={48} className="mb-4 opacity-20" />
                 <p>No documents found for this selection.</p>
+                {selectedDealId === 'all' && <p className="text-sm mt-2">Select a property above to upload files.</p>}
              </div>
            )}
         </div>
