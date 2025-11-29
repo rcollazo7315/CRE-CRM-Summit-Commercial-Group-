@@ -192,7 +192,8 @@ export const api = {
       lastUpdated: serverTimestamp()
     };
 
-    if (deal.id && deal.id.length > 10) { 
+    // FIX: Check for ID length >= 9 to support random IDs generated in DealModal (usually 9 chars)
+    if (deal.id && deal.id.length >= 9) { 
       const ref = doc(db, 'deals', deal.id);
       const snap = await getDoc(ref);
       
@@ -344,13 +345,9 @@ export const api = {
 
   getCalculations: async (userId: string) => {
     checkDbConnection();
-    // Removed orderBy('timestamp', 'desc') to avoid needing a composite index in Firebase
-    // We will sort client-side instead
     const q = query(collection(db, 'mortgageCalculations'), where('userId', '==', userId));
     const snapshot = await getDocs(q);
     const calcs = snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as MortgageCalculation[];
-    
-    // Sort client-side
     return calcs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   },
 

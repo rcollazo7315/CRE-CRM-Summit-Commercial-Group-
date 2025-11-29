@@ -72,14 +72,14 @@ const AppContent: React.FC = () => {
     if (!currentUser) return;
     const dealWithUser = { ...dealData, userId: currentUser.id };
     await api.saveDeal(dealWithUser);
-    loadUserData(currentUser.id, currentUser.role === 'admin');
+    await loadUserData(currentUser.id, currentUser.role === 'admin');
     refreshUser();
   };
 
   const handleDeleteDeal = async (dealId: string) => {
     if (confirm("Are you sure you want to delete this deal? This action cannot be undone.") && currentUser) {
        await api.deleteDeal(dealId, currentUser.id);
-       loadUserData(currentUser.id, currentUser.role === 'admin');
+       await loadUserData(currentUser.id, currentUser.role === 'admin');
        if (selectedDealId === dealId) {
          setSelectedDealId(null);
          setActiveTab('deals');
@@ -99,7 +99,7 @@ const AppContent: React.FC = () => {
     try {
       await api.saveDocument(dealId, doc, file);
       // Reload deals to reflect new document
-      loadUserData(currentUser.id, currentUser.role === 'admin');
+      await loadUserData(currentUser.id, currentUser.role === 'admin');
     } catch (error) {
       console.error("Failed to save document:", error);
       alert("Failed to save document. Please ensure you have enabled Firebase Storage in your console.");
@@ -110,7 +110,7 @@ const AppContent: React.FC = () => {
     if (!currentUser) return;
     try {
       await api.deleteDocument(dealId, docId);
-      loadUserData(currentUser.id, currentUser.role === 'admin');
+      await loadUserData(currentUser.id, currentUser.role === 'admin');
     } catch (error) {
       console.error("Failed to delete document:", error);
     }

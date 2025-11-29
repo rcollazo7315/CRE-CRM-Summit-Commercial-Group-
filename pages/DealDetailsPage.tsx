@@ -1,6 +1,6 @@
 
-import React, { useState, useEffect } from 'react';
-import { ArrowLeft, MapPin, Building2, User, Phone, Mail, Calendar, Edit, CheckCircle, FileText, Download, Trash2, CheckSquare, Clock, Plus, Map as MapIcon } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { ArrowLeft, MapPin, Building2, User, Phone, Mail, Edit, FileText, Download, Trash2, CheckSquare, Clock, Plus, Map as MapIcon, Upload, Loader2, MoreVertical } from 'lucide-react';
 import { Deal, DealStatus, DocumentFile, Task } from '../types';
 import TaskModal from '../components/TaskModal';
 import { api } from '../services/firestore';
@@ -13,15 +13,22 @@ interface DealDetailsPageProps {
   onEditDeal: () => void;
   onDeleteDeal: () => void;
   onViewDocuments: () => void;
+  // Kept for compatibility with App.tsx, but this component uses onUpdateDeal for Base64 storage
+  onAddDocument?: (dealId: string, doc: DocumentFile, file: File) => void;
+  onDeleteDocument?: (dealId: string, docId: string) => void;
 }
 
 const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdateDeal, onEditDeal, onDeleteDeal, onViewDocuments }) => {
   const { currentUser } = useAuth();
-  const [activeTab, setActiveTab] = useState<'info' | 'tasks'>('info');
+  const [activeTab, setActiveTab] = useState<'info' | 'tasks' | 'documents'>('info');
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Partial<Task> | undefined>(undefined);
   const [mapError, setMapError] = useState(false);
+  
+  // Document Upload State
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadTasks = async () => {
     if (currentUser) {
@@ -53,11 +60,80 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
   };
 
   // Google Maps Embed URL
-  // Note: In a real production app, you would restrict this key to your domain.
-  // Using the 'place' mode requires a valid key. 
-  // For the prompt's purpose, we use a query based iframe.
-  // If "Drop Pin" is needed, we simulate an override.
   const mapUrl = `https://www.google.com/maps?q=${encodeURIComponent(deal.propertyAddress)}&output=embed`;
+
+  // --- Document Management (Base64 Implementation) ---
+  
+  const handleUploadClick = () => {
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Constraint: 1MB Firestore limit. Base64 adds ~33% size. Safe limit ~700KB.
+    if (file.size > 700 * 1024) {
+      alert("File is too large. Maximum size is 700KB for direct storage.");
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+
+    setIsUploading(true);
+    try {
+      // Convert to Base64
+      const base64Data = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.readAsDataURL(file);
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = error => reject(error);
+      });
+
+      const newDoc: DocumentFile = {
+        id: Math.random().toString(36).substr(2, 9),
+        name: file.name,
+        type: file.name.split('.').pop()?.toUpperCase() || 'FILE',
+        size: `${(file.size / 1024).toFixed(2)} KB`,
+        uploadDate: new Date().toISOString(),
+        dealId: deal.id,
+        url: base64Data
+      };
+
+      // Update Deal Object directly (Add to array)
+      const currentDocs = deal.documents || [];
+      onUpdateDeal({ 
+        ...deal, 
+        documents: [...currentDocs, newDoc] 
+      });
+
+    } catch (error) {
+      console.error("Upload error:", error);
+      alert("Failed to upload document.");
+    } finally {
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const handleDeleteDoc = (docId: string) => {
+    if (confirm("Are you sure you want to delete this document?")) {
+      const updatedDocs = (deal.documents || []).filter(d => d.id !== docId);
+      onUpdateDeal({ ...deal, documents: updatedDocs });
+    }
+  };
+
+  const handleDownload = (doc: DocumentFile) => {
+    if (!doc.url) {
+        alert("File data not found.");
+        return;
+    }
+    const link = document.createElement("a");
+    link.href = doc.url;
+    link.download = doc.name;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
 
   return (
     <div className="max-w-6xl mx-auto pb-10">
@@ -95,20 +171,42 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
                 </div>
              </div>
              <button onClick={onEditDeal} className="bg-summit-900 text-white px-5 py-2.5 rounded-lg font-medium shadow-lg hover:bg-summit-800 transition-colors">Edit Deal</button>
-             <button onClick={onDeleteDeal} className="bg-white border border-slate-200 text-slate-400 hover:text-red-600 px-3 py-2.5 rounded-lg"><Trash2 size={20} /></button>
+             
+             {/* Delete Button - Verified Functionality */}
+             <button 
+                onClick={onDeleteDeal} 
+                className="bg-white border border-slate-200 text-slate-400 hover:text-red-600 hover:bg-red-50 hover:border-red-100 px-3 py-2.5 rounded-lg transition-all shadow-sm"
+                title="Delete Deal"
+             >
+                <Trash2 size={20} />
+             </button>
           </div>
         </div>
 
         {/* Tabs */}
         <div className="flex gap-6 mt-8 border-b border-slate-100">
-           <button onClick={() => setActiveTab('info')} className={`pb-3 font-medium text-sm border-b-2 transition-colors ${activeTab === 'info' ? 'border-summit-accent text-summit-900' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>Deal Information</button>
-           <button onClick={() => setActiveTab('tasks')} className={`pb-3 font-medium text-sm border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'tasks' ? 'border-summit-accent text-summit-900' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
+           <button 
+             onClick={() => setActiveTab('info')} 
+             className={`pb-3 font-medium text-sm border-b-2 transition-colors ${activeTab === 'info' ? 'border-summit-accent text-summit-900' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+           >
+             Deal Information
+           </button>
+           <button 
+             onClick={() => setActiveTab('tasks')} 
+             className={`pb-3 font-medium text-sm border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'tasks' ? 'border-summit-accent text-summit-900' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+           >
               Tasks <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-xs">{tasks.filter(t => t.status === 'pending').length}</span>
+           </button>
+           <button 
+             onClick={() => setActiveTab('documents')} 
+             className={`pb-3 font-medium text-sm border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'documents' ? 'border-summit-accent text-summit-900' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+           >
+              Documents <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-xs">{(deal.documents || []).length}</span>
            </button>
         </div>
       </div>
 
-      {activeTab === 'info' ? (
+      {activeTab === 'info' && (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Info Content - Left Col */}
            <div className="lg:col-span-2 space-y-6">
@@ -194,7 +292,9 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
               </div>
            </div>
         </div>
-      ) : (
+      )}
+
+      {activeTab === 'tasks' && (
         <div className="space-y-6">
           <div className="flex justify-between items-center">
              <h2 className="text-lg font-bold text-slate-800">Deal Tasks</h2>
@@ -223,6 +323,69 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
                <div className="p-12 text-center text-slate-400">No tasks for this deal yet.</div>
              )}
           </div>
+        </div>
+      )}
+
+      {activeTab === 'documents' && (
+        <div className="space-y-6">
+          <div className="flex justify-between items-center">
+             <div>
+                <h2 className="text-lg font-bold text-slate-800">Deal Documents</h2>
+                <p className="text-sm text-slate-500">Stored directly in deal record.</p>
+             </div>
+             
+             <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileChange} />
+             
+             <button 
+                onClick={handleUploadClick}
+                disabled={isUploading}
+                className="bg-summit-900 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-summit-800 disabled:opacity-70 shadow-md"
+             >
+               {isUploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+               {isUploading ? 'Uploading...' : 'Upload Document'}
+             </button>
+          </div>
+          
+          {(deal.documents || []).length > 0 ? (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {(deal.documents || []).map(doc => (
+                <div key={doc.id} className="bg-white border border-slate-200 rounded-lg p-4 hover:shadow-md transition-shadow group">
+                   <div className="flex justify-between items-start mb-3">
+                      <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center font-bold text-xs uppercase">
+                         {doc.type}
+                      </div>
+                      <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button 
+                          onClick={() => handleDownload(doc)}
+                          className="p-1.5 text-slate-400 hover:text-summit-900 hover:bg-slate-50 rounded" 
+                          title="Download"
+                        >
+                           <Download size={14} />
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteDoc(doc.id)} 
+                          className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded"
+                          title="Delete"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                   </div>
+                   <h3 className="font-semibold text-slate-800 text-sm truncate mb-1" title={doc.name}>{doc.name}</h3>
+                   <div className="flex justify-between items-center text-xs text-slate-500">
+                      <span>{doc.size}</span>
+                      <span>{new Date(doc.uploadDate).toLocaleDateString()}</span>
+                   </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-12 text-center text-slate-400">
+               <FileText size={40} className="mx-auto mb-3 opacity-20" />
+               <p className="font-medium">No documents uploaded yet.</p>
+               <p className="text-sm mt-1">Upload contracts, deeds, or photos.</p>
+            </div>
+          )}
         </div>
       )}
 
