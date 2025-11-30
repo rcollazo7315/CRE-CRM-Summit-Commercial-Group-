@@ -44,6 +44,20 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals, users, currentUser }) 
 
   const sortedAgents = [...displayAgents].sort((a, b) => Number(b.stats?.totalVolume || 0) - Number(a.stats?.totalVolume || 0));
 
+  // Helper to safely call autoTable regardless of import structure
+  const safeAutoTable = (doc: any, options: any) => {
+    const at = autoTable as any;
+    if (typeof at === 'function') {
+      at(doc, options);
+    } else if (at && typeof at.default === 'function') {
+      at.default(doc, options);
+    } else if (doc.autoTable) {
+      doc.autoTable(options);
+    } else {
+        console.error("jspdf-autotable plugin not loaded correctly");
+    }
+  };
+
   const handlePrint = () => {
     const doc = new jsPDF();
     const today = new Date().toLocaleDateString();
@@ -73,7 +87,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals, users, currentUser }) 
       ['Closed Deals', closedCount.toString()],
     ];
     
-    autoTable(doc, {
+    safeAutoTable(doc, {
       startY: 60,
       head: [['Metric', 'Value']],
       body: summaryStats,
@@ -101,7 +115,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals, users, currentUser }) 
       ];
     });
     
-    autoTable(doc, {
+    safeAutoTable(doc, {
       startY: finalY + 15,
       head: [['Agent', 'Total Deals', 'Closed', 'Volume', 'Commission']],
       body: agentData,
@@ -130,7 +144,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals, users, currentUser }) 
         `${((Number(count) / deals.length) * 100).toFixed(1)}%`
       ]);
       
-      autoTable(doc, {
+      safeAutoTable(doc, {
         startY: finalY2 + 15,
         head: [['Status', 'Count', 'Percentage']],
         body: statusData,

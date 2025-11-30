@@ -1,10 +1,11 @@
+
 import React, { useState, useEffect } from 'react';
 import { Calculator, Save, Printer, RefreshCw, DollarSign, Info, Download } from 'lucide-react';
 import { MortgageCalculation } from '../types';
 import { api } from '../services/firestore';
 import { useAuth } from '../context/AuthContext';
 import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 
 const MortgageCalculatorPage: React.FC = () => {
   // Input State
@@ -49,6 +50,20 @@ const MortgageCalculatorPage: React.FC = () => {
         }
     } catch (e) {
         console.error("Error loading calculations", e);
+    }
+  };
+
+  // Safe wrapper for autoTable to handle different import environments
+  const safeAutoTable = (doc: any, options: any) => {
+    const at = autoTable as any;
+    if (typeof at === 'function') {
+      at(doc, options);
+    } else if (at && typeof at.default === 'function') {
+      at.default(doc, options);
+    } else if (typeof doc.autoTable === 'function') {
+      doc.autoTable(options);
+    } else {
+      console.error("jspdf-autotable plugin not loaded correctly");
     }
   };
 
@@ -173,7 +188,7 @@ const MortgageCalculatorPage: React.FC = () => {
       ['Loan Term', `${loanTermYears} years`],
     ];
     
-    (doc as any).autoTable({
+    safeAutoTable(doc, {
       startY: 55,
       head: [['Item', 'Value']],
       body: loanDetails,
@@ -193,7 +208,7 @@ const MortgageCalculatorPage: React.FC = () => {
       ['Total Monthly Payment', `$${totalMonthlyPayment.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`],
     ];
     
-    (doc as any).autoTable({
+    safeAutoTable(doc, {
       startY: finalY + 15,
       head: [['Component', 'Amount']],
       body: monthlyBreakdown,
@@ -218,7 +233,7 @@ const MortgageCalculatorPage: React.FC = () => {
       ['Cap Rate', propertyValue > 0 ? `${((annualNOI / propertyValue) * 100).toFixed(2)}%` : 'N/A'],
     ];
     
-    (doc as any).autoTable({
+    safeAutoTable(doc, {
       startY: finalY2 + 15,
       head: [['Metric', 'Value']],
       body: metrics,
@@ -251,7 +266,7 @@ const MortgageCalculatorPage: React.FC = () => {
         ]);
       }
       
-      (doc as any).autoTable({
+      safeAutoTable(doc, {
         startY: finalY3 + 15,
         head: [['Month', 'Payment', 'Principal', 'Interest', 'Balance']],
         body: amortRows,
