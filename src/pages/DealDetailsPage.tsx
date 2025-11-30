@@ -81,7 +81,7 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
       await onAddDocument(deal.id, newDoc, file);
     } catch (error) {
       console.error("Upload error:", error);
-      alert("Failed to upload document.");
+      console.log("Failed to upload document.");
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -90,7 +90,7 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
 
   const handleDownload = (doc: DocumentFile) => {
     if (!doc.url) {
-        alert("File URL not found.");
+        console.log("File URL not found.");
         return;
     }
     window.open(doc.url, '_blank');
@@ -197,7 +197,7 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
                    {/* Fallback Pin Drop Simulation */}
                    <button 
                      className="absolute bottom-3 right-3 bg-white shadow-md text-slate-700 px-3 py-1.5 rounded-md text-xs font-bold border border-slate-200 hover:bg-slate-50"
-                     onClick={() => alert("Pin Drop Mode: In a full production app, this would allow you to drag a marker on a Google Maps JS API instance to correct coordinates.")}
+                     onClick={() => console.log("Pin Drop Mode: In a full production app, this would allow you to drag a marker on a Google Maps JS API instance to correct coordinates.")}
                    >
                      Drop Pin
                    </button>
@@ -304,7 +304,7 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
                             <Download size={14} /> Download
                          </button>
                          <button 
-                           onClick={() => { if(confirm('Delete file?')) onDeleteDocument(deal.id, doc.id); }} 
+                           onClick={() => { if(true) onDeleteDocument(deal.id, doc.id); }} 
                            className="text-slate-400 hover:text-red-600"
                          >
                            <Trash2 size={14} />

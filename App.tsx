@@ -81,7 +81,7 @@ const AppContent: React.FC = () => {
 
     const deal = deals.find(d => d.id === dealId);
     if (!deal) {
-        alert('Deal not found');
+        console.log('Deal not found');
         return;
     }
     
@@ -101,7 +101,7 @@ const AppContent: React.FC = () => {
     // Verify confirmation
     if (hasDocuments && confirmation !== 'DELETE') {
         if (confirmation !== null) {
-            alert('Deletion cancelled. You must type "DELETE" to confirm.');
+            console.log('Deletion cancelled. You must type "DELETE" to confirm.');
         }
         return;
     }
@@ -124,7 +124,7 @@ const AppContent: React.FC = () => {
        }
     } catch (error: any) {
        console.error("Delete failed", error);
-       alert(`Failed to delete deal: ${error.message}`);
+       console.log(`Failed to delete deal: ${error.message}`);
     }
   };
 
@@ -143,7 +143,7 @@ const AppContent: React.FC = () => {
       await loadUserData(currentUser.id, currentUser.role === 'admin');
     } catch (error) {
       console.error("Failed to save document:", error);
-      alert("Failed to save document. Please ensure you have enabled Firebase Storage in your console.");
+      console.log("Failed to save document. Please ensure you have enabled Firebase Storage in your console.");
     }
   };
 

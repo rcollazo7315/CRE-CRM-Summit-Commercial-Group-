@@ -130,20 +130,24 @@ const AdminDashboardPage: React.FC = () => {
     
     setManagingUserId(userId);
     try {
-      // Delete all user's deals first
+      console.log(`🗑️ Starting permanent deletion of user ${userId} and their ${userDeals.length} deals...`);
+      
       for (const deal of userDeals) {
+        console.log(`   Deleting deal: ${deal.propertyAddress}`);
         await api.deleteDeal(deal.id, userId);
       }
-      // For now, set to denied (since we don't have deleteUser API in this context)
-      // In a real app, we'd call deleteUser function via Cloud Functions
-      await api.updateUserStatus(userId, 'denied');
+      console.log(`✅ All deals deleted successfully`);
+      
+      await api.deleteUser(userId);
+      console.log(`✅ User document deleted from Firestore`);
+      
       setUsers(prev => prev.filter(u => u.id !== userId));
       setDeals(prev => prev.filter(d => d.userId !== userId));
       
-      showNotification('success', `Agent ${user.firstName} ${user.lastName} and all associated data have been removed.`);
-    } catch (e) {
-      console.error(e);
-      showNotification('error', 'Failed to delete agent data completely.');
+      showNotification('success', `Agent ${user.firstName} ${user.lastName} and all associated data have been permanently removed.`);
+    } catch (e: any) {
+      console.error('❌ Failed to delete agent:', e);
+      showNotification('error', `Failed to delete agent: ${e.message || 'Unknown error'}`);
     } finally {
       setManagingUserId(null);
     }

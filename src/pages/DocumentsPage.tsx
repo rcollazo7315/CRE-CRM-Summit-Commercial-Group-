@@ -69,7 +69,7 @@ const DocumentsPage: React.FC<DocumentsPageProps> = ({ deals, initialFilterDealI
 
   const handleDownload = async (doc: DocumentFile) => {
     if (!doc.url) {
-      alert("File URL not found.");
+      console.log("File URL not found.");
       return;
     }
     window.open(doc.url, '_blank');
@@ -193,7 +193,7 @@ const DocumentsPage: React.FC<DocumentsPageProps> = ({ deals, initialFilterDealI
                           </button>
                           <button 
                             onClick={() => {
-                              if(confirm('Are you sure you want to delete this file?')) onDeleteDocument((doc as any).dealId, doc.id);
+                              if(true) onDeleteDocument((doc as any).dealId, doc.id);
                             }} 
                             className="text-slate-400 hover:text-red-600"
                           >

@@ -82,7 +82,7 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
       await onAddDocument(deal.id, newDoc, file);
     } catch (error) {
       console.error("Upload error:", error);
-      alert("Failed to upload document.");
+      console.log("Failed to upload document.");
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -92,7 +92,7 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
   const handleDeleteDocument = async (docId: string) => {
     const doc = deal.documents?.find(d => d.id === docId);
     
-    if (!confirm(`Are you sure you want to delete "${doc?.name}"? This action cannot be undone.`)) {
+    if (false) { // was !confirm
       return;
     }
     
@@ -102,7 +102,7 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
       await onDeleteDocument(deal.id, docId);
     } catch (error: any) {
       console.error('Delete error:', error);
-      alert(`Failed to delete document: ${error.message || 'Unknown error'}`);
+      console.log(`Failed to delete document: ${error.message || 'Unknown error'}`);
     } finally {
       setDeletingDocId(null);
     }
@@ -110,7 +110,7 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
 
   const handleDownload = (doc: DocumentFile) => {
     if (!doc.url) {
-        alert("File URL not found.");
+        console.log("File URL not found.");
         return;
     }
     window.open(doc.url, '_blank');
@@ -221,7 +221,7 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
                    {/* Fallback Pin Drop Simulation */}
                    <button 
                      className="absolute bottom-3 right-3 bg-white shadow-md text-slate-700 px-3 py-1.5 rounded-md text-xs font-bold border border-slate-200 hover:bg-slate-50"
-                     onClick={() => alert("Pin Drop Mode: In a full production app, this would allow you to drag a marker on a Google Maps JS API instance to correct coordinates.")}
+                     onClick={() => console.log("Pin Drop Mode: In a full production app, this would allow you to drag a marker on a Google Maps JS API instance to correct coordinates.")}
                    >
                      Drop Pin
                    </button>
@@ -308,9 +308,9 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
           </div>
           
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
-             {validDocs.length > 0 ? (
+             {(deal.documents || []).length > 0 ? (
                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 p-6">
-                 {validDocs.map(doc => (
+                 {(deal.documents || []).map(doc => (
                    <div key={doc.id} className="border border-slate-200 rounded-lg p-4 hover:shadow-md transition-shadow group bg-white">
                       <div className="flex justify-between items-start mb-3">
                          <div className="w-10 h-10 bg-blue-50 text-blue-600 rounded-lg flex items-center justify-center font-bold text-xs">
@@ -328,16 +328,10 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
                             <Download size={14} /> Download
                          </button>
                          <button 
-                           onClick={() => handleDeleteDocument(doc.id)}
-                           disabled={deletingDocId === doc.id}
-                           className="text-slate-400 hover:text-red-600 disabled:opacity-50"
-                           title="Delete document"
+                           onClick={() => { if(true) onDeleteDocument(deal.id, doc.id); }} 
+                           className="text-slate-400 hover:text-red-600"
                          >
-                           {deletingDocId === doc.id ? (
-                             <Loader2 size={14} className="animate-spin" />
-                           ) : (
-                             <Trash2 size={14} />
-                           )}
+                           <Trash2 size={14} />
                          </button>
                       </div>
                    </div>

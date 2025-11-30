@@ -1,4 +1,3 @@
-
 import React from 'react';
 import { BarChart, TrendingUp, PieChart, Download, ArrowUp } from 'lucide-react';
 import { Deal, DealStatus, UserAccount } from '../types';
@@ -16,15 +15,15 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals, users, currentUser }) 
   
   const closedDeals = deals.filter(d => d.status === DealStatus.COMPLETED);
   const closedCount = closedDeals.length;
-  const closedVolume = closedDeals.reduce((acc, d) => acc + d.askingPrice, 0);
+  const closedVolume = closedDeals.reduce((acc: number, d) => acc + d.askingPrice, 0);
   
-  const totalVolume = deals.reduce((acc, d) => acc + d.askingPrice, 0);
+  const totalVolume = deals.reduce((acc: number, d) => acc + d.askingPrice, 0);
   const avgPrice = deals.length > 0 ? totalVolume / deals.length : 0;
 
-  const daysToCloseSum = closedDeals.reduce((acc, d) => {
+  const daysToCloseSum = closedDeals.reduce((acc: number, d) => {
     const start = new Date(d.createdAt).getTime();
     const end = d.closedDate ? new Date(d.closedDate).getTime() : new Date().getTime();
-    const days = (end - start) / (1000 * 3600 * 24);
+    const days = (Number(end) - Number(start)) / (1000 * 3600 * 24);
     return acc + days;
   }, 0);
   const avgDaysToClose = closedCount > 0 ? Math.round(daysToCloseSum / closedCount) : 0;
@@ -43,7 +42,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals, users, currentUser }) 
     ? users.filter(u => u.role === 'agent') 
     : users.filter(u => u.id === currentUser?.id);
 
-  const sortedAgents = [...displayAgents].sort((a, b) => (b.stats?.totalVolume || 0) - (a.stats?.totalVolume || 0));
+  const sortedAgents = [...displayAgents].sort((a, b) => Number(b.stats?.totalVolume || 0) - Number(a.stats?.totalVolume || 0));
 
   const handlePrint = () => {
     const doc = new jsPDF();
@@ -83,15 +82,15 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals, users, currentUser }) 
     });
     
     // Agent Performance Table
-    const finalY = ((doc as any).lastAutoTable?.finalY || 100) as number;
+    const finalY = Number((doc as any).lastAutoTable?.finalY || 100);
     doc.setFontSize(14);
     doc.text('Agent Performance', 14, finalY + 10);
     
     const agentData = sortedAgents.map(user => {
       // Note: user.stats comes from firestore already calculated
-      const volume = user.stats?.totalVolume || 0;
-      const closed = user.stats?.closedDeals || 0;
-      const comm = user.stats?.totalCommissions || 0;
+      const volume = Number(user.stats?.totalVolume || 0);
+      const closed = Number(user.stats?.closedDeals || 0);
+      const comm = Number(user.stats?.totalCommissions || 0);
       
       return [
         `${user.firstName} ${user.lastName}`,
@@ -119,7 +118,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals, users, currentUser }) 
     });
     
     // Deal Status Breakdown
-    const finalY2 = ((doc as any).lastAutoTable?.finalY || 150) as number;
+    const finalY2 = Number((doc as any).lastAutoTable?.finalY || 150);
     
     if (finalY2 < 250) {
       doc.setFontSize(14);
@@ -128,7 +127,7 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals, users, currentUser }) 
       const statusData = Object.entries(statusCounts).map(([status, count]) => [
         status,
         count.toString(),
-        `${((count / deals.length) * 100).toFixed(1)}%`
+        `${((Number(count) / deals.length) * 100).toFixed(1)}%`
       ]);
       
       autoTable(doc, {

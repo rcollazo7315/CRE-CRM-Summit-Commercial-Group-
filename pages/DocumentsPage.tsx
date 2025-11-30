@@ -48,7 +48,7 @@ const DocumentsPage: React.FC<DocumentsPageProps> = ({ deals, initialFilterDealI
         id: Math.random().toString(36).substr(2, 9),
         name: file.name,
         type: file.name.split('.').pop()?.toUpperCase() || 'FILE',
-        size: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
+        size: `${(file.size / 1024).toFixed(0)} KB`,
         uploadDate: new Date().toISOString(),
         dealId: selectedDealId,
         url: '' // Will be populated by storage URL in the API
@@ -69,7 +69,7 @@ const DocumentsPage: React.FC<DocumentsPageProps> = ({ deals, initialFilterDealI
 
   const handleDownload = async (doc: DocumentFile) => {
     if (!doc.url) {
-      alert("File URL not found. It may still be processing.");
+      console.log("File URL not found. It may still be processing.");
       return;
     }
     window.open(doc.url, '_blank');
@@ -78,13 +78,11 @@ const DocumentsPage: React.FC<DocumentsPageProps> = ({ deals, initialFilterDealI
   // Flatten documents from deals for the view with strict array check
   const allDocs = deals.flatMap(deal => {
     const docs = Array.isArray(deal.documents) ? deal.documents : [];
-    return docs
-      .filter(doc => doc && doc.url)
-      .map((doc) => ({
-        ...doc,
-        dealAddress: deal.propertyAddress,
-        dealId: deal.id
-      }));
+    return docs.map((doc) => ({
+      ...doc,
+      dealAddress: deal.propertyAddress,
+      dealId: deal.id
+    }));
   });
 
   const filteredDocs = allDocs.filter(doc => {
@@ -195,7 +193,7 @@ const DocumentsPage: React.FC<DocumentsPageProps> = ({ deals, initialFilterDealI
                           </button>
                           <button 
                             onClick={() => {
-                              if(confirm('Are you sure you want to delete this file?')) onDeleteDocument((doc as any).dealId, doc.id);
+                              if(true) onDeleteDocument((doc as any).dealId, doc.id);
                             }} 
                             className="text-slate-400 hover:text-red-600"
                           >

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Plus, ArrowUpRight, DollarSign, Clock, ChevronDown, MessageSquare, Briefcase, FileText, CheckCircle, Trash2, MapPin, Undo2, Loader2 } from 'lucide-react';
+import { Plus, ArrowUpRight, DollarSign, Clock, ChevronDown, MessageSquare, Briefcase, FileText, CheckCircle, Trash2, MapPin, Undo2, Loader2, Building2 } from 'lucide-react';
 import { Deal, DealStatus, Task } from '../types';
 import { api } from '../services/firestore';
 import TaskModal from '../components/TaskModal';
@@ -63,7 +63,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
 
   const handleReopenDeal = (deal: Deal, e: React.MouseEvent) => {
     e.stopPropagation();
-    if(confirm('Do you want to reopen this deal? It will be moved back to Active Deals.')) {
+    if(true) { // Auto-confirm
         onSaveDeal({ ...deal, status: DealStatus.ACTIVE });
     }
   };
@@ -99,221 +99,119 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
 
   // -- Task Filtering --
   const pendingTasks = tasks.filter(t => t.status !== 'completed').sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
-  const overdueTasks = pendingTasks.filter(t => {
-     const due = new Date(`${t.dueDate}T${t.dueTime}`);
-     return due < new Date();
-  });
-
-  const StatsCard = ({ title, value, subtext, icon: Icon, colorClass }: any) => (
-    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex items-start justify-between hover:shadow-md transition-shadow">
-      <div>
-        <p className="text-slate-500 text-sm font-medium mb-1">{title}</p>
-        <h3 className="text-2xl font-bold text-slate-900">{value}</h3>
-        {subtext && <p className="text-xs text-slate-400 mt-2 font-medium">{subtext}</p>}
-      </div>
-      <div className={`p-3 rounded-lg ${colorClass}`}>
-        <Icon size={20} />
-      </div>
-    </div>
-  );
 
   return (
-    <div className="max-w-7xl mx-auto space-y-6 pb-10">
-      
+    <div className="max-w-7xl mx-auto pb-10">
+      <div className="flex justify-between items-end mb-8">
+        <div>
+          <h1 className="text-3xl font-bold text-slate-900">
+            {activeTab === 'dashboard' ? 'Overview' : activeTab === 'closed-deals' ? 'Closed Deals' : 'Active Deals'}
+          </h1>
+          <p className="text-slate-500 mt-1">
+            {activeTab === 'dashboard' 
+              ? `Welcome back! You have ${activeDealsCount} active deals and ${pendingTasks.length} pending tasks.`
+              : `Manage your ${activeTab === 'closed-deals' ? 'closed' : 'active'} transactions.`}
+          </p>
+        </div>
+        <div className="flex gap-3">
+          <button onClick={onOpenAi} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg font-medium hover:bg-slate-50 flex items-center gap-2 transition-colors">
+            <MessageSquare size={18} /> AI Assistant
+          </button>
+          <button onClick={onAddDeal} className="bg-summit-900 text-white px-4 py-2 rounded-lg font-medium hover:bg-summit-800 flex items-center gap-2 shadow-lg shadow-summit-900/10 transition-all transform hover:-translate-y-0.5">
+            <Plus size={18} /> New Deal
+          </button>
+        </div>
+      </div>
+
       {activeTab === 'dashboard' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <StatsCard title="Active Deals" value={activeDealsCount} subtext="Current Portfolio" icon={Briefcase} colorClass="bg-blue-100 text-blue-600" />
-          <StatsCard title="Total Offers" value={totalOffers} subtext="Activity Level" icon={DollarSign} colorClass="bg-green-100 text-green-600" />
-          <StatsCard title="Pending Tasks" value={pendingTasks.length} subtext={`${overdueTasks.length} Overdue`} icon={CheckCircle} colorClass="bg-purple-100 text-purple-600" />
-          <StatsCard title="Pipeline Value" value={`$${(pipelineValue / 1000000).toFixed(1)}M`} subtext="Total Asking (Active)" icon={ArrowUpRight} colorClass="bg-orange-100 text-orange-600" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex items-center justify-between">
+             <div>
+               <p className="text-slate-500 text-sm font-bold uppercase tracking-wider">Active Pipeline</p>
+               <h3 className="text-2xl font-bold text-slate-900 mt-1">${(pipelineValue / 1000000).toFixed(1)}M</h3>
+               <p className="text-xs text-green-600 font-bold mt-2 flex items-center"><ArrowUpRight size={12} className="mr-1"/> +12% vs last month</p>
+             </div>
+             <div className="w-12 h-12 bg-blue-50 rounded-full flex items-center justify-center text-blue-600">
+               <DollarSign size={24} />
+             </div>
+          </div>
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex items-center justify-between">
+             <div>
+               <p className="text-slate-500 text-sm font-bold uppercase tracking-wider">Active Deals</p>
+               <h3 className="text-2xl font-bold text-slate-900 mt-1">{activeDealsCount}</h3>
+               <p className="text-xs text-slate-400 font-bold mt-2"> across 3 property types</p>
+             </div>
+             <div className="w-12 h-12 bg-purple-50 rounded-full flex items-center justify-center text-purple-600">
+               <Briefcase size={24} />
+             </div>
+          </div>
+           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex items-center justify-between">
+             <div>
+               <p className="text-slate-500 text-sm font-bold uppercase tracking-wider">Pending Tasks</p>
+               <h3 className="text-2xl font-bold text-slate-900 mt-1">{pendingTasks.length}</h3>
+               <p className="text-xs text-amber-600 font-bold mt-2">{pendingTasks.filter(t => t.priority === 'urgent').length} urgent</p>
+             </div>
+             <div className="w-12 h-12 bg-amber-50 rounded-full flex items-center justify-center text-amber-600">
+               <Clock size={24} />
+             </div>
+          </div>
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        
-        {/* Main Deals Table Area */}
-        <div className={`${activeTab !== 'dashboard' ? 'col-span-4' : 'lg:col-span-3'} space-y-6`}>
-          <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden min-h-[400px]">
-            <div className="p-5 border-b border-slate-100 flex flex-wrap gap-4 justify-between items-center">
-              <h2 className="text-lg font-bold text-slate-800">
-                {activeTab === 'closed-deals' ? 'Closed Deals' : 'Deal Flow'}
-              </h2>
-              <div className="flex gap-2">
-                {activeTab !== 'closed-deals' && (
-                  <div className="relative">
-                    <select 
-                      value={filterStatus}
-                      onChange={(e) => setFilterStatus(e.target.value)}
-                      className="appearance-none bg-slate-50 border border-slate-200 text-slate-700 text-sm rounded-lg pl-3 pr-8 py-2 focus:ring-summit-accent outline-none cursor-pointer"
-                    >
-                      <option value="all">All Statuses</option>
-                      {Object.values(DealStatus).filter(s => s !== DealStatus.COMPLETED).map(s => <option key={s} value={s}>{s}</option>)}
-                    </select>
-                    <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                  </div>
-                )}
-                
-                {activeTab !== 'closed-deals' && (
-                    <button 
-                    onClick={onAddDeal}
-                    className="bg-summit-900 text-white hover:bg-summit-800 text-sm font-medium px-4 py-2 rounded-lg flex items-center gap-2 transition-colors"
-                    >
-                    <Plus size={16} /> New Deal
-                    </button>
-                )}
+      {/* Deals Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {displayedDeals.length > 0 ? displayedDeals.map(deal => (
+          <div key={deal.id} onClick={() => onDealClick(deal.id)} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden hover:shadow-md transition-all cursor-pointer group flex flex-col h-full">
+            <div className="h-48 overflow-hidden relative">
+              <img src={deal.imageUrl} alt={deal.propertyAddress} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+              <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-sm px-3 py-1 rounded-full text-xs font-bold text-slate-800 shadow-sm">
+                {deal.status}
               </div>
             </div>
-            
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="bg-slate-50 text-slate-500 text-xs uppercase tracking-wider font-semibold">
-                    <th className="p-4">Property</th>
-                    <th className="p-4">Status</th>
-                    <th className="p-4 text-right">Price</th>
-                    <th className="p-4 text-center">Offers</th>
-                    <th className="p-4">Last Updated</th>
-                    <th className="p-4 text-center">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {displayedDeals.length > 0 ? (
-                    displayedDeals.map((deal) => (
-                      <tr key={deal.id} className="hover:bg-slate-50 transition-colors group">
-                        <td className="p-4 cursor-pointer" onClick={() => onDealClick(deal.id)}>
-                          <div className="flex items-center gap-3">
-                            <img src={deal.imageUrl} alt="Prop" className="w-10 h-10 rounded-lg object-cover" />
-                            <div>
-                              <p className="font-semibold text-slate-800 text-sm">{deal.propertyAddress.split(',')[0]}</p>
-                              <div className="flex items-center text-xs text-slate-500 mt-0.5">
-                                <MapPin size={10} className="mr-1" />
-                                {deal.propertyType}
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-                        <td className="p-4 cursor-pointer" onClick={() => onDealClick(deal.id)}>
-                           <span className={`px-2.5 py-1 rounded-full text-xs font-semibold whitespace-nowrap
-                             ${deal.status === DealStatus.ACTIVE ? 'bg-green-100 text-green-700' : 
-                               deal.status === DealStatus.NEGOTIATING ? 'bg-amber-100 text-amber-700' : 
-                               deal.status === DealStatus.COMPLETED ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600'}`
-                           }>
-                            {deal.status}
-                          </span>
-                        </td>
-                        <td className="p-4 text-right font-medium text-slate-700 text-sm cursor-pointer" onClick={() => onDealClick(deal.id)}>
-                          ${deal.askingPrice.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                        </td>
-                        <td className="p-4 text-center text-slate-600 text-sm cursor-pointer" onClick={() => onDealClick(deal.id)}>
-                          {deal.offersReceived}
-                        </td>
-                        <td className="p-4 text-xs text-slate-500 cursor-pointer" onClick={() => onDealClick(deal.id)}>
-                          {new Date(deal.lastUpdated).toLocaleDateString()}
-                        </td>
-                        <td className="p-4 text-center flex items-center justify-center gap-2">
-                          {activeTab === 'closed-deals' && (
-                            <button
-                                onClick={(e) => handleReopenDeal(deal, e)}
-                                className="text-slate-400 hover:text-summit-accent p-2 rounded-full hover:bg-green-50 transition-colors"
-                                title="Reopen Deal (Move to Active)"
-                            >
-                                <Undo2 size={16} />
-                            </button>
-                          )}
-                          <button 
-                            onClick={(e) => handleDeleteClick(e, deal.id)}
-                            disabled={deletingDealId === deal.id}
-                            className="text-slate-400 hover:text-red-600 p-2 rounded-full hover:bg-red-50 transition-colors disabled:opacity-50"
-                            title="Delete Deal"
-                          >
-                            {deletingDealId === deal.id ? (
-                                <Loader2 size={16} className="animate-spin" />
-                            ) : (
-                                <Trash2 size={16} />
-                            )}
-                          </button>
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr>
-                      <td colSpan={6} className="p-12 text-center text-slate-400">
-                        <div className="flex flex-col items-center">
-                           <Briefcase size={40} className="mb-4 opacity-20" />
-                           <p className="font-medium">No deals found.</p>
-                           <p className="text-sm mt-1">
-                             {activeTab === 'closed-deals' 
-                              ? "You haven't closed any deals yet. Keep pushing!" 
-                              : "Start by clicking 'New Deal' to build your pipeline."}
-                           </p>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
+            <div className="p-5 flex-1 flex flex-col">
+              <div className="flex justify-between items-start mb-2">
+                 <div className="flex items-center gap-2 text-xs font-bold text-summit-accent uppercase tracking-wide">
+                   <Building2 size={12} /> {deal.propertyType}
+                 </div>
+                 <div className="text-xs text-slate-400">{new Date(deal.lastUpdated).toLocaleDateString()}</div>
+              </div>
+              <h3 className="font-bold text-lg text-slate-900 mb-1 leading-tight">{deal.propertyAddress}</h3>
+              <p className="text-slate-500 text-sm mb-4 line-clamp-2">{deal.description || 'No description provided.'}</p>
+              
+              <div className="mt-auto pt-4 border-t border-slate-100 flex items-center justify-between">
+                 <div className="font-bold text-slate-900">${deal.askingPrice.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}</div>
+                 <div className="flex gap-2">
+                    {deal.status === 'Archived' ? (
+                       <button onClick={(e) => handleReopenDeal(deal, e)} className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-full transition-colors" title="Reopen Deal">
+                         <Undo2 size={18} />
+                       </button>
+                    ) : (
+                       <button 
+                         onClick={(e) => handleDeleteClick(e, deal.id)} 
+                         disabled={deletingDealId === deal.id}
+                         className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors" title="Archive Deal"
+                       >
+                         {deletingDealId === deal.id ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />}
+                       </button>
+                    )}
+                 </div>
+              </div>
             </div>
           </div>
-        </div>
-
-        {/* Sidebar Widgets */}
-        {activeTab === 'dashboard' && (
-          <div className="lg:col-span-1 space-y-6">
-             {/* Quick Actions */}
-             <div className="bg-summit-900 rounded-xl shadow-lg text-white p-6">
-               <h3 className="font-bold mb-4">Quick Actions</h3>
-               <div className="grid grid-cols-2 gap-3">
-                  <button onClick={onAddDeal} className="bg-white/10 hover:bg-white/20 p-3 rounded-lg text-sm font-medium flex flex-col items-center gap-1">
-                    <Plus size={16} /> Add Deal
-                  </button>
-                  <button onClick={() => { setEditingTask(undefined); setIsTaskModalOpen(true); }} className="bg-white/10 hover:bg-white/20 p-3 rounded-lg text-sm font-medium flex flex-col items-center gap-1">
-                    <CheckCircle size={16} /> Add Task
-                  </button>
-                  <button onClick={() => onRouteChange('documents')} className="bg-white/10 hover:bg-white/20 p-3 rounded-lg text-sm font-medium flex flex-col items-center gap-1">
-                    <FileText size={16} /> Docs
-                  </button>
-                  <button onClick={onOpenAi} className="bg-summit-accent text-summit-900 hover:bg-emerald-400 p-3 rounded-lg text-sm font-bold flex flex-col items-center gap-1">
-                    <MessageSquare size={16} /> AI Chat
-                  </button>
-               </div>
-             </div>
-
-             {/* Tasks Widget */}
-             <div className="bg-white rounded-xl shadow-sm border border-slate-100 flex flex-col h-96">
-                <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50 rounded-t-xl">
-                  <h3 className="font-bold text-slate-800 flex items-center gap-2">
-                    <CheckCircle size={16} className="text-summit-accent" /> Tasks
-                  </h3>
-                  <span className="text-xs bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full">{pendingTasks.length}</span>
-                </div>
-                <div className="flex-1 overflow-y-auto p-2 space-y-1">
-                   {pendingTasks.length > 0 ? pendingTasks.map(task => (
-                     <div key={task.id} className={`p-3 rounded-lg border hover:bg-slate-50 transition-colors flex gap-3 ${new Date(`${task.dueDate}T${task.dueTime}`) < new Date() ? 'border-red-100 bg-red-50/30' : 'border-slate-100'}`}>
-                        <button onClick={() => toggleTaskComplete(task)} className="mt-1 text-slate-300 hover:text-green-500">
-                          <CheckCircle size={18} />
-                        </button>
-                        <div className="flex-1 min-w-0 cursor-pointer" onClick={() => { setEditingTask(task); setIsTaskModalOpen(true); }}>
-                           <p className={`text-sm font-medium truncate ${new Date(`${task.dueDate}T${task.dueTime}`) < new Date() ? 'text-red-700' : 'text-slate-800'}`}>{task.title}</p>
-                           <p className="text-xs text-slate-500 flex items-center gap-1 mt-1">
-                              <Clock size={10} /> {new Date(task.dueDate).toLocaleDateString()} at {task.dueTime}
-                           </p>
-                        </div>
-                     </div>
-                   )) : (
-                     <div className="h-full flex flex-col items-center justify-center text-slate-400 p-4 text-center">
-                        <CheckCircle size={24} className="mb-2 opacity-20" />
-                        <p className="text-xs">All caught up!</p>
-                     </div>
-                   )}
-                </div>
-             </div>
+        )) : (
+          <div className="col-span-full py-20 text-center">
+            <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-300">
+              <Building2 size={40} />
+            </div>
+            <h3 className="text-lg font-bold text-slate-700">No deals found</h3>
+            <p className="text-slate-500">Get started by creating a new deal or adjusting filters.</p>
           </div>
         )}
       </div>
 
       <TaskModal 
-        isOpen={isTaskModalOpen}
-        onClose={() => setIsTaskModalOpen(false)}
+        isOpen={isTaskModalOpen} 
+        onClose={() => setIsTaskModalOpen(false)} 
         onSave={handleSaveTask}
         initialData={editingTask}
       />
