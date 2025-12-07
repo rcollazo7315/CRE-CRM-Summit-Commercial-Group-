@@ -25,9 +25,8 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
   const [editingTask, setEditingTask] = useState<Partial<Task> | undefined>(undefined);
   const [mapError, setMapError] = useState(false);
   
-  // Document Upload/Delete State
+  // Document Upload State
   const [isUploading, setIsUploading] = useState(false);
-  const [deletingDocId, setDeletingDocId] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const loadTasks = async () => {
@@ -55,8 +54,12 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
     setIsTaskModalOpen(false);
   };
 
-  const handleStatusChange = (newStatus: DealStatus) => {
-    onUpdateDeal({ ...deal, status: newStatus });
+  const handleStatusChange = (value: string) => {
+    if (value === 'DELETE') {
+      onDeleteDeal();
+    } else {
+      onUpdateDeal({ ...deal, status: value as DealStatus });
+    }
   };
 
   // Google Maps Embed URL
@@ -73,7 +76,7 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
         id: Math.random().toString(36).substr(2, 9),
         name: file.name,
         type: file.name.split('.').pop()?.toUpperCase() || 'FILE',
-        size: `${(file.size / 1024 / 1024).toFixed(2)} MB`,
+        size: `${(file.size / 1024).toFixed(0)} KB`,
         uploadDate: new Date().toISOString(),
         dealId: deal.id,
         url: '' // API will populate
@@ -89,25 +92,6 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
     }
   };
 
-  const handleDeleteDocument = async (docId: string) => {
-    const doc = deal.documents?.find(d => d.id === docId);
-    
-    if (false) { // was !confirm
-      return;
-    }
-    
-    setDeletingDocId(docId);
-    
-    try {
-      await onDeleteDocument(deal.id, docId);
-    } catch (error: any) {
-      console.error('Delete error:', error);
-      console.log(`Failed to delete document: ${error.message || 'Unknown error'}`);
-    } finally {
-      setDeletingDocId(null);
-    }
-  };
-
   const handleDownload = (doc: DocumentFile) => {
     if (!doc.url) {
         console.log("File URL not found.");
@@ -115,10 +99,6 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
     }
     window.open(doc.url, '_blank');
   };
-
-  // Filter valid docs with strict array safety
-  const docs = Array.isArray(deal.documents) ? deal.documents : [];
-  const validDocs = docs.filter(d => d && d.url);
 
   return (
     <div className="max-w-6xl mx-auto pb-10">
@@ -146,10 +126,11 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
              <div className="relative">
                 <select 
                   value={deal.status}
-                  onChange={(e) => handleStatusChange(e.target.value as DealStatus)}
+                  onChange={(e) => handleStatusChange(e.target.value)}
                   className="appearance-none bg-slate-50 border border-slate-200 text-slate-700 font-semibold rounded-lg pl-4 pr-10 py-2.5 focus:ring-2 focus:ring-summit-accent outline-none cursor-pointer"
                 >
                   {Object.values(DealStatus).map(s => <option key={s} value={s}>{s}</option>)}
+                  <option value="DELETE" className="text-red-600 bg-red-50 font-bold">Delete Deal</option>
                 </select>
                 <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
                   <Edit size={14} />
@@ -167,7 +148,7 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
               Tasks <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-xs">{tasks.filter(t => t.status === 'pending').length}</span>
            </button>
            <button onClick={() => setActiveTab('documents')} className={`pb-3 font-medium text-sm border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'documents' ? 'border-summit-accent text-summit-900' : 'border-transparent text-slate-500 hover:text-slate-700'}`}>
-              Documents <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-xs">{validDocs.length}</span>
+              Documents <span className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full text-xs">{(deal.documents || []).length}</span>
            </button>
         </div>
       </div>

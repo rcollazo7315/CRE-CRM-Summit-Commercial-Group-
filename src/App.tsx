@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
@@ -263,7 +264,13 @@ const AppContent: React.FC = () => {
       <Route path="/" element={currentUser ? (
           <Layout activeTab={activeTab} setActiveTab={setActiveTab} user={currentUser} onLogout={handleLogout}>
             {renderContent()}
-            <DealModal isOpen={isDealModalOpen} onClose={() => setIsDealModalOpen(false)} onSave={handleSaveDeal} initialData={dealModalInitialData} />
+            <DealModal 
+              isOpen={isDealModalOpen} 
+              onClose={() => setIsDealModalOpen(false)} 
+              onSave={handleSaveDeal} 
+              initialData={dealModalInitialData}
+              onDelete={handleDeleteDeal}
+            />
             <AiChatModal isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
             <ConfirmModal
               isOpen={deleteConfirmModal.isOpen}

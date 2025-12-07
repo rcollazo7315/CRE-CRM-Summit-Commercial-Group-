@@ -1,7 +1,7 @@
 
 import { 
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, 
-  query, where, orderBy, serverTimestamp, Timestamp, writeBatch, arrayUnion
+  query, where, orderBy, serverTimestamp, Timestamp, writeBatch, arrayUnion, arrayRemove
 } from 'firebase/firestore';
 import { 
   createUserWithEmailAndPassword, 
@@ -255,14 +255,14 @@ export const api = {
         if (documents.length > 0 && storage) {
           console.log(`📋 Deleting ${documents.length} associated documents from storage...`);
           
-          for (const doc of documents) {
-            if (doc.storagePath) {
+          for (const docItem of documents) { // Fixed: Renamed from 'doc' to 'docItem'
+            if (docItem.storagePath) {
               try {
-                const storageRef = ref(storage, doc.storagePath);
+                const storageRef = ref(storage, docItem.storagePath);
                 await deleteObject(storageRef);
-                console.log(`✅ Deleted storage file: ${doc.name}`);
+                console.log(`✅ Deleted storage file: ${docItem.name}`);
               } catch (storageError: any) {
-                console.warn(`⚠️ Storage deletion warning for ${doc.name}:`, storageError.message);
+                console.warn(`⚠️ Storage deletion warning for ${docItem.name}:`, storageError.message);
               }
             }
           }
@@ -271,6 +271,29 @@ export const api = {
       
       await deleteDoc(dealRef);
       console.log(`✅ Deal deleted from Firestore`);
+      
+      // Verification step: confirm the deal is actually deleted
+      let attempts = 0;
+      let verified = false;
+      const maxAttempts = 5;
+
+      while (attempts < maxAttempts && !verified) {
+        attempts++;
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        const freshSnap = await getDoc(dealRef);
+        if (!freshSnap.exists()) {
+          verified = true;
+          console.log(`✅ Verified: Deal removed from Firestore (Attempt ${attempts})`);
+        } else {
+          console.log(`⏳ Deletion verification attempt ${attempts} pending...`);
+        }
+      }
+
+      if (!verified) {
+        console.warn("⚠️ Deal deletion verification timed out. The deal may still exist.");
+        // We continue anyway, but log the warning
+      }
       
       await api.recalcUserStats(userId);
       console.log(`✅ User stats recalculated`);
@@ -412,12 +435,8 @@ export const api = {
         }
       }
 
-      // Use array filter instead of arrayRemove to avoid strict object equality issues
-      // arrayRemove requires EXACT object match which can fail due to timestamp conversions
-      const updatedDocs = docs.filter((d: any) => d.id !== documentId);
-
       await updateDoc(dealRef, {
-        documents: updatedDocs,
+        documents: arrayRemove(docToDelete),
         lastUpdated: serverTimestamp()
       });
       console.log(`✅ Document metadata removed from Firestore`);

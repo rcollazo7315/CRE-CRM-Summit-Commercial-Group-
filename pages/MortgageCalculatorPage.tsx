@@ -1,11 +1,11 @@
 
 import React, { useState, useEffect } from 'react';
-import { Calculator, Save, Printer, RefreshCw, DollarSign, Info, Download } from 'lucide-react';
+import { Calculator, Save, RefreshCw, DollarSign, Info, Download } from 'lucide-react';
 import { MortgageCalculation } from '../types';
 import { api } from '../services/firestore';
 import { useAuth } from '../context/AuthContext';
 import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import 'jspdf-autotable';
 
 const MortgageCalculatorPage: React.FC = () => {
   // Input State
@@ -50,20 +50,6 @@ const MortgageCalculatorPage: React.FC = () => {
         }
     } catch (e) {
         console.error("Error loading calculations", e);
-    }
-  };
-
-  // Safe wrapper for autoTable to handle different import environments
-  const safeAutoTable = (doc: any, options: any) => {
-    const at = autoTable as any;
-    if (typeof at === 'function') {
-      at(doc, options);
-    } else if (at && typeof at.default === 'function') {
-      at.default(doc, options);
-    } else if (typeof doc.autoTable === 'function') {
-      doc.autoTable(options);
-    } else {
-      console.error("jspdf-autotable plugin not loaded correctly");
     }
   };
 
@@ -188,13 +174,15 @@ const MortgageCalculatorPage: React.FC = () => {
       ['Loan Term', `${loanTermYears} years`],
     ];
     
-    safeAutoTable(doc, {
-      startY: 55,
-      head: [['Item', 'Value']],
-      body: loanDetails,
-      theme: 'striped',
-      headStyles: { fillColor: [16, 61, 49] }
-    });
+    if ((doc as any).autoTable) {
+        (doc as any).autoTable({
+            startY: 55,
+            head: [['Item', 'Value']],
+            body: loanDetails,
+            theme: 'striped',
+            headStyles: { fillColor: [16, 61, 49] }
+        });
+    }
     
     // Monthly Payment Breakdown
     const finalY = (doc as any).lastAutoTable?.finalY || 100;
@@ -208,14 +196,16 @@ const MortgageCalculatorPage: React.FC = () => {
       ['Total Monthly Payment', `$${totalMonthlyPayment.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`],
     ];
     
-    safeAutoTable(doc, {
-      startY: finalY + 15,
-      head: [['Component', 'Amount']],
-      body: monthlyBreakdown,
-      theme: 'striped',
-      headStyles: { fillColor: [16, 61, 49] },
-      footStyles: { fillColor: [16, 61, 49], fontStyle: 'bold' }
-    });
+    if ((doc as any).autoTable) {
+        (doc as any).autoTable({
+            startY: finalY + 15,
+            head: [['Component', 'Amount']],
+            body: monthlyBreakdown,
+            theme: 'striped',
+            headStyles: { fillColor: [16, 61, 49] },
+            footStyles: { fillColor: [16, 61, 49], fontStyle: 'bold' }
+        });
+    }
     
     // Investment Metrics
     const finalY2 = (doc as any).lastAutoTable?.finalY || 150;
@@ -233,13 +223,15 @@ const MortgageCalculatorPage: React.FC = () => {
       ['Cap Rate', propertyValue > 0 ? `${((annualNOI / propertyValue) * 100).toFixed(2)}%` : 'N/A'],
     ];
     
-    safeAutoTable(doc, {
-      startY: finalY2 + 15,
-      head: [['Metric', 'Value']],
-      body: metrics,
-      theme: 'striped',
-      headStyles: { fillColor: [16, 61, 49] }
-    });
+    if ((doc as any).autoTable) {
+        (doc as any).autoTable({
+            startY: finalY2 + 15,
+            head: [['Metric', 'Value']],
+            body: metrics,
+            theme: 'striped',
+            headStyles: { fillColor: [16, 61, 49] }
+        });
+    }
     
     // Amortization Schedule (First 12 Months)
     const finalY3 = (doc as any).lastAutoTable?.finalY || 200;
@@ -266,14 +258,16 @@ const MortgageCalculatorPage: React.FC = () => {
         ]);
       }
       
-      safeAutoTable(doc, {
-        startY: finalY3 + 15,
-        head: [['Month', 'Payment', 'Principal', 'Interest', 'Balance']],
-        body: amortRows,
-        theme: 'striped',
-        headStyles: { fillColor: [16, 61, 49] },
-        styles: { fontSize: 8 }
-      });
+      if ((doc as any).autoTable) {
+        (doc as any).autoTable({
+            startY: finalY3 + 15,
+            head: [['Month', 'Payment', 'Principal', 'Interest', 'Balance']],
+            body: amortRows,
+            theme: 'striped',
+            headStyles: { fillColor: [16, 61, 49] },
+            styles: { fontSize: 8 }
+        });
+      }
     }
     
     const pageCount = doc.internal.pages.length - 1;

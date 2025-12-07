@@ -9,9 +9,10 @@ interface DealModalProps {
   onClose: () => void;
   onSave: (dealData: any) => void;
   initialData?: Deal | null;
+  onDelete?: (dealId: string) => void;
 }
 
-const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialData }) => {
+const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialData, onDelete }) => {
   const [loadingAi, setLoadingAi] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
@@ -94,6 +95,16 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
+    
+    // Intercept delete action
+    if (name === 'status' && value === 'DELETE') {
+        if (initialData?.id && onDelete) {
+            onDelete(initialData.id);
+            onClose(); // Close modal to let the app show confirmation
+        }
+        return;
+    }
+
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
@@ -111,7 +122,7 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
 
   const handleAiGenerate = async () => {
     if (!formData.propertyAddress || !formData.askingPrice) {
-      alert("Please enter at least address and price to generate a description.");
+      console.log("Please enter at least address and price to generate a description.");
       return;
     }
     const cleanPrice = parseFloat(formData.askingPrice.toString().replace(/,/g, ''));
@@ -228,6 +239,9 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
                   {Object.values(DealStatus).map(s => (
                     <option key={s} value={s}>{s}</option>
                   ))}
+                  {initialData && (
+                    <option value="DELETE" className="text-red-600 font-bold bg-red-50">Delete Deal</option>
+                  )}
                 </select>
               </div>
             </div>

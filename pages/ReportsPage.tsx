@@ -1,8 +1,9 @@
+
 import React from 'react';
 import { BarChart, TrendingUp, PieChart, Download, ArrowUp } from 'lucide-react';
 import { Deal, DealStatus, UserAccount } from '../types';
 import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import 'jspdf-autotable';
 
 interface ReportsPageProps {
   deals: Deal[];
@@ -44,20 +45,6 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals, users, currentUser }) 
 
   const sortedAgents = [...displayAgents].sort((a, b) => Number(b.stats?.totalVolume || 0) - Number(a.stats?.totalVolume || 0));
 
-  // Helper to safely call autoTable regardless of import structure
-  const safeAutoTable = (doc: any, options: any) => {
-    const at = autoTable as any;
-    if (typeof at === 'function') {
-      at(doc, options);
-    } else if (at && typeof at.default === 'function') {
-      at.default(doc, options);
-    } else if (doc.autoTable) {
-      doc.autoTable(options);
-    } else {
-        console.error("jspdf-autotable plugin not loaded correctly");
-    }
-  };
-
   const handlePrint = () => {
     const doc = new jsPDF();
     const today = new Date().toLocaleDateString();
@@ -87,13 +74,15 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals, users, currentUser }) 
       ['Closed Deals', closedCount.toString()],
     ];
     
-    safeAutoTable(doc, {
-      startY: 60,
-      head: [['Metric', 'Value']],
-      body: summaryStats,
-      theme: 'grid',
-      headStyles: { fillColor: [16, 61, 49] }
-    });
+    if ((doc as any).autoTable) {
+        (doc as any).autoTable({
+            startY: 60,
+            head: [['Metric', 'Value']],
+            body: summaryStats,
+            theme: 'grid',
+            headStyles: { fillColor: [16, 61, 49] }
+        });
+    }
     
     // Agent Performance Table
     const finalY = Number((doc as any).lastAutoTable?.finalY || 100);
@@ -115,21 +104,23 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals, users, currentUser }) 
       ];
     });
     
-    safeAutoTable(doc, {
-      startY: finalY + 15,
-      head: [['Agent', 'Total Deals', 'Closed', 'Volume', 'Commission']],
-      body: agentData,
-      theme: 'striped',
-      headStyles: { fillColor: [16, 61, 49] },
-      styles: { fontSize: 9 },
-      columnStyles: {
-        0: { cellWidth: 50 },
-        1: { halign: 'center' },
-        2: { halign: 'center' },
-        3: { halign: 'right' },
-        4: { halign: 'right' }
-      }
-    });
+    if ((doc as any).autoTable) {
+        (doc as any).autoTable({
+            startY: finalY + 15,
+            head: [['Agent', 'Total Deals', 'Closed', 'Volume', 'Commission']],
+            body: agentData,
+            theme: 'striped',
+            headStyles: { fillColor: [16, 61, 49] },
+            styles: { fontSize: 9 },
+            columnStyles: {
+                0: { cellWidth: 50 },
+                1: { halign: 'center' },
+                2: { halign: 'center' },
+                3: { halign: 'right' },
+                4: { halign: 'right' }
+            }
+        });
+    }
     
     // Deal Status Breakdown
     const finalY2 = Number((doc as any).lastAutoTable?.finalY || 150);
@@ -144,13 +135,15 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals, users, currentUser }) 
         `${((Number(count) / deals.length) * 100).toFixed(1)}%`
       ]);
       
-      safeAutoTable(doc, {
-        startY: finalY2 + 15,
-        head: [['Status', 'Count', 'Percentage']],
-        body: statusData,
-        theme: 'grid',
-        headStyles: { fillColor: [16, 61, 49] }
-      });
+      if ((doc as any).autoTable) {
+        (doc as any).autoTable({
+            startY: finalY2 + 15,
+            head: [['Status', 'Count', 'Percentage']],
+            body: statusData,
+            theme: 'grid',
+            headStyles: { fillColor: [16, 61, 49] }
+        });
+      }
     }
     
     const pageCount = doc.internal.pages.length - 1;
