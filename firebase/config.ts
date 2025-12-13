@@ -1,3 +1,4 @@
+
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
 import { getFirestore, Firestore } from 'firebase/firestore';
 import { getAuth, Auth } from 'firebase/auth';
@@ -29,13 +30,13 @@ try {
   
   db = getFirestore(app);
   auth = getAuth(app);
-  storage = getStorage(app);
-  console.log("Firebase initialized successfully with Storage");
+  storage = getStorage(app); // Initialize Storage
+  console.log("Firebase initialized successfully with hardcoded keys");
 } catch (error) {
   console.error("Firebase Initialization Critical Error:", error);
 }
 
-// Export instances
+// Export instances - Added storage to export
 export { app, db, auth, storage };
 
 // Helper to check if we are good to go

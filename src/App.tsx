@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { Component, useState, useEffect, ErrorInfo, ReactNode } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import AuthPage from './pages/AuthPage';
@@ -12,12 +12,68 @@ import CommunicationsPage from './pages/CommunicationsPage';
 import LeadGenPage from './pages/LeadGenPage';
 import AdminDashboardPage from './pages/AdminDashboardPage';
 import MortgageCalculatorPage from './pages/MortgageCalculatorPage';
+import ContactsPage from './pages/ContactsPage';
 import DealModal from './components/DealModal';
 import AiChatModal from './components/AiChatModal';
 import ConfirmModal from './components/ConfirmModal';
-import { Deal, LeadGenLog, UserAccount, DocumentFile } from './types';
+import { Deal, LeadGenLog, UserAccount, DocumentFile, Contact, ContactInteraction } from './types';
 import { api } from './services/firestore';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { AlertTriangle, RefreshCw } from 'lucide-react';
+
+// Error Boundary Component
+interface ErrorBoundaryProps {
+  children?: ReactNode;
+}
+
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  constructor(props: ErrorBoundaryProps) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("Uncaught error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+          <div className="bg-white p-8 rounded-xl shadow-xl max-w-md w-full text-center">
+            <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4">
+              <AlertTriangle size={32} />
+            </div>
+            <h1 className="text-xl font-bold text-slate-900 mb-2">Something went wrong</h1>
+            <p className="text-slate-500 mb-6 text-sm">
+              The application encountered an unexpected error. Please try refreshing the page.
+            </p>
+            <div className="bg-slate-100 p-3 rounded text-xs font-mono text-left mb-6 overflow-auto max-h-32 text-red-800">
+              {this.state.error?.message}
+            </div>
+            <button 
+              onClick={() => window.location.reload()} 
+              className="bg-summit-900 text-white px-6 py-2 rounded-lg font-medium hover:bg-summit-800 flex items-center justify-center gap-2 w-full transition-colors"
+            >
+              <RefreshCw size={16} /> Reload Page
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 // Wrapper to handle Auth State Loading
 const AppContent: React.FC = () => {
@@ -26,6 +82,7 @@ const AppContent: React.FC = () => {
   
   // -- Data State --
   const [deals, setDeals] = useState<Deal[]>([]);
+  const [contacts, setContacts] = useState<Contact[]>([]);
   const [allUsers, setAllUsers] = useState<UserAccount[]>([]);
   const [leadGenLogs, setLeadGenLogs] = useState<LeadGenLog[]>([]);
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
@@ -59,15 +116,21 @@ const AppContent: React.FC = () => {
       loadUserData(currentUser.id, currentUser.role === 'admin');
     } else {
       setDeals([]);
+      setContacts([]);
     }
   }, [currentUser]);
 
   const loadUserData = async (userId: string, isAdmin: boolean) => {
     try {
+      // 1. Get Deals
       const userDeals = await api.getDeals(userId, isAdmin);
       setDeals(userDeals);
       
-      // Load users for reports/admin views
+      // 2. Get Contacts
+      const userContacts = await api.getContacts(userId, isAdmin);
+      setContacts(userContacts);
+      
+      // 3. Get Users (for Admin/Reports)
       if (isAdmin) {
         const users = await api.getUsers();
         setAllUsers(users);
@@ -99,7 +162,7 @@ const AppContent: React.FC = () => {
 
     const deal = deals.find(d => d.id === dealId);
     if (!deal) {
-        console.log('Deal not found');
+        console.log('Deal not found in state');
         return;
     }
     
@@ -122,28 +185,49 @@ const AppContent: React.FC = () => {
     setDeleteConfirmModal(prev => ({ ...prev, isDeleting: true }));
 
     try {
-       await api.deleteDeal(deleteConfirmModal.dealId, currentUser.id);
-       await loadUserData(currentUser.id, currentUser.role === 'admin');
-       
-       if (selectedDealId === deleteConfirmModal.dealId) {
-         setSelectedDealId(null);
-         setActiveTab('deals');
-       }
-       if (activeTab === 'deal-details') {
-          setActiveTab('deals');
-       }
-       
-       setDeleteConfirmModal({
-         isOpen: false,
-         dealId: null,
-         dealAddress: '',
-         hasDocuments: false,
-         documentCount: 0,
-         isDeleting: false
-       });
+      console.log(`🚀 Executing delete for deal: ${deleteConfirmModal.dealId}`);
+      
+      await api.deleteDeal(deleteConfirmModal.dealId, currentUser.id);
+      
+      console.log(`✅ Delete successful, reloading data...`);
+      await loadUserData(currentUser.id, currentUser.role === 'admin');
+      
+      // Navigate away if we're currently viewing this deal
+      if (selectedDealId === deleteConfirmModal.dealId) {
+        setSelectedDealId(null);
+        setActiveTab('deals');
+      }
+      if (activeTab === 'deal-details') {
+        setActiveTab('deals');
+      }
+      
+      console.log(`🎉 Deal deleted successfully!`);
+      
+      // Close modal
+      setDeleteConfirmModal({
+        isOpen: false,
+        dealId: null,
+        dealAddress: '',
+        hasDocuments: false,
+        documentCount: 0,
+        isDeleting: false
+      });
+      
     } catch (error: any) {
-       console.error("Delete failed", error);
-       setDeleteConfirmModal(prev => ({ ...prev, isDeleting: false }));
+      console.error("❌ Delete failed:", error);
+      
+      let errorMessage = "Failed to delete deal. ";
+      
+      if (error.message.includes('Permission denied')) {
+        errorMessage = "You don't have permission to delete this deal. Check your role or database rules.";
+      } else if (error.message.includes('Storage')) {
+        errorMessage += "Storage permissions may be blocking file deletion.";
+      } else {
+        errorMessage += error.message;
+      }
+      
+      alert(errorMessage);
+      setDeleteConfirmModal(prev => ({ ...prev, isDeleting: false }));
     }
   };
 
@@ -164,6 +248,46 @@ const AppContent: React.FC = () => {
     if (!currentUser) return;
     await api.updateUserProfile(currentUser.id, updatedData);
     refreshUser();
+  };
+
+  // Contact Handlers
+  const handleSaveContact = async (contact: Contact) => {
+    if (!currentUser) return;
+    const contactWithUser = { ...contact, userId: currentUser.id };
+    await api.saveContact(contactWithUser);
+    await loadUserData(currentUser.id, currentUser.role === 'admin');
+  };
+
+  const handleDeleteContact = async (contactId: string) => {
+    if (!currentUser) return;
+    await api.deleteContact(contactId);
+    await loadUserData(currentUser.id, currentUser.role === 'admin');
+  };
+
+  const handleAddInteraction = async (contactId: string, interaction: ContactInteraction) => {
+    if (!currentUser) return;
+    await api.addContactInteraction(contactId, interaction);
+    await loadUserData(currentUser.id, currentUser.role === 'admin');
+  };
+
+  const handleLinkDeal = async (contactId: string, dealId: string) => {
+    if (!currentUser) return;
+    await api.linkContactToDeal(contactId, dealId);
+    await loadUserData(currentUser.id, currentUser.role === 'admin');
+  };
+
+  const handleUnlinkDeal = async (contactId: string, dealId: string) => {
+    if (!currentUser) return;
+    await api.unlinkContactFromDeal(contactId, dealId);
+    await loadUserData(currentUser.id, currentUser.role === 'admin');
+  };
+
+  const handleImportContacts = async (newContacts: Contact[]) => {
+    if (!currentUser) return;
+    for (const c of newContacts) {
+      await api.saveContact({ ...c, userId: currentUser.id });
+    }
+    await loadUserData(currentUser.id, currentUser.role === 'admin');
   };
 
   // Document Handlers
@@ -190,7 +314,12 @@ const AppContent: React.FC = () => {
     }
   };
 
-  if (loading) return <div className="h-screen flex items-center justify-center bg-slate-50 text-slate-400">Loading SummitCG...</div>;
+  if (loading) return (
+    <div className="h-screen flex flex-col items-center justify-center bg-slate-50 text-slate-400">
+      <div className="w-10 h-10 border-4 border-summit-900 border-t-transparent rounded-full animate-spin mb-4"></div>
+      Loading SummitCG...
+    </div>
+  );
 
   const renderContent = () => {
     if (activeTab === 'admin-dashboard' && currentUser?.role === 'admin') {
@@ -215,7 +344,7 @@ const AppContent: React.FC = () => {
         );
       case 'deal-details':
         const deal = deals.find(d => d.id === selectedDealId);
-        if (!deal) return <div>Deal not found</div>;
+        if (!deal) return <div className="p-8 text-center text-slate-500">Deal not found. It may have been deleted.</div>;
         return (
           <DealDetailsPage 
             deal={deal} 
@@ -226,6 +355,19 @@ const AppContent: React.FC = () => {
             onViewDocuments={() => { setDocumentFilterId(deal.id); setActiveTab('documents'); }}
             onAddDocument={handleAddDocument}
             onDeleteDocument={handleDeleteDocument}
+          />
+        );
+      case 'contacts':
+        return (
+          <ContactsPage 
+            contacts={contacts}
+            deals={deals}
+            onSaveContact={handleSaveContact}
+            onDeleteContact={handleDeleteContact}
+            onAddInteraction={handleAddInteraction}
+            onLinkDeal={handleLinkDeal}
+            onUnlinkDeal={handleUnlinkDeal}
+            onImportContacts={handleImportContacts}
           />
         );
       case 'calculator':
@@ -282,6 +424,7 @@ const AppContent: React.FC = () => {
                 : `Are you sure you want to delete "${deleteConfirmModal.dealAddress}"?\n\nThis action cannot be undone.`
               }
               confirmText={deleteConfirmModal.isDeleting ? "Deleting..." : "Delete Deal"}
+              cancelText="Cancel"
               variant="danger"
               requireTextConfirmation={deleteConfirmModal.hasDocuments}
               textConfirmationWord="DELETE"
@@ -296,11 +439,13 @@ const AppContent: React.FC = () => {
 
 const App: React.FC = () => {
   return (
-    <AuthProvider>
-      <HashRouter>
-        <AppContent />
-      </HashRouter>
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <HashRouter>
+          <AppContent />
+        </HashRouter>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 };
 

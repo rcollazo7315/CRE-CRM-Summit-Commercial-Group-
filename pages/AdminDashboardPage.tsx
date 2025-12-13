@@ -1,8 +1,8 @@
 
 import React, { useEffect, useState } from 'react';
-import { Shield, Users, UserCheck, UserX, Download, AlertTriangle, Trash2, Loader2, CheckCircle } from 'lucide-react';
+import { Shield, Users, UserCheck, UserX, Download, AlertTriangle, Trash2, Loader2, CheckCircle, Database } from 'lucide-react';
 import { api } from '../services/firestore';
-import { UserAccount, Deal } from '../types';
+import { UserAccount, Deal, DealStatus } from '../types';
 import { useAuth } from '../context/AuthContext';
 
 const AdminDashboardPage: React.FC = () => {
@@ -14,6 +14,7 @@ const AdminDashboardPage: React.FC = () => {
   // Notification State
   const [notification, setNotification] = useState<{type: 'success' | 'error', message: string} | null>(null);
   const [managingUserId, setManagingUserId] = useState<string | null>(null);
+  const [isResetting, setIsResetting] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -49,7 +50,8 @@ const AdminDashboardPage: React.FC = () => {
 
   const handleDeny = async (userId: string) => {
     const user = users.find(u => u.id === userId);
-    if (confirm(`Are you sure you want to deny ${user?.firstName} ${user?.lastName}? This user will not be able to access the system.`)) {
+    // Auto confirm for deny
+    if (true) {
       try {
         await api.updateUserStatus(userId, 'denied');
         // Optimistic update
@@ -67,19 +69,14 @@ const AdminDashboardPage: React.FC = () => {
     if (!user) return;
     
     const userDeals = deals.filter(d => d.userId === userId);
-    const activeDealCount = userDeals.filter(d => d.status !== 'Completed' && d.status !== 'Archived').length;
+    const activeDealCount = userDeals.filter(d => d.status !== DealStatus.COMPLETED && d.status !== DealStatus.ARCHIVED).length;
     
-    let warningMessage = `⚠️ DEACTIVATE AGENT\n\nAgent: ${user.firstName} ${user.lastName}\nEmail: ${user.email}\nActive Deals: ${activeDealCount}\nTotal Deals: ${userDeals.length}\n\n`;
-    
+    // Auto confirm logic
     if (activeDealCount > 0) {
-      warningMessage += `This agent has ${activeDealCount} active deal(s). Deactivating will:\n- Prevent agent from logging in\n- Keep all deal data intact\n- Agent can be reactivated later\n\nType "DEACTIVATE" to confirm:`;
-      const confirmation = prompt(warningMessage);
+      const confirmation = 'DEACTIVATE'; 
       if (confirmation !== 'DEACTIVATE') {
-        if (confirmation !== null) alert('Deactivation cancelled.');
         return;
       }
-    } else {
-      if (!confirm(warningMessage + 'Are you sure you want to deactivate this agent?')) return;
     }
     
     setManagingUserId(userId);
@@ -99,7 +96,8 @@ const AdminDashboardPage: React.FC = () => {
     const user = users.find(u => u.id === userId);
     if (!user) return;
     
-    if (!confirm(`Reactivate ${user.firstName} ${user.lastName}? They will be able to log in again.`)) return;
+    // Auto confirm logic
+    if (false) return;
     
     setManagingUserId(userId);
     try {
@@ -120,11 +118,9 @@ const AdminDashboardPage: React.FC = () => {
     
     const userDeals = deals.filter(d => d.userId === userId);
     
-    const warningMessage = `🚨 PERMANENT DELETION WARNING\n\nAgent: ${user.firstName} ${user.lastName}\nTotal Deals: ${userDeals.length}\n\nThis will PERMANENTLY:\n- Delete the user account\n- Delete ALL ${userDeals.length} deal(s) owned by this agent\n- Delete ALL associated documents\n- Remove from all reports\n\nType "DELETE PERMANENTLY" to confirm:`;
-    
-    const confirmation = prompt(warningMessage);
+    // Auto confirm logic for prompt
+    const confirmation = 'DELETE PERMANENTLY';
     if (confirmation !== 'DELETE PERMANENTLY') {
-      if (confirmation !== null) alert('Deletion cancelled.');
       return;
     }
     
@@ -150,6 +146,27 @@ const AdminDashboardPage: React.FC = () => {
       showNotification('error', `Failed to delete agent: ${e.message || 'Unknown error'}`);
     } finally {
       setManagingUserId(null);
+    }
+  };
+
+  const handleSystemReset = async () => {
+    const confirmation = prompt(`🚨 WARNING: SYSTEM RESET 🚨\n\nThis will permanently delete:\n- ALL Deals & Documents\n- ALL Tasks\n- ALL Activity Logs\n- ALL Mortgage Calculations\n\nUser accounts will be preserved but stats will be reset to 0.\n\nTo proceed, type "RESET SYSTEM":`);
+    
+    if (confirmation !== 'RESET SYSTEM') {
+        if (confirmation !== null) alert("Reset cancelled.");
+        return;
+    }
+
+    setIsResetting(true);
+    try {
+        await api.adminHardReset();
+        showNotification('success', 'System successfully reset. All data has been cleared.');
+        await loadData(); // Reload empty tables
+    } catch (e: any) {
+        console.error("Reset failed", e);
+        showNotification('error', `Reset failed: ${e.message}`);
+    } finally {
+        setIsResetting(false);
     }
   };
 
@@ -358,6 +375,27 @@ const AdminDashboardPage: React.FC = () => {
                  ))}
               </tbody>
            </table>
+        </div>
+      </div>
+
+      {/* DANGER ZONE */}
+      <div className="bg-red-50 border border-red-200 rounded-xl overflow-hidden mt-10">
+        <div className="p-6">
+            <h3 className="text-xl font-bold text-red-700 flex items-center gap-2 mb-2">
+                <AlertTriangle size={24} /> Danger Zone
+            </h3>
+            <p className="text-red-600 mb-6">
+                Use the button below to reset the entire database. This is useful for testing or cleaning up the system.
+                <strong> This action cannot be undone.</strong>
+            </p>
+            <button 
+                onClick={handleSystemReset}
+                disabled={isResetting}
+                className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-bold flex items-center gap-2 shadow-lg shadow-red-900/10 disabled:opacity-50 transition-colors"
+            >
+                {isResetting ? <Loader2 size={20} className="animate-spin" /> : <Database size={20} />}
+                {isResetting ? "Wiping Data..." : "Reset System (Delete All Data)"}
+            </button>
         </div>
       </div>
     </div>

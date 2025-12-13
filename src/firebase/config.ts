@@ -18,7 +18,8 @@ const firebaseConfig = {
 let app: FirebaseApp;
 let db: Firestore;
 let auth: Auth;
-let storage: FirebaseStorage;
+// Define storage as possibly undefined to avoid TS strict initialization errors
+let storage: FirebaseStorage | undefined; 
 
 try {
   // Prevent double initialization in hot-reload environments
@@ -30,7 +31,14 @@ try {
   
   db = getFirestore(app);
   auth = getAuth(app);
-  storage = getStorage(app); // Initialize Storage
+  
+  // Storage (Optional/Fail-safe)
+  try {
+    storage = getStorage(app);
+  } catch (storageError) {
+    console.warn("Firebase Storage failed to initialize. Document uploads will be disabled.", storageError);
+  }
+  
   console.log("Firebase initialized successfully with hardcoded keys");
 } catch (error) {
   console.error("Firebase Initialization Critical Error:", error);
@@ -41,5 +49,6 @@ export { app, db, auth, storage };
 
 // Helper to check if we are good to go
 export const isFirebaseInitialized = () => {
-  return !!app && !!db && !!auth && !!storage;
+  // Check for critical services (app, db, auth). Storage is optional.
+  return !!app && !!db && !!auth;
 };

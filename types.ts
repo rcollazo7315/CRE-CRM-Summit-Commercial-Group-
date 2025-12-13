@@ -81,6 +81,7 @@ export interface DocumentFile {
   uploadDate: string;
   dealId?: string;
   url?: string;
+  storagePath?: string; // Path in Firebase Storage bucket for deletion
 }
 
 export interface Deal {
@@ -183,4 +184,78 @@ export interface MortgageCalculation {
   propertyValue?: number;
   annualNOI?: number;
   notes?: string;
+}
+
+// --- CONTACTS MODULE TYPES ---
+
+export type ContactType = 
+  | 'owner' 
+  | 'strategic_partner' 
+  | 'banker' 
+  | 'investor' 
+  | 'vendor' 
+  | 'attorney' 
+  | 'broker' 
+  | 'title_company' 
+  | 'appraiser' 
+  | 'contractor' 
+  | 'property_manager' 
+  | 'tenant' 
+  | 'other';
+
+export type ContactStatus = 'active' | 'inactive' | 'lead' | 'prospect';
+
+export interface ContactAddress {
+  street?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+  country?: string;
+}
+
+export interface ContactInteraction {
+  id: string;
+  date: string;
+  type: 'call' | 'email' | 'meeting' | 'note' | 'deal' | 'other';
+  subject: string;
+  notes?: string;
+  dealId?: string;
+}
+
+export interface Contact {
+  id: string;
+  userId: string;
+  firstName: string;
+  lastName: string;
+  company?: string;
+  jobTitle?: string;
+  contactType: ContactType;
+  status: ContactStatus;
+  
+  // Contact Info
+  email?: string;
+  phone?: string;
+  mobile?: string;
+  fax?: string;
+  website?: string;
+  address?: ContactAddress;
+  
+  // Social
+  linkedin?: string;
+  twitter?: string;
+  
+  // Organization
+  tags: string[];
+  linkedDealIds: string[]; // IDs of deals associated with this contact
+  
+  // Activity
+  interactions: ContactInteraction[];
+  lastContactedAt?: string;
+  
+  // Metadata
+  notes?: string;
+  source?: string;
+  referredBy?: string;
+  createdAt: string;
+  updatedAt: string;
 }

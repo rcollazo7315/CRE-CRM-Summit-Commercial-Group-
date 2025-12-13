@@ -9,9 +9,10 @@ interface DealModalProps {
   onClose: () => void;
   onSave: (dealData: any) => void;
   initialData?: Deal | null;
+  onDelete?: (dealId: string) => void;
 }
 
-const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialData }) => {
+const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialData, onDelete }) => {
   const [loadingAi, setLoadingAi] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   

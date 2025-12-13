@@ -12,9 +12,11 @@ import CommunicationsPage from './pages/CommunicationsPage';
 import LeadGenPage from './pages/LeadGenPage';
 import AdminDashboardPage from './pages/AdminDashboardPage';
 import MortgageCalculatorPage from './pages/MortgageCalculatorPage';
+import ContactsPage from './pages/ContactsPage';
 import DealModal from './components/DealModal';
 import AiChatModal from './components/AiChatModal';
-import { Deal, LeadGenLog, UserAccount, DocumentFile } from './types';
+import ConfirmModal from './components/ConfirmModal';
+import { Deal, LeadGenLog, UserAccount, DocumentFile, Contact, ContactInteraction } from './types';
 import { api } from './services/firestore';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
@@ -25,6 +27,7 @@ const AppContent: React.FC = () => {
   
   // -- Data State --
   const [deals, setDeals] = useState<Deal[]>([]);
+  const [contacts, setContacts] = useState<Contact[]>([]);
   const [allUsers, setAllUsers] = useState<UserAccount[]>([]);
   const [leadGenLogs, setLeadGenLogs] = useState<LeadGenLog[]>([]);
   const [selectedDealId, setSelectedDealId] = useState<string | null>(null);
@@ -35,12 +38,30 @@ const AppContent: React.FC = () => {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [documentFilterId, setDocumentFilterId] = useState<string | null>(null);
 
+  // -- Delete Confirmation State --
+  const [deleteConfirmModal, setDeleteConfirmModal] = useState<{
+    isOpen: boolean;
+    dealId: string | null;
+    dealAddress: string;
+    hasDocuments: boolean;
+    documentCount: number;
+    isDeleting: boolean;
+  }>({
+    isOpen: false,
+    dealId: null,
+    dealAddress: '',
+    hasDocuments: false,
+    documentCount: 0,
+    isDeleting: false
+  });
+
   // Load Data on User Change
   useEffect(() => {
     if (currentUser) {
       loadUserData(currentUser.id, currentUser.role === 'admin');
     } else {
       setDeals([]);
+      setContacts([]);
     }
   }, [currentUser]);
 
@@ -48,6 +69,9 @@ const AppContent: React.FC = () => {
     try {
       const userDeals = await api.getDeals(userId, isAdmin);
       setDeals(userDeals);
+      
+      const userContacts = await api.getContacts(userId, isAdmin);
+      setContacts(userContacts);
       
       // Load users for reports/admin views
       if (isAdmin) {
@@ -81,50 +105,85 @@ const AppContent: React.FC = () => {
 
     const deal = deals.find(d => d.id === dealId);
     if (!deal) {
-        console.log('Deal not found');
+        console.log('Deal not found in state');
         return;
     }
     
-    // Check for documents
     const hasDocuments = deal.documents && deal.documents.length > 0;
     
-    // Construct appropriate warning message
-    const warningMessage = hasDocuments 
-        ? `⚠️ WARNING: This deal has ${deal.documents.length} attached document(s).\n\nAre you sure you want to delete "${deal.propertyAddress}"?\n\nThis will:\n- Delete the deal permanently\n- Delete all attached documents\n- Remove from all reports\n- Cannot be undone\n\nType "DELETE" to confirm:`
-        : `Are you sure you want to delete "${deal.propertyAddress}"?\n\nThis action cannot be undone.`;
-    
-    // Ask for confirmation
-    const confirmation = hasDocuments 
-        ? prompt(warningMessage)
-        : confirm(warningMessage);
-    
-    // Verify confirmation
-    if (hasDocuments && confirmation !== 'DELETE') {
-        if (confirmation !== null) {
-            console.log('Deletion cancelled. You must type "DELETE" to confirm.');
-        }
-        return;
-    }
-    
-    if (!hasDocuments && !confirmation) {
-        return;
-    }
+    // Open the confirmation modal instead of using browser dialogs
+    setDeleteConfirmModal({
+      isOpen: true,
+      dealId: dealId,
+      dealAddress: deal.propertyAddress,
+      hasDocuments: hasDocuments,
+      documentCount: deal.documents?.length || 0,
+      isDeleting: false
+    });
+  };
+
+  const executeDeleteDeal = async () => {
+    if (!currentUser || !deleteConfirmModal.dealId) return;
+
+    setDeleteConfirmModal(prev => ({ ...prev, isDeleting: true }));
 
     try {
-       await api.deleteDeal(dealId, currentUser.id);
-       await loadUserData(currentUser.id, currentUser.role === 'admin');
-       
-       if (selectedDealId === dealId) {
-         setSelectedDealId(null);
-         setActiveTab('deals');
-       }
-       // Only alert if we are still on the same view (optional UX choice)
-       if (activeTab === 'deal-details') {
-          setActiveTab('deals');
-       }
+      console.log(`🚀 Executing delete for deal: ${deleteConfirmModal.dealId}`);
+      
+      await api.deleteDeal(deleteConfirmModal.dealId, currentUser.id);
+      
+      console.log(`✅ Delete successful, reloading data...`);
+      await loadUserData(currentUser.id, currentUser.role === 'admin');
+      
+      // Navigate away if we're currently viewing this deal
+      if (selectedDealId === deleteConfirmModal.dealId) {
+        setSelectedDealId(null);
+        setActiveTab('deals');
+      }
+      if (activeTab === 'deal-details') {
+        setActiveTab('deals');
+      }
+      
+      console.log(`🎉 Deal deleted successfully!`);
+      
+      // Close modal
+      setDeleteConfirmModal({
+        isOpen: false,
+        dealId: null,
+        dealAddress: '',
+        hasDocuments: false,
+        documentCount: 0,
+        isDeleting: false
+      });
+      
     } catch (error: any) {
-       console.error("Delete failed", error);
-       console.log(`Failed to delete deal: ${error.message}`);
+      console.error("❌ Delete failed:", error);
+      
+      let errorMessage = "Failed to delete deal. ";
+      
+      if (error.message.includes('Permission denied')) {
+        errorMessage = "You don't have permission to delete this deal. Check your role or database rules.";
+      } else if (error.message.includes('Storage')) {
+        errorMessage += "Storage permissions may be blocking file deletion.";
+      } else {
+        errorMessage += error.message;
+      }
+      
+      alert(errorMessage);
+      setDeleteConfirmModal(prev => ({ ...prev, isDeleting: false }));
+    }
+  };
+
+  const closeDeleteModal = () => {
+    if (!deleteConfirmModal.isDeleting) {
+      setDeleteConfirmModal({
+        isOpen: false,
+        dealId: null,
+        dealAddress: '',
+        hasDocuments: false,
+        documentCount: 0,
+        isDeleting: false
+      });
     }
   };
 
@@ -132,6 +191,46 @@ const AppContent: React.FC = () => {
     if (!currentUser) return;
     await api.updateUserProfile(currentUser.id, updatedData);
     refreshUser();
+  };
+
+  // Contact Handlers
+  const handleSaveContact = async (contact: Contact) => {
+    if (!currentUser) return;
+    const contactWithUser = { ...contact, userId: currentUser.id };
+    await api.saveContact(contactWithUser);
+    await loadUserData(currentUser.id, currentUser.role === 'admin');
+  };
+
+  const handleDeleteContact = async (contactId: string) => {
+    if (!currentUser) return;
+    await api.deleteContact(contactId);
+    await loadUserData(currentUser.id, currentUser.role === 'admin');
+  };
+
+  const handleAddInteraction = async (contactId: string, interaction: ContactInteraction) => {
+    if (!currentUser) return;
+    await api.addContactInteraction(contactId, interaction);
+    await loadUserData(currentUser.id, currentUser.role === 'admin');
+  };
+
+  const handleLinkDeal = async (contactId: string, dealId: string) => {
+    if (!currentUser) return;
+    await api.linkContactToDeal(contactId, dealId);
+    await loadUserData(currentUser.id, currentUser.role === 'admin');
+  };
+
+  const handleUnlinkDeal = async (contactId: string, dealId: string) => {
+    if (!currentUser) return;
+    await api.unlinkContactFromDeal(contactId, dealId);
+    await loadUserData(currentUser.id, currentUser.role === 'admin');
+  };
+
+  const handleImportContacts = async (newContacts: Contact[]) => {
+    if (!currentUser) return;
+    for (const c of newContacts) {
+      await api.saveContact({ ...c, userId: currentUser.id });
+    }
+    await loadUserData(currentUser.id, currentUser.role === 'admin');
   };
 
   // Document Handlers
@@ -196,6 +295,19 @@ const AppContent: React.FC = () => {
             onDeleteDocument={handleDeleteDocument}
           />
         );
+      case 'contacts':
+        return (
+          <ContactsPage 
+            contacts={contacts}
+            deals={deals}
+            onSaveContact={handleSaveContact}
+            onDeleteContact={handleDeleteContact}
+            onAddInteraction={handleAddInteraction}
+            onLinkDeal={handleLinkDeal}
+            onUnlinkDeal={handleUnlinkDeal}
+            onImportContacts={handleImportContacts}
+          />
+        );
       case 'calculator':
         return <MortgageCalculatorPage />;
       case 'settings':
@@ -232,8 +344,30 @@ const AppContent: React.FC = () => {
       <Route path="/" element={currentUser ? (
           <Layout activeTab={activeTab} setActiveTab={setActiveTab} user={currentUser} onLogout={handleLogout}>
             {renderContent()}
-            <DealModal isOpen={isDealModalOpen} onClose={() => setIsDealModalOpen(false)} onSave={handleSaveDeal} initialData={dealModalInitialData} />
+            <DealModal 
+              isOpen={isDealModalOpen} 
+              onClose={() => setIsDealModalOpen(false)} 
+              onSave={handleSaveDeal} 
+              initialData={dealModalInitialData}
+              onDelete={handleDeleteDeal}
+            />
             <AiChatModal isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
+            <ConfirmModal
+              isOpen={deleteConfirmModal.isOpen}
+              onClose={closeDeleteModal}
+              onConfirm={executeDeleteDeal}
+              title="Delete Deal"
+              message={deleteConfirmModal.hasDocuments 
+                ? `⚠️ WARNING: This deal has ${deleteConfirmModal.documentCount} attached document(s).\n\nAre you sure you want to delete "${deleteConfirmModal.dealAddress}"?\n\nThis will:\n• Delete the deal permanently\n• Delete all attached documents\n• Remove from all reports\n• Cannot be undone`
+                : `Are you sure you want to delete "${deleteConfirmModal.dealAddress}"?\n\nThis action cannot be undone.`
+              }
+              confirmText={deleteConfirmModal.isDeleting ? "Deleting..." : "Delete Deal"}
+              cancelText="Cancel"
+              variant="danger"
+              requireTextConfirmation={deleteConfirmModal.hasDocuments}
+              textConfirmationWord="DELETE"
+              isLoading={deleteConfirmModal.isDeleting}
+            />
           </Layout>
         ) : <Navigate to="/login" />
       } />

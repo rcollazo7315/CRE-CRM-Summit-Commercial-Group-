@@ -17,7 +17,7 @@ import {
   deleteObject 
 } from 'firebase/storage';
 import { db, auth, storage } from '../firebase/config';
-import { UserAccount, Deal, Task, LeadGenLog, MortgageCalculation, DocumentFile } from '../types';
+import { UserAccount, Deal, Task, LeadGenLog, MortgageCalculation, DocumentFile, Contact, ContactInteraction } from '../types';
 
 // Helper to convert Firestore timestamps to ISO strings for the frontend
 const convertTimestamps = (data: any): any => {
@@ -278,6 +278,176 @@ export const api = {
     } catch (error: any) {
       console.error("❌ Delete deal error:", error);
       throw new Error(`Failed to delete deal: ${error.message}`);
+    }
+  },
+
+  // --- CONTACTS ---
+
+  getContacts: async (userId: string, isAdmin = false) => {
+    checkDbConnection();
+    let q;
+    if (isAdmin) {
+      q = query(collection(db, 'contacts'), orderBy('updatedAt', 'desc'));
+    } else {
+      q = query(collection(db, 'contacts'), where('userId', '==', userId));
+    }
+    const snapshot = await getDocs(q);
+    return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Contact[];
+  },
+
+  getContact: async (contactId: string) => {
+    checkDbConnection();
+    const snap = await getDoc(doc(db, 'contacts', contactId));
+    if (!snap.exists()) return null;
+    return convertTimestamps({ id: snap.id, ...snap.data() }) as Contact;
+  },
+
+  saveContact: async (contact: Contact) => {
+    checkDbConnection();
+    const contactData = {
+      ...contact,
+      updatedAt: serverTimestamp()
+    };
+
+    if (contact.id && contact.id.length >= 9) {
+      const ref = doc(db, 'contacts', contact.id);
+      const snap = await getDoc(ref);
+      if (snap.exists()) {
+        await updateDoc(ref, contactData);
+      } else {
+        await setDoc(ref, { ...contactData, createdAt: serverTimestamp() });
+      }
+    } else {
+      const { id, ...rest } = contactData;
+      // Let Firestore generate ID or use provided one if manually managed
+      await addDoc(collection(db, 'contacts'), { ...rest, createdAt: serverTimestamp() });
+    }
+  },
+
+  deleteContact: async (contactId: string) => {
+    checkDbConnection();
+    await deleteDoc(doc(db, 'contacts', contactId));
+  },
+
+  addContactInteraction: async (contactId: string, interaction: ContactInteraction) => {
+    checkDbConnection();
+    const ref = doc(db, 'contacts', contactId);
+    await updateDoc(ref, {
+      interactions: arrayUnion(interaction),
+      lastContactedAt: serverTimestamp(),
+      updatedAt: serverTimestamp()
+    });
+  },
+
+  deleteContactInteraction: async (contactId: string, interaction: ContactInteraction) => {
+    checkDbConnection();
+    const ref = doc(db, 'contacts', contactId);
+    await updateDoc(ref, {
+      interactions: arrayRemove(interaction),
+      updatedAt: serverTimestamp()
+    });
+  },
+
+  linkContactToDeal: async (contactId: string, dealId: string) => {
+    checkDbConnection();
+    const ref = doc(db, 'contacts', contactId);
+    await updateDoc(ref, {
+      linkedDealIds: arrayUnion(dealId),
+      updatedAt: serverTimestamp()
+    });
+  },
+
+  unlinkContactFromDeal: async (contactId: string, dealId: string) => {
+    checkDbConnection();
+    const ref = doc(db, 'contacts', contactId);
+    await updateDoc(ref, {
+      linkedDealIds: arrayRemove(dealId),
+      updatedAt: serverTimestamp()
+    });
+  },
+
+  // --- SYSTEM RESET ---
+  
+  adminHardReset: async () => {
+    checkDbConnection();
+    console.log("🧨 STARTING SYSTEM HARD RESET");
+
+    try {
+      // 1. Delete ALL Deals & Associated Storage
+      const dealsSnap = await getDocs(collection(db, 'deals'));
+      console.log(`🗑️ Deleting ${dealsSnap.size} deals...`);
+      
+      // Process serially to avoid overwhelming network/quotas
+      for (const d of dealsSnap.docs) {
+        const data = d.data();
+        if (data.documents && Array.isArray(data.documents) && storage) {
+          for (const docFile of data.documents) {
+            if (docFile.storagePath) {
+              try {
+                const storageRef = ref(storage, docFile.storagePath);
+                await deleteObject(storageRef);
+                console.log(`   Deleted file: ${docFile.name}`);
+              } catch (e: any) {
+                if (e.code !== 'storage/object-not-found') {
+                   console.warn(`   Failed to delete file ${docFile.name}: ${e.message}`);
+                }
+              }
+            }
+          }
+        }
+        await deleteDoc(d.ref);
+      }
+      console.log("✅ Deals collection wiped.");
+
+      // 2. Delete ALL Contacts
+      const contactsSnap = await getDocs(collection(db, 'contacts'));
+      console.log(`🗑️ Deleting ${contactsSnap.size} contacts...`);
+      const contactBatch = writeBatch(db);
+      contactsSnap.docs.forEach(d => contactBatch.delete(d.ref));
+      await contactBatch.commit();
+      console.log("✅ Contacts collection wiped.");
+
+      // 3. Delete ALL Tasks
+      const tasksSnap = await getDocs(collection(db, 'tasks'));
+      console.log(`🗑️ Deleting ${tasksSnap.size} tasks...`);
+      const taskBatch = writeBatch(db);
+      tasksSnap.docs.forEach(d => taskBatch.delete(d.ref));
+      await taskBatch.commit();
+      console.log("✅ Tasks collection wiped.");
+
+      // 4. Delete ALL Lead Logs
+      const logsSnap = await getDocs(collection(db, 'leadLogs'));
+      console.log(`🗑️ Deleting ${logsSnap.size} logs...`);
+      const logBatch = writeBatch(db);
+      logsSnap.docs.forEach(d => logBatch.delete(d.ref));
+      await logBatch.commit();
+      console.log("✅ Lead Logs collection wiped.");
+
+      // 5. Delete ALL Mortgage Calculations
+      const calcsSnap = await getDocs(collection(db, 'mortgageCalculations'));
+      console.log(`🗑️ Deleting ${calcsSnap.size} calculations...`);
+      const calcBatch = writeBatch(db);
+      calcsSnap.docs.forEach(d => calcBatch.delete(d.ref));
+      await calcBatch.commit();
+      console.log("✅ Calculations collection wiped.");
+
+      // 6. Reset ALL User Stats (Keep users, but wipe their data pointers)
+      const usersSnap = await getDocs(collection(db, 'users'));
+      console.log(`♻️ Resetting stats for ${usersSnap.size} users...`);
+      const userBatch = writeBatch(db);
+      usersSnap.docs.forEach(d => {
+        userBatch.update(d.ref, {
+          stats: { totalDeals: 0, totalCommissions: 0, activeDeals: 0, closedDeals: 0, pendingTasks: 0, totalVolume: 0 },
+          // Optional: Disconnect gmail integrations if they should be reset too
+          // gmailIntegration: { connected: false } 
+        });
+      });
+      await userBatch.commit();
+      
+      console.log("🎉 SYSTEM RESET COMPLETE");
+    } catch (error: any) {
+      console.error("❌ System Reset Failed:", error);
+      throw new Error(`Reset failed: ${error.message}`);
     }
   },
 

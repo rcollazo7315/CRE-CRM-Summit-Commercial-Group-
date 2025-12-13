@@ -95,16 +95,6 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
-    
-    // Intercept delete action
-    if (name === 'status' && value === 'DELETE') {
-        if (initialData?.id && onDelete) {
-            onDelete(initialData.id);
-            onClose(); // Close modal to let the app show confirmation
-        }
-        return;
-    }
-
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
@@ -239,9 +229,6 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
                   {Object.values(DealStatus).map(s => (
                     <option key={s} value={s}>{s}</option>
                   ))}
-                  {initialData && (
-                    <option value="DELETE" className="text-red-600 font-bold bg-red-50">Delete Deal</option>
-                  )}
                 </select>
               </div>
             </div>

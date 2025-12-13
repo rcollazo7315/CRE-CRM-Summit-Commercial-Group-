@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState } from 'react';
-import { Shield, Users, UserCheck, UserX, Download, AlertTriangle, Trash2, Loader2, CheckCircle } from 'lucide-react';
+import { Shield, Users, UserCheck, UserX, Download, AlertTriangle, Trash2, Loader2, CheckCircle, Database } from 'lucide-react';
 import { api } from '../services/firestore';
 import { UserAccount, Deal, DealStatus } from '../types';
 import { useAuth } from '../context/AuthContext';
@@ -14,6 +14,7 @@ const AdminDashboardPage: React.FC = () => {
   // Notification State
   const [notification, setNotification] = useState<{type: 'success' | 'error', message: string} | null>(null);
   const [managingUserId, setManagingUserId] = useState<string | null>(null);
+  const [isResetting, setIsResetting] = useState(false);
 
   const loadData = async () => {
     setLoading(true);
@@ -145,6 +146,27 @@ const AdminDashboardPage: React.FC = () => {
       showNotification('error', `Failed to delete agent: ${e.message || 'Unknown error'}`);
     } finally {
       setManagingUserId(null);
+    }
+  };
+
+  const handleSystemReset = async () => {
+    const confirmation = prompt(`🚨 WARNING: SYSTEM RESET 🚨\n\nThis will permanently delete:\n- ALL Deals & Documents\n- ALL Tasks\n- ALL Activity Logs\n- ALL Mortgage Calculations\n\nUser accounts will be preserved but stats will be reset to 0.\n\nTo proceed, type "RESET SYSTEM":`);
+    
+    if (confirmation !== 'RESET SYSTEM') {
+        if (confirmation !== null) alert("Reset cancelled.");
+        return;
+    }
+
+    setIsResetting(true);
+    try {
+        await api.adminHardReset();
+        showNotification('success', 'System successfully reset. All data has been cleared.');
+        await loadData(); // Reload empty tables
+    } catch (e: any) {
+        console.error("Reset failed", e);
+        showNotification('error', `Reset failed: ${e.message}`);
+    } finally {
+        setIsResetting(false);
     }
   };
 
@@ -353,6 +375,27 @@ const AdminDashboardPage: React.FC = () => {
                  ))}
               </tbody>
            </table>
+        </div>
+      </div>
+
+      {/* DANGER ZONE */}
+      <div className="bg-red-50 border border-red-200 rounded-xl overflow-hidden mt-10">
+        <div className="p-6">
+            <h3 className="text-xl font-bold text-red-700 flex items-center gap-2 mb-2">
+                <AlertTriangle size={24} /> Danger Zone
+            </h3>
+            <p className="text-red-600 mb-6">
+                Use the button below to reset the entire database. This is useful for testing or cleaning up the system.
+                <strong> This action cannot be undone.</strong>
+            </p>
+            <button 
+                onClick={handleSystemReset}
+                disabled={isResetting}
+                className="bg-red-600 hover:bg-red-700 text-white px-6 py-3 rounded-lg font-bold flex items-center gap-2 shadow-lg shadow-red-900/10 disabled:opacity-50 transition-colors"
+            >
+                {isResetting ? <Loader2 size={20} className="animate-spin" /> : <Database size={20} />}
+                {isResetting ? "Wiping Data..." : "Reset System (Delete All Data)"}
+            </button>
         </div>
       </div>
     </div>

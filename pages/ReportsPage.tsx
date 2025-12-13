@@ -3,7 +3,6 @@ import React from 'react';
 import { BarChart, TrendingUp, PieChart, Download, ArrowUp } from 'lucide-react';
 import { Deal, DealStatus, UserAccount } from '../types';
 import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
 
 interface ReportsPageProps {
   deals: Deal[];
@@ -45,7 +44,13 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals, users, currentUser }) 
 
   const sortedAgents = [...displayAgents].sort((a, b) => Number(b.stats?.totalVolume || 0) - Number(a.stats?.totalVolume || 0));
 
-  const handlePrint = () => {
+  const handlePrint = async () => {
+    try {
+      await import('jspdf-autotable');
+    } catch (error) {
+      console.warn('AutoTable plugin could not be loaded', error);
+    }
+
     const doc = new jsPDF();
     const today = new Date().toLocaleDateString();
     

@@ -55,11 +55,7 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
   };
 
   const handleStatusChange = (value: string) => {
-    if (value === 'DELETE') {
-      onDeleteDeal();
-    } else {
-      onUpdateDeal({ ...deal, status: value as DealStatus });
-    }
+    onUpdateDeal({ ...deal, status: value as DealStatus });
   };
 
   // Google Maps Embed URL
@@ -130,7 +126,6 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
                   className="appearance-none bg-slate-50 border border-slate-200 text-slate-700 font-semibold rounded-lg pl-4 pr-10 py-2.5 focus:ring-2 focus:ring-summit-accent outline-none cursor-pointer"
                 >
                   {Object.values(DealStatus).map(s => <option key={s} value={s}>{s}</option>)}
-                  <option value="DELETE" className="text-red-600 bg-red-50 font-bold">Delete Deal</option>
                 </select>
                 <div className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-slate-500">
                   <Edit size={14} />
