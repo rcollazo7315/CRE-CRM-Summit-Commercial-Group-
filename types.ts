@@ -81,12 +81,12 @@ export interface DocumentFile {
   uploadDate: string;
   dealId?: string;
   url?: string;
-  storagePath?: string; // Path in Firebase Storage bucket for deletion
+  storagePath?: string;
 }
 
 export interface Deal {
   id: string;
-  userId: string; // Associated Agent
+  userId: string;
   propertyAddress: string;
   propertyType: PropertyType;
   askingPrice: number;
@@ -111,19 +111,19 @@ export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
 export interface Task {
   id: string;
   userId: string;
-  dealId?: string; // Optional linkage to a deal
-  dealAddress?: string; // Denormalized for easy display
+  dealId?: string;
+  dealAddress?: string;
   title: string;
   description?: string;
   type: TaskType;
-  dueDate: string; // YYYY-MM-DD
-  dueTime: string; // HH:MM
+  dueDate: string;
+  dueTime: string;
   priority: TaskPriority;
   status: 'pending' | 'completed' | 'cancelled' | 'overdue';
   completedAt?: string;
   notes?: string;
   reminderSent?: boolean;
-  reminderTime?: number; // minutes before
+  reminderTime?: number;
 }
 
 export interface ActivityLog {
@@ -246,7 +246,7 @@ export interface Contact {
   
   // Organization
   tags: string[];
-  linkedDealIds: string[]; // IDs of deals associated with this contact
+  linkedDealIds: string[]; 
   
   // Activity
   interactions: ContactInteraction[];
