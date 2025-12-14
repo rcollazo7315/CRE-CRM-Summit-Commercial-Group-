@@ -3,6 +3,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { auth, isFirebaseInitialized } from '../firebase/config';
 import { api } from '../services/firestore';
 import { UserAccount } from '../types';
+import { onAuthStateChanged } from 'firebase/auth';
 
 interface AuthContextType {
   currentUser: UserAccount | null;
@@ -39,10 +40,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
-    // 1. Check if Firebase failed to init or auth is missing
+    // 1. Check if Firebase failed to init
     if (!isFirebaseInitialized() || !auth) {
-      console.error("Firebase not initialized in AuthContext");
-      setError("Database connection failed. Please check configuration.");
+      console.error("🔥 Firebase NOT initialized - disabling auth");
+      setError("System unavailable (Database Connection Failed)");
       setLoading(false);
       return;
     }
@@ -51,15 +52,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let unsubscribe: (() => void) | undefined;
     
     try {
-      unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
+      unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
         if (firebaseUser) {
           try {
-            // Fetch full user profile from Firestore
             const userData = await api.getCurrentUser(firebaseUser.uid);
             setCurrentUser(userData);
           } catch (err: any) {
             console.error("Failed to fetch user profile", err);
-            setError(err.message || "Failed to load user profile");
+            setError("Failed to load user profile");
             setCurrentUser(null);
           }
         } else {
@@ -72,25 +72,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setLoading(false);
       });
     } catch (e: any) {
-      console.error("Auth listener creation failed:", e);
-      setError("Auth System Error: " + e.message);
+      console.error("Auth Init Error:", e);
+      setError(e.message);
       setLoading(false);
     }
 
-    // 3. Safety Timeout: If Firebase takes too long, stop loading so user isn't stuck
-    const safetyTimeout = setTimeout(() => {
-      setLoading(currentLoading => {
-        if (currentLoading) {
-          console.warn("Auth listener timed out - forcing loading to false");
+    // 3. SAFETY TIMEOUT: Force app to load if Firebase hangs
+    const timeoutId = setTimeout(() => {
+      setLoading((isLoading) => {
+        if (isLoading) {
+          console.warn("⚠️ Auth listener timed out. Forcing app load.");
           return false;
         }
-        return currentLoading;
+        return isLoading;
       });
-    }, 5000);
+    }, 3000);
 
     return () => {
       if (unsubscribe) unsubscribe();
-      clearTimeout(safetyTimeout);
+      clearTimeout(timeoutId);
     };
   }, []);
 
@@ -108,7 +108,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       {loading && (
         <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-50">
           <div className="w-12 h-12 border-4 border-summit-900 border-t-transparent rounded-full animate-spin mb-4"></div>
-          <div className="text-slate-500 font-medium">Loading Summit Portal...</div>
+          <div className="text-slate-500 font-medium animate-pulse">Starting Summit Portal...</div>
         </div>
       )}
     </AuthContext.Provider>

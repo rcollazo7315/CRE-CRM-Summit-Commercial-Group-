@@ -5,7 +5,6 @@ import { getAuth, Auth } from 'firebase/auth';
 import { getStorage, FirebaseStorage } from 'firebase/storage';
 
 // DIRECTLY HARDCODED KEYS
-// This bypasses .env.local issues entirely.
 const firebaseConfig = {
   apiKey: "AIzaSyD00EHnA1iFfB20ybdcAXBgZBp4JqaT5gg",
   authDomain: "summit-crm-3c378.firebaseapp.com",
@@ -15,11 +14,10 @@ const firebaseConfig = {
   appId: "1:622709880120:web:57786312b02d59dccffdcd"
 };
 
-let app: FirebaseApp;
-let db: Firestore;
-let auth: Auth;
-// Define storage as possibly undefined to avoid TS strict initialization errors
-let storage: FirebaseStorage | undefined; 
+let app: FirebaseApp | null = null;
+let db: Firestore | null = null;
+let auth: Auth | null = null;
+let storage: FirebaseStorage | null = null;
 
 try {
   // Prevent double initialization in hot-reload environments
@@ -29,26 +27,26 @@ try {
     app = getApps()[0];
   }
   
-  db = getFirestore(app);
-  auth = getAuth(app);
-  
-  // Storage (Optional/Fail-safe)
-  try {
-    storage = getStorage(app);
-  } catch (storageError) {
-    console.warn("Firebase Storage failed to initialize. Document uploads will be disabled.", storageError);
+  if (app) {
+    db = getFirestore(app);
+    auth = getAuth(app);
+    try {
+      storage = getStorage(app);
+    } catch (e) {
+      console.warn("Storage failed to init (optional)", e);
+    }
+    console.log("🔥 Firebase initialized successfully");
   }
-  
-  console.log("Firebase initialized successfully with hardcoded keys");
 } catch (error) {
-  console.error("Firebase Initialization Critical Error:", error);
+  console.error("🔥 Firebase Initialization Critical Error:", error);
+  // We swallow the error so imports don't crash the app. 
+  // Services remain null, which we handle in AuthContext.
 }
 
-// Export instances - Added storage to export
+// Export instances (can be null)
 export { app, db, auth, storage };
 
 // Helper to check if we are good to go
 export const isFirebaseInitialized = () => {
-  // Check for critical services (app, db, auth). Storage is optional.
   return !!app && !!db && !!auth;
 };

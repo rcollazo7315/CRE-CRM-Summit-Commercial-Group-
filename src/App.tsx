@@ -1,5 +1,4 @@
-
-import React, { Component, useState, useEffect, ErrorInfo, ReactNode } from 'react';
+import React, { useState, useEffect, ErrorInfo, ReactNode } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout';
 import AuthPage from './pages/AuthPage';
@@ -21,7 +20,7 @@ import { api } from './services/firestore';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 
-// Error Boundary Component
+// --- Error Boundary ---
 interface ErrorBoundaryProps {
   children?: ReactNode;
 }
@@ -31,11 +30,8 @@ interface ErrorBoundaryState {
   error: Error | null;
 }
 
-class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
-  constructor(props: ErrorBoundaryProps) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
+class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  public state: ErrorBoundaryState = { hasError: false, error: null };
 
   static getDerivedStateFromError(error: Error): ErrorBoundaryState {
     return { hasError: true, error };
@@ -75,7 +71,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
   }
 }
 
-// Wrapper to handle Auth State Loading
+// --- Main App Logic ---
 const AppContent: React.FC = () => {
   const { currentUser, loading, refreshUser } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -122,15 +118,15 @@ const AppContent: React.FC = () => {
 
   const loadUserData = async (userId: string, isAdmin: boolean) => {
     try {
-      // 1. Get Deals
       const userDeals = await api.getDeals(userId, isAdmin);
       setDeals(userDeals);
       
-      // 2. Get Contacts
       const userContacts = await api.getContacts(userId, isAdmin);
       setContacts(userContacts);
       
-      // 3. Get Users (for Admin/Reports)
+      const userLogs = await api.getLeadLogs(userId);
+      setLeadGenLogs(userLogs);
+      
       if (isAdmin) {
         const users = await api.getUsers();
         setAllUsers(users);
@@ -159,21 +155,14 @@ const AppContent: React.FC = () => {
 
   const handleDeleteDeal = async (dealId: string) => {
     if (!currentUser) return;
-
     const deal = deals.find(d => d.id === dealId);
-    if (!deal) {
-        console.log('Deal not found in state');
-        return;
-    }
+    if (!deal) return;
     
-    const hasDocuments = deal.documents && deal.documents.length > 0;
-    
-    // Open the confirmation modal instead of using browser dialogs
     setDeleteConfirmModal({
       isOpen: true,
       dealId: dealId,
       dealAddress: deal.propertyAddress,
-      hasDocuments: hasDocuments,
+      hasDocuments: (deal.documents && deal.documents.length > 0) || false,
       documentCount: deal.documents?.length || 0,
       isDeleting: false
     });
@@ -181,18 +170,12 @@ const AppContent: React.FC = () => {
 
   const executeDeleteDeal = async () => {
     if (!currentUser || !deleteConfirmModal.dealId) return;
-
     setDeleteConfirmModal(prev => ({ ...prev, isDeleting: true }));
 
     try {
-      console.log(`🚀 Executing delete for deal: ${deleteConfirmModal.dealId}`);
-      
       await api.deleteDeal(deleteConfirmModal.dealId, currentUser.id);
-      
-      console.log(`✅ Delete successful, reloading data...`);
       await loadUserData(currentUser.id, currentUser.role === 'admin');
       
-      // Navigate away if we're currently viewing this deal
       if (selectedDealId === deleteConfirmModal.dealId) {
         setSelectedDealId(null);
         setActiveTab('deals');
@@ -201,46 +184,17 @@ const AppContent: React.FC = () => {
         setActiveTab('deals');
       }
       
-      console.log(`🎉 Deal deleted successfully!`);
-      
-      // Close modal
-      setDeleteConfirmModal({
-        isOpen: false,
-        dealId: null,
-        dealAddress: '',
-        hasDocuments: false,
-        documentCount: 0,
-        isDeleting: false
-      });
-      
+      closeDeleteModal();
     } catch (error: any) {
-      console.error("❌ Delete failed:", error);
-      
-      let errorMessage = "Failed to delete deal. ";
-      
-      if (error.message.includes('Permission denied')) {
-        errorMessage = "You don't have permission to delete this deal. Check your role or database rules.";
-      } else if (error.message.includes('Storage')) {
-        errorMessage += "Storage permissions may be blocking file deletion.";
-      } else {
-        errorMessage += error.message;
-      }
-      
-      alert(errorMessage);
+      console.error("Delete failed:", error);
+      alert("Failed to delete deal: " + error.message);
       setDeleteConfirmModal(prev => ({ ...prev, isDeleting: false }));
     }
   };
 
   const closeDeleteModal = () => {
     if (!deleteConfirmModal.isDeleting) {
-      setDeleteConfirmModal({
-        isOpen: false,
-        dealId: null,
-        dealAddress: '',
-        hasDocuments: false,
-        documentCount: 0,
-        isDeleting: false
-      });
+      setDeleteConfirmModal(prev => ({ ...prev, isOpen: false }));
     }
   };
 
@@ -293,25 +247,14 @@ const AppContent: React.FC = () => {
   // Document Handlers
   const handleAddDocument = async (dealId: string, doc: DocumentFile, file: File) => {
     if (!currentUser) return;
-    try {
-      await api.saveDocument(dealId, doc, file);
-      // Reload deals to reflect new document
-      await loadUserData(currentUser.id, currentUser.role === 'admin');
-    } catch (error) {
-      console.error("Failed to save document:", error);
-      console.log("Failed to save document. Please ensure you have enabled Firebase Storage in your console.");
-    }
+    await api.saveDocument(dealId, doc, file);
+    await loadUserData(currentUser.id, currentUser.role === 'admin');
   };
 
   const handleDeleteDocument = async (dealId: string, docId: string) => {
     if (!currentUser) return;
-    try {
-      await api.deleteDocument(dealId, docId);
-      await loadUserData(currentUser.id, currentUser.role === 'admin');
-    } catch (error) {
-      console.error("Failed to delete document:", error);
-      throw error; // Re-throw to let the component handle UI feedback
-    }
+    await api.deleteDocument(dealId, docId);
+    await loadUserData(currentUser.id, currentUser.role === 'admin');
   };
 
   if (loading) return (
@@ -392,7 +335,7 @@ const AppContent: React.FC = () => {
           if(currentUser) {
             const log = { ...l, userId: currentUser.id };
             api.saveLeadLog(log);
-            setLeadGenLogs([log, ...leadGenLogs]);
+            setLeadGenLogs(prev => [log, ...prev]);
           }
         }} onDeleteLog={(id) => api.deleteLeadLog(id).then(() => setLeadGenLogs(prev => prev.filter(l => l.id !== id)))} />;
       default:
@@ -403,7 +346,7 @@ const AppContent: React.FC = () => {
   return (
     <Routes>
       <Route path="/login" element={!currentUser ? <AuthPage onLogin={() => {}} /> : <Navigate to="/" />} />
-      <Route path="/" element={currentUser ? (
+      <Route path="/*" element={currentUser ? (
           <Layout activeTab={activeTab} setActiveTab={setActiveTab} user={currentUser} onLogout={handleLogout}>
             {renderContent()}
             <DealModal 
@@ -437,6 +380,7 @@ const AppContent: React.FC = () => {
   );
 };
 
+// --- App Root ---
 const App: React.FC = () => {
   return (
     <ErrorBoundary>
