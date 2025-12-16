@@ -1,3 +1,4 @@
+
 import { Deal, ActivityLog, EmailMessage, LeadGenLog } from './types';
 
 // Start with an empty array for a clean CRM state

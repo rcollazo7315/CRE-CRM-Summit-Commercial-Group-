@@ -1,10 +1,10 @@
-
 import React, { useState, useEffect } from 'react';
 import { Calculator, Save, RefreshCw, DollarSign, Info, Download } from 'lucide-react';
-import { MortgageCalculation } from '../types';
-import { api } from '../services/firestore';
-import { useAuth } from '../context/AuthContext';
+import { MortgageCalculation } from '../types.ts';
+import { api } from '../services/firestore.ts';
+import { useAuth } from '../context/AuthContext.tsx';
 import { jsPDF } from 'jspdf';
+import 'jspdf-autotable';
 
 const MortgageCalculatorPage: React.FC = () => {
   // Input State
@@ -128,6 +128,7 @@ const MortgageCalculatorPage: React.FC = () => {
         loanAmount,
         interestRate,
         loanTermYears,
+        loanTerm: loanTermYears,
         annualTax,
         annualInsurance,
         annualHOA,
@@ -141,14 +142,7 @@ const MortgageCalculatorPage: React.FC = () => {
     loadSavedCalculations();
   };
 
-  const handlePrint = async () => {
-    try {
-      // Dynamic import to prevent loading errors if module resolution fails initially
-      await import('jspdf-autotable');
-    } catch (error) {
-      console.warn('AutoTable plugin could not be loaded', error);
-    }
-
+  const handlePrint = () => {
     const doc = new jsPDF();
     const today = new Date().toLocaleDateString();
     

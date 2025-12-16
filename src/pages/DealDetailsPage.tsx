@@ -1,10 +1,9 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, MapPin, Building2, User, Phone, Mail, Calendar, Edit, CheckCircle, FileText, Download, Trash2, CheckSquare, Clock, Plus, Map as MapIcon, Upload, Loader2, MoreVertical } from 'lucide-react';
-import { Deal, DealStatus, DocumentFile, Task } from '../types';
-import TaskModal from '../components/TaskModal';
-import { api } from '../services/firestore';
-import { useAuth } from '../context/AuthContext';
+import { Deal, DealStatus, DocumentFile, Task } from '../types.ts';
+import TaskModal from '../components/TaskModal.tsx';
+import { api } from '../services/firestore.ts';
+import { useAuth } from '../context/AuthContext.tsx';
 
 interface DealDetailsPageProps {
   deal: Deal;
@@ -54,8 +53,8 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
     setIsTaskModalOpen(false);
   };
 
-  const handleStatusChange = (newStatus: DealStatus) => {
-    onUpdateDeal({ ...deal, status: newStatus });
+  const handleStatusChange = (value: string) => {
+    onUpdateDeal({ ...deal, status: value as DealStatus });
   };
 
   // Google Maps Embed URL
@@ -122,7 +121,7 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
              <div className="relative">
                 <select 
                   value={deal.status}
-                  onChange={(e) => handleStatusChange(e.target.value as DealStatus)}
+                  onChange={(e) => handleStatusChange(e.target.value)}
                   className="appearance-none bg-slate-50 border border-slate-200 text-slate-700 font-semibold rounded-lg pl-4 pr-10 py-2.5 focus:ring-2 focus:ring-summit-accent outline-none cursor-pointer"
                 >
                   {Object.values(DealStatus).map(s => <option key={s} value={s}>{s}</option>)}

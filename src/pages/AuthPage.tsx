@@ -1,8 +1,7 @@
-
 import React, { useState } from 'react';
 import { Building2, AlertCircle, User, Phone, Mail, Lock, Loader2, ShieldCheck, ArrowRight } from 'lucide-react';
-import { api } from '../services/firestore';
-import { UserAccount } from '../types';
+import { api } from '../services/firestore.ts';
+import { UserAccount } from '../types.ts';
 
 interface AuthPageProps {
   onLogin: (user: UserAccount) => void;
@@ -47,30 +46,16 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
 
         setViewState('pending');
       } else if (viewState === 'login') {
-        try {
-          const user = await api.login(formData.email, formData.password);
-          
-          if (user.status === 'pending') {
-            setViewState('pending');
-          } else {
-            onLogin(user);
-          }
-        } catch (loginError: any) {
-          console.error("Login failed:", loginError);
-          // Handle specific error messages
-          if (loginError.message.includes('auth/invalid-credential') || loginError.message.includes('auth/user-not-found') || loginError.message.includes('auth/wrong-password')) {
-             throw new Error("Invalid email or password.");
-          }
-          if (loginError.message.includes('pending')) {
-             setViewState('pending');
-             return;
-          }
-          throw loginError;
+        const user = await api.login(formData.email, formData.password);
+        
+        if (user.status === 'pending') {
+          setViewState('pending');
+        } else {
+          onLogin(user);
         }
       }
     } catch (err: any) {
-      console.error("Auth Error:", err);
-      setError(err.message || 'An unexpected error occurred. Please try again.');
+      setError(err.message || 'An error occurred');
       if (err.message && err.message.includes('pending')) {
         setViewState('pending');
       }
@@ -100,7 +85,6 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
             onClick={() => {
               api.logout();
               setViewState('login');
-              setError('');
             }}
             className="text-slate-500 hover:text-summit-900 font-medium text-sm underline flex items-center justify-center gap-1 mx-auto"
           >
@@ -147,8 +131,8 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
             </p>
 
             {error && (
-              <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm mb-6 flex items-center gap-2 border border-red-100 animate-in fade-in slide-in-from-top-2">
-                <AlertCircle size={16} className="flex-shrink-0" /> <span className="flex-1">{error}</span>
+              <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm mb-6 flex items-center gap-2 border border-red-100">
+                <AlertCircle size={16} /> {error}
               </div>
             )}
 
@@ -162,7 +146,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
                         type="text"
                         placeholder="First Name"
                         required
-                        className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none transition-all"
+                        className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none"
                         value={formData.firstName}
                         onChange={e => setFormData({...formData, firstName: e.target.value})}
                       />
@@ -172,7 +156,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
                         type="text"
                         placeholder="Last Name"
                         required
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none transition-all"
+                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none"
                         value={formData.lastName}
                         onChange={e => setFormData({...formData, lastName: e.target.value})}
                       />
@@ -183,7 +167,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
                     <input
                       type="tel"
                       placeholder="Phone Number"
-                      className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none transition-all"
+                      className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none"
                       value={formData.phone}
                       onChange={e => setFormData({...formData, phone: e.target.value})}
                     />
@@ -197,7 +181,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
                   type="email"
                   placeholder="Email Address"
                   required
-                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none transition-all"
+                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none"
                   value={formData.email}
                   onChange={e => setFormData({...formData, email: e.target.value})}
                 />
@@ -209,7 +193,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
                   type="password"
                   placeholder="Password"
                   required
-                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none transition-all"
+                  className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none"
                   value={formData.password}
                   onChange={e => setFormData({...formData, password: e.target.value})}
                 />
@@ -222,7 +206,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
                     type="password"
                     placeholder="Confirm Password"
                     required
-                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none transition-all"
+                    className="w-full pl-10 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none"
                     value={formData.confirmPassword}
                     onChange={e => setFormData({...formData, confirmPassword: e.target.value})}
                   />

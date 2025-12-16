@@ -1,10 +1,9 @@
-
 import React, { useState, useEffect } from 'react';
-import { Plus, ArrowUpRight, DollarSign, Clock, ChevronDown, MessageSquare, Briefcase, FileText, CheckCircle, Trash2, MapPin, Undo2, Loader2, Building2 } from 'lucide-react';
-import { Deal, DealStatus, Task } from '../types';
-import { api } from '../services/firestore';
-import TaskModal from '../components/TaskModal';
-import { useAuth } from '../context/AuthContext';
+import { Plus, ArrowUpRight, DollarSign, Clock, ChevronDown, MessageSquare, Briefcase, FileText, CheckCircle, Trash2, MapPin, Undo2, Loader2, Building2, LayoutGrid, Columns } from 'lucide-react';
+import { Deal, DealStatus, Task } from '../types.ts';
+import { api } from '../services/firestore.ts';
+import TaskModal from '../components/TaskModal.tsx';
+import { useAuth } from '../context/AuthContext.tsx';
 
 interface DashboardPageProps {
   activeTab: string;
@@ -14,12 +13,13 @@ interface DashboardPageProps {
   onDeleteDeal: (dealId: string) => Promise<void>;
   onRouteChange: (route: string) => void;
   onOpenAi: () => void;
-  onSaveDeal: (deal: Deal) => void; 
+  onSaveDeal: (deal: Deal) => void;
 }
 
 const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDeal, onDealClick, onDeleteDeal, onRouteChange, onOpenAi, onSaveDeal }) => {
   const { currentUser } = useAuth();
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [viewMode, setViewMode] = useState<'grid' | 'pipeline'>('grid');
   const [tasks, setTasks] = useState<Task[]>([]);
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Partial<Task> | undefined>(undefined);
@@ -63,7 +63,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
 
   const handleReopenDeal = (deal: Deal, e: React.MouseEvent) => {
     e.stopPropagation();
-    if(true) { // Auto-confirm for reopen
+    if(true) { // Auto-confirm
         onSaveDeal({ ...deal, status: DealStatus.ACTIVE });
     }
   };
@@ -88,24 +88,27 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
   
   if (activeTab === 'closed-deals') {
     displayedDeals = deals.filter(d => d.status === DealStatus.COMPLETED);
-  } else if (activeTab === 'deals') {
+  } else if (activeTab === 'deals' || activeTab === 'dashboard') {
     displayedDeals = deals.filter(d => d.status !== DealStatus.COMPLETED && d.status !== DealStatus.ARCHIVED);
   }
 
-  // Then apply local filter if set
-  if (filterStatus !== 'all') {
+  // Then apply local filter if set (only relevant for grid view mostly)
+  if (filterStatus !== 'all' && viewMode === 'grid') {
     displayedDeals = displayedDeals.filter(d => d.status === filterStatus);
   }
 
   // -- Task Filtering --
   const pendingTasks = tasks.filter(t => t.status !== 'completed').sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
 
+  // -- Kanban Columns --
+  const pipelineStatuses = [DealStatus.ACTIVE, DealStatus.UNDER_REVIEW, DealStatus.NEGOTIATING, DealStatus.CLOSING];
+
   return (
-    <div className="max-w-7xl mx-auto pb-10">
-      <div className="flex justify-between items-end mb-8">
+    <div className="max-w-7xl mx-auto pb-10 h-full flex flex-col">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-4 flex-shrink-0">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900">
-            {activeTab === 'dashboard' ? 'Overview' : activeTab === 'closed-deals' ? 'Closed Deals' : 'Active Deals'}
+          <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
+            {activeTab === 'dashboard' ? 'Dashboard' : activeTab === 'closed-deals' ? 'Closed Deals' : 'Active Pipeline'}
           </h1>
           <p className="text-slate-500 mt-1">
             {activeTab === 'dashboard' 
@@ -114,102 +117,192 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
           </p>
         </div>
         <div className="flex gap-3">
-          <button onClick={onOpenAi} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg font-medium hover:bg-slate-50 flex items-center gap-2 transition-colors">
-            <MessageSquare size={18} /> AI Assistant
+          {(activeTab === 'dashboard' || activeTab === 'deals') && (
+            <div className="bg-white p-1 rounded-lg border border-slate-200 flex items-center shadow-sm mr-2">
+              <button 
+                onClick={() => setViewMode('grid')}
+                className={`p-2 rounded-md transition-all ${viewMode === 'grid' ? 'bg-slate-100 text-summit-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                title="Grid View"
+              >
+                <LayoutGrid size={20} />
+              </button>
+              <button 
+                onClick={() => setViewMode('pipeline')}
+                className={`p-2 rounded-md transition-all ${viewMode === 'pipeline' ? 'bg-slate-100 text-summit-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                title="Pipeline View"
+              >
+                <Columns size={20} />
+              </button>
+            </div>
+          )}
+          
+          <button onClick={onOpenAi} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg font-medium hover:bg-slate-50 flex items-center gap-2 transition-colors shadow-sm">
+            <MessageSquare size={18} /> <span className="hidden sm:inline">AI Assistant</span>
           </button>
+          
           {activeTab !== 'closed-deals' && (
             <button onClick={onAddDeal} className="bg-summit-900 text-white px-4 py-2 rounded-lg font-medium hover:bg-summit-800 flex items-center gap-2 shadow-lg shadow-summit-900/10 transition-all transform hover:-translate-y-0.5">
-              <Plus size={18} /> New Deal
+              <Plus size={18} /> <span className="hidden sm:inline">New Deal</span>
             </button>
           )}
         </div>
       </div>
 
       {activeTab === 'dashboard' && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex items-center justify-between">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 flex-shrink-0">
+          <div className="bg-gradient-to-br from-white to-slate-50 p-6 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between group hover:border-blue-200 transition-colors">
              <div>
-               <p className="text-slate-500 text-sm font-bold uppercase tracking-wider">Active Pipeline</p>
-               <h3 className="text-2xl font-bold text-slate-900 mt-1">${(pipelineValue / 1000000).toFixed(1)}M</h3>
-               <p className="text-xs text-green-600 font-bold mt-2 flex items-center"><ArrowUpRight size={12} className="mr-1"/> +12% vs last month</p>
+               <p className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Total Pipeline Value</p>
+               <h3 className="text-2xl font-bold text-slate-900">${(pipelineValue / 1000000).toFixed(1)}M</h3>
+               <p className="text-xs text-green-600 font-bold mt-2 flex items-center bg-green-50 w-fit px-2 py-0.5 rounded-full"><ArrowUpRight size={12} className="mr-1"/> +12% vs last month</p>
              </div>
-             <div className="w-12 h-12 bg-blue-50 rounded-full flex items-center justify-center text-blue-600">
+             <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-blue-600 shadow-sm border border-slate-100 group-hover:scale-110 transition-transform">
                <DollarSign size={24} />
              </div>
           </div>
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex items-center justify-between">
+          <div className="bg-gradient-to-br from-white to-slate-50 p-6 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between group hover:border-purple-200 transition-colors">
              <div>
-               <p className="text-slate-500 text-sm font-bold uppercase tracking-wider">Active Deals</p>
-               <h3 className="text-2xl font-bold text-slate-900 mt-1">{activeDealsCount}</h3>
-               <p className="text-xs text-slate-400 font-bold mt-2"> across 3 property types</p>
+               <p className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Active Deals</p>
+               <h3 className="text-2xl font-bold text-slate-900">{activeDealsCount}</h3>
+               <p className="text-xs text-slate-400 font-medium mt-2 bg-slate-100 w-fit px-2 py-0.5 rounded-full">Across 3 property types</p>
              </div>
-             <div className="w-12 h-12 bg-purple-50 rounded-full flex items-center justify-center text-purple-600">
+             <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-purple-600 shadow-sm border border-slate-100 group-hover:scale-110 transition-transform">
                <Briefcase size={24} />
              </div>
           </div>
-           <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-100 flex items-center justify-between">
+           <div className="bg-gradient-to-br from-white to-slate-50 p-6 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between group hover:border-amber-200 transition-colors">
              <div>
-               <p className="text-slate-500 text-sm font-bold uppercase tracking-wider">Pending Tasks</p>
-               <h3 className="text-2xl font-bold text-slate-900 mt-1">{pendingTasks.length}</h3>
-               <p className="text-xs text-amber-600 font-bold mt-2">{pendingTasks.filter(t => t.priority === 'urgent').length} urgent</p>
+               <p className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Pending Tasks</p>
+               <h3 className="text-2xl font-bold text-slate-900">{pendingTasks.length}</h3>
+               <p className="text-xs text-amber-600 font-bold mt-2 bg-amber-50 w-fit px-2 py-0.5 rounded-full">{pendingTasks.filter(t => t.priority === 'urgent').length} urgent items</p>
              </div>
-             <div className="w-12 h-12 bg-amber-50 rounded-full flex items-center justify-center text-amber-600">
+             <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-amber-600 shadow-sm border border-slate-100 group-hover:scale-110 transition-transform">
                <Clock size={24} />
              </div>
           </div>
         </div>
       )}
 
-      {/* Deals Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {displayedDeals.length > 0 ? displayedDeals.map(deal => (
-          <div key={deal.id} onClick={() => onDealClick(deal.id)} className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden hover:shadow-md transition-all cursor-pointer group flex flex-col h-full">
-            <div className="h-48 overflow-hidden relative">
-              <img src={deal.imageUrl} alt={deal.propertyAddress} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
-              <div className="absolute top-3 right-3 bg-white/90 backdrop-blur-sm px-3 py-1 rounded-full text-xs font-bold text-slate-800 shadow-sm">
-                {deal.status}
+      {/* VIEW CONTENT */}
+      {viewMode === 'grid' || activeTab === 'closed-deals' ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-4">
+          {displayedDeals.length > 0 ? displayedDeals.map(deal => (
+            <div key={deal.id} onClick={() => onDealClick(deal.id)} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-lg hover:border-summit-accent/30 transition-all cursor-pointer group flex flex-col h-full">
+              <div className="h-48 overflow-hidden relative">
+                <img src={deal.imageUrl} alt={deal.propertyAddress} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+                <div className="absolute top-3 right-3 bg-white/95 backdrop-blur-sm px-3 py-1 rounded-full text-xs font-bold text-slate-800 shadow-sm border border-slate-100">
+                  {deal.status}
+                </div>
+                <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
+                   <p className="text-white text-sm font-medium">View Details <ArrowUpRight size={14} className="inline ml-1" /></p>
+                </div>
+              </div>
+              <div className="p-5 flex-1 flex flex-col">
+                <div className="flex justify-between items-start mb-2">
+                   <div className="flex items-center gap-1.5 text-xs font-bold text-summit-accent uppercase tracking-wide bg-summit-accent/5 px-2 py-1 rounded">
+                     <Building2 size={12} /> {deal.propertyType}
+                   </div>
+                   <div className="text-xs text-slate-400">{new Date(deal.lastUpdated).toLocaleDateString()}</div>
+                </div>
+                <h3 className="font-bold text-lg text-slate-900 mb-1 leading-tight group-hover:text-summit-accent transition-colors">{deal.propertyAddress}</h3>
+                <p className="text-slate-500 text-sm mb-4 line-clamp-2">{deal.description || 'No description provided.'}</p>
+                
+                <div className="mt-auto pt-4 border-t border-slate-100 flex items-center justify-between">
+                   <div className="font-bold text-slate-900 text-lg">${deal.askingPrice.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}</div>
+                   <div className="flex gap-2">
+                      {deal.status === 'Archived' ? (
+                         <button onClick={(e) => handleReopenDeal(deal, e)} className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-full transition-colors" title="Reopen Deal">
+                           <Undo2 size={18} />
+                         </button>
+                      ) : (
+                         <button 
+                           onClick={(e) => handleDeleteClick(e, deal.id)} 
+                           disabled={deletingDealId === deal.id}
+                           className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors" title="Archive Deal"
+                         >
+                           {deletingDealId === deal.id ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />}
+                         </button>
+                      )}
+                   </div>
+                </div>
               </div>
             </div>
-            <div className="p-5 flex-1 flex flex-col">
-              <div className="flex justify-between items-start mb-2">
-                 <div className="flex items-center gap-2 text-xs font-bold text-summit-accent uppercase tracking-wide">
-                   <Building2 size={12} /> {deal.propertyType}
-                 </div>
-                 <div className="text-xs text-slate-400">{new Date(deal.lastUpdated).toLocaleDateString()}</div>
+          )) : (
+            <div className="col-span-full py-20 text-center border-2 border-dashed border-slate-200 rounded-xl">
+              <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-300">
+                <Building2 size={40} />
               </div>
-              <h3 className="font-bold text-lg text-slate-900 mb-1 leading-tight">{deal.propertyAddress}</h3>
-              <p className="text-slate-500 text-sm mb-4 line-clamp-2">{deal.description || 'No description provided.'}</p>
-              
-              <div className="mt-auto pt-4 border-t border-slate-100 flex items-center justify-between">
-                 <div className="font-bold text-slate-900">${deal.askingPrice.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}</div>
-                 <div className="flex gap-2">
-                    {deal.status === 'Archived' ? (
-                       <button onClick={(e) => handleReopenDeal(deal, e)} className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-full transition-colors" title="Reopen Deal">
-                         <Undo2 size={18} />
-                       </button>
-                    ) : (
-                       <button 
-                         onClick={(e) => handleDeleteClick(e, deal.id)} 
-                         disabled={deletingDealId === deal.id}
-                         className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors" title="Archive Deal"
-                       >
-                         {deletingDealId === deal.id ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />}
-                       </button>
-                    )}
-                 </div>
+              <h3 className="text-lg font-bold text-slate-700">No deals found</h3>
+              <p className="text-slate-500">Get started by creating a new deal or adjusting filters.</p>
+            </div>
+          )}
+        </div>
+      ) : (
+        /* KANBAN PIPELINE VIEW */
+        <div className="flex overflow-x-auto pb-6 gap-6 h-full items-start">
+          {pipelineStatuses.map(status => {
+            const statusDeals = deals.filter(d => d.status === status);
+            return (
+              <div key={status} className="min-w-[320px] w-80 flex-shrink-0 flex flex-col h-full max-h-[calc(100vh-220px)] bg-slate-100/50 rounded-xl border border-slate-200/60">
+                <div className="p-4 flex items-center justify-between sticky top-0 bg-slate-100/50 backdrop-blur-sm rounded-t-xl z-10 border-b border-slate-200/50">
+                  <div className="flex items-center gap-2">
+                    <div className={`w-2.5 h-2.5 rounded-full ${
+                      status === DealStatus.ACTIVE ? 'bg-blue-500' :
+                      status === DealStatus.UNDER_REVIEW ? 'bg-amber-500' :
+                      status === DealStatus.NEGOTIATING ? 'bg-purple-500' : 'bg-green-500'
+                    }`}></div>
+                    <span className="font-bold text-slate-700">{status}</span>
+                  </div>
+                  <span className="bg-white text-slate-500 text-xs font-bold px-2 py-0.5 rounded-full shadow-sm">{statusDeals.length}</span>
+                </div>
+                
+                <div className="p-3 space-y-3 overflow-y-auto flex-1">
+                  {statusDeals.length > 0 ? statusDeals.map(deal => (
+                    <div 
+                      key={deal.id} 
+                      onClick={() => onDealClick(deal.id)}
+                      className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 hover:shadow-md hover:border-summit-accent/30 cursor-pointer transition-all group"
+                    >
+                      <div className="flex gap-3 mb-2">
+                        <div className="w-16 h-16 rounded-md overflow-hidden flex-shrink-0 bg-slate-100">
+                          <img src={deal.imageUrl} alt="" className="w-full h-full object-cover" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex justify-between items-start">
+                             <p className="text-xs text-summit-accent font-bold uppercase truncate">{deal.propertyType}</p>
+                             {deal.documents && deal.documents.length > 0 && (
+                                <FileText size={12} className="text-slate-400 flex-shrink-0" />
+                             )}
+                          </div>
+                          <h4 className="font-bold text-sm text-slate-800 leading-tight truncate group-hover:text-summit-accent transition-colors" title={deal.propertyAddress}>
+                            {deal.propertyAddress}
+                          </h4>
+                          <p className="text-xs text-slate-500 truncate mt-0.5">{deal.owner.name}</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between pt-2 border-t border-slate-50 mt-2">
+                        <span className="font-bold text-slate-900 text-sm">${deal.askingPrice.toLocaleString(undefined, {notation: 'compact'})}</span>
+                        <span className="text-[10px] text-slate-400">{new Date(deal.lastUpdated).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                  )) : (
+                    <div className="h-24 border-2 border-dashed border-slate-200 rounded-lg flex items-center justify-center text-slate-400 text-sm italic">
+                      Empty
+                    </div>
+                  )}
+                </div>
+                
+                {/* Footer Sum */}
+                {statusDeals.length > 0 && (
+                   <div className="p-3 border-t border-slate-200 bg-white rounded-b-xl text-xs text-slate-500 font-medium text-center">
+                      Total: ${(statusDeals.reduce((acc, d) => acc + d.askingPrice, 0) / 1000000).toFixed(1)}M
+                   </div>
+                )}
               </div>
-            </div>
-          </div>
-        )) : (
-          <div className="col-span-full py-20 text-center">
-            <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-300">
-              <Building2 size={40} />
-            </div>
-            <h3 className="text-lg font-bold text-slate-700">No deals found</h3>
-            <p className="text-slate-500">Get started by creating a new deal or adjusting filters.</p>
-          </div>
-        )}
-      </div>
+            );
+          })}
+        </div>
+      )}
 
       <TaskModal 
         isOpen={isTaskModalOpen} 

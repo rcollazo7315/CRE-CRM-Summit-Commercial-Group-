@@ -1,8 +1,7 @@
-
 import React, { useState } from 'react';
 import { Mail, Plus, Star, Search, X, Send, CheckCircle, Loader2 } from 'lucide-react';
-import { UserAccount, EmailMessage } from '../types';
-import { MOCK_EMAILS } from '../constants'; // Fallback for demo, real implementation would fetch from API
+import { UserAccount, EmailMessage } from '../types.ts';
+import { MOCK_EMAILS } from '../constants.ts'; 
 
 interface CommunicationsPageProps {
   user: UserAccount | null;
@@ -40,7 +39,7 @@ const CommunicationsPage: React.FC<CommunicationsPageProps> = ({ user, onUpdateU
   };
 
   const handleDisconnect = () => {
-    if(true) {
+    if(confirm('Disconnect Gmail integration?')) {
       onUpdateUser({ gmailIntegration: { connected: false } });
     }
   };

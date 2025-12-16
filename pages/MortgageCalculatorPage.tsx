@@ -129,6 +129,7 @@ const MortgageCalculatorPage: React.FC = () => {
         loanAmount,
         interestRate,
         loanTermYears,
+        loanTerm: loanTermYears,
         annualTax,
         annualInsurance,
         annualHOA,

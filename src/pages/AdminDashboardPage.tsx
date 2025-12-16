@@ -1,9 +1,8 @@
-
 import React, { useEffect, useState } from 'react';
 import { Shield, Users, UserCheck, UserX, Download, AlertTriangle, Trash2, Loader2, CheckCircle, Database } from 'lucide-react';
-import { api } from '../services/firestore';
-import { UserAccount, Deal, DealStatus } from '../types';
-import { useAuth } from '../context/AuthContext';
+import { api } from '../services/firestore.ts';
+import { UserAccount, Deal, DealStatus } from '../types.ts';
+import { useAuth } from '../context/AuthContext.tsx';
 
 const AdminDashboardPage: React.FC = () => {
   const { currentUser } = useAuth();

@@ -1,7 +1,6 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { FileText, Upload, Filter, Search, MoreVertical, Download, Trash2, FolderOpen, Loader2, AlertCircle, X } from 'lucide-react';
-import { Deal, DocumentFile } from '../types';
+import { Deal, DocumentFile } from '../types.ts';
 
 interface DocumentsPageProps {
   deals: Deal[];

@@ -6,7 +6,7 @@ import { LeadGenLog } from '../types';
 interface LeadGenPageProps {
   logs: LeadGenLog[];
   onSaveLog: (log: LeadGenLog) => void;
-  onDeleteLog: (logId: string) => void; // Added onDeleteLog to interface
+  onDeleteLog: (logId: string) => void; 
 }
 
 type TimeFrame = 'weekly' | 'monthly' | 'quarterly' | 'yearly';
@@ -130,24 +130,20 @@ const LeadGenPage: React.FC<LeadGenPageProps> = ({ logs, onSaveLog, onDeleteLog 
 
   const getAggregatedData = (bucketIndex: number) => {
     const filtered = logs.filter(l => isInBucket(l.date, bucketIndex, reportTimeframe));
-    const sum = (key: keyof LeadGenLog) => filtered.reduce((acc, curr) => acc + (typeof curr[key] === 'number' ? (curr[key] as number) : 0), 0);
+    // Explicitly define numeric keys to sum
+    const keys: (keyof LeadGenLog)[] = [
+      'callsMade', 'lettersSent', 'socialPosts', 'targetedEmails', 
+      'networkingEvents', 'clientMeetings', 'referralsGenerated', 
+      'propertyTours', 'bovsSubmitted', 'listingsSigned', 
+      'offersMade', 'underContract', 'closedDeals', 'closedAmount'
+    ];
     
-    return {
-      callsMade: sum('callsMade'),
-      lettersSent: sum('lettersSent'),
-      socialPosts: sum('socialPosts'),
-      targetedEmails: sum('targetedEmails'),
-      networkingEvents: sum('networkingEvents'),
-      clientMeetings: sum('clientMeetings'),
-      referralsGenerated: sum('referralsGenerated'),
-      propertyTours: sum('propertyTours'),
-      bovsSubmitted: sum('bovsSubmitted'),
-      listingsSigned: sum('listingsSigned'),
-      offersMade: sum('offersMade'),
-      underContract: sum('underContract'),
-      closedDeals: sum('closedDeals'),
-      closedAmount: sum('closedAmount'),
-    };
+    const result: any = {};
+    keys.forEach(key => {
+        result[key] = filtered.reduce((acc, curr) => acc + (typeof curr[key] === 'number' ? (curr[key] as number) : 0), 0);
+    });
+    
+    return result;
   };
 
   const currentPeriod = useMemo(() => getAggregatedData(0), [logs, reportTimeframe]);

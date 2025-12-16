@@ -40,17 +40,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   useEffect(() => {
-    // 1. Check if Firebase failed to init
     if (!isFirebaseInitialized() || !auth) {
-      console.error("🔥 Firebase NOT initialized - disabling auth");
-      setError("System unavailable (Database Connection Failed)");
+      console.error("🔥 Firebase NOT initialized");
+      setError("System unavailable");
       setLoading(false);
       return;
     }
 
-    // 2. Set up listener
     let unsubscribe: (() => void) | undefined;
-    
     try {
       unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
         if (firebaseUser) {
@@ -77,7 +74,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(false);
     }
 
-    // 3. SAFETY TIMEOUT: Force app to load if Firebase hangs
     const timeoutId = setTimeout(() => {
       setLoading((isLoading) => {
         if (isLoading) {
@@ -86,7 +82,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         }
         return isLoading;
       });
-    }, 3000);
+    }, 4000);
 
     return () => {
       if (unsubscribe) unsubscribe();

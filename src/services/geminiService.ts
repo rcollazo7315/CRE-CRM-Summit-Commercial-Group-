@@ -1,20 +1,29 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
-import { PropertyType } from "../types";
+import { PropertyType } from "../types.ts";
 
-// Safe access to API key
 const getApiKey = () => {
   try {
     if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
       return process.env.API_KEY;
     }
   } catch (e) {
-    // Ignore error if process is undefined
+    // Ignore
   }
   return '';
 };
 
-const ai = new GoogleGenAI({ apiKey: getApiKey() });
+// Lazy initialization to prevent startup crashes
+let aiInstance: GoogleGenAI | null = null;
+
+const getAi = (): GoogleGenAI => {
+  if (!aiInstance) {
+    const key = getApiKey();
+    // Provide a dummy key if missing to allow instantiation, 
+    // requests will fail gracefully later instead of crashing app on load
+    aiInstance = new GoogleGenAI({ apiKey: key || 'dummy-key-for-init' });
+  }
+  return aiInstance;
+};
 
 const MODEL_NAME = 'gemini-2.5-flash';
 
@@ -25,6 +34,7 @@ export const generateListingDescription = async (
   highlights: string
 ): Promise<string> => {
   try {
+    const ai = getAi();
     const prompt = `
       Create a professional, compelling commercial real estate listing description for the following property:
       Address: ${address}
@@ -49,7 +59,7 @@ export const generateListingDescription = async (
     return response.text || "Description generation unavailable.";
   } catch (error) {
     console.error("Error generating description:", error);
-    return "Unable to generate description at this time due to technical difficulties.";
+    return "Unable to generate description. Please check API configuration.";
   }
 };
 
@@ -59,6 +69,7 @@ export const generateOwnerUpdateEmail = async (
   updates: string
 ): Promise<string> => {
   try {
+    const ai = getAi();
     const prompt = `
       Draft a professional email to a property owner giving them a weekly update on their asset.
       Owner Name: ${ownerName}
@@ -87,6 +98,7 @@ export const generateRegistrationEmails = async (
   licenseNumber: string
 ): Promise<{ adminEmail: string; userEmail: string }> => {
   try {
+    const ai = getAi();
     const prompt = `
       Generate the content for two automated emails triggered by a new agent registration on the Summit Commercial Group portal.
       

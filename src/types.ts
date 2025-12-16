@@ -1,57 +1,30 @@
 
-export enum DealStatus {
-  ACTIVE = 'Active',
-  UNDER_REVIEW = 'Under Review',
-  NEGOTIATING = 'Negotiating',
-  CLOSING = 'Closing',
-  COMPLETED = 'Completed',
-  ARCHIVED = 'Archived'
-}
-
-export enum PropertyType {
-  OFFICE = 'Office',
-  RETAIL = 'Retail',
-  INDUSTRIAL = 'Industrial',
-  MULTIFAMILY = 'Multifamily',
-  LAND = 'Land'
-}
-
-export type AccountStatus = 'pending' | 'active' | 'denied';
-export type UserRole = 'admin' | 'agent';
-
-export interface NotificationPreferences {
-  dealUpdates: boolean;
-  taskReminders: boolean;
-  newMessages: boolean;
-  systemAlerts: boolean;
-}
-
 export interface UserAccount {
   id: string;
-  username: string;
   email: string;
-  passwordHash: string;
   firstName: string;
   lastName: string;
-  phone: string;
-  role: UserRole;
-  status: AccountStatus;
-  avatar: string;
-  bio?: string;
-  position?: string;
+  phone?: string;
+  role: 'admin' | 'agent' | 'user';
+  status: 'active' | 'pending' | 'inactive' | 'denied';
+  createdAt?: string;
+  updatedAt?: string;
+  approvedAt?: string | null;
+  lastLogin?: string;
+  profileImage?: string;
+  avatar?: string;
   company?: string;
-  experience?: number;
-  licenseNumber?: string;
-  specialties?: string[];
-  gmailIntegration?: {
-    connected: boolean;
-    connectedAt?: string;
-    accessToken?: string;
-    refreshToken?: string;
+  title?: string;
+  bio?: string;
+  username?: string;
+  passwordHash?: string;
+  settings?: {
+    emailNotifications?: boolean;
+    smsNotifications?: boolean;
   };
-  notifications: {
-    email: NotificationPreferences;
-    sms: NotificationPreferences;
+  notifications?: {
+    email: { dealUpdates: boolean; taskReminders: boolean; newMessages: boolean; systemAlerts: boolean };
+    sms: { dealUpdates: boolean; taskReminders: boolean; newMessages: boolean; systemAlerts: boolean };
   };
   stats?: {
     totalDeals: number;
@@ -61,94 +34,116 @@ export interface UserAccount {
     pendingTasks: number;
     totalVolume: number;
   };
-  createdAt: string;
-  approvedAt?: string;
-  lastLogin?: string;
+  gmailIntegration?: { connected: boolean; connectedAt?: string };
 }
 
-export interface OwnerInfo {
-  name: string;
-  email: string;
-  phone: string;
+export enum DealStatus {
+  ACTIVE = 'Active',
+  UNDER_REVIEW = 'Under Review',
+  NEGOTIATING = 'Negotiating',
+  CLOSING = 'Closing',
+  COMPLETED = 'Completed',
+  ARCHIVED = 'Archived',
+  CLOSED_LOST = 'Closed Lost'
+}
+
+export type DealStage = 'prospecting' | 'initial_contact' | 'qualification' | 'proposal' | 'negotiation' | 'due_diligence' | 'closing' | 'closed_won' | 'closed_lost';
+export type DealType = 'acquisition' | 'disposition' | 'lease' | 'development' | 'refinance' | 'other';
+
+export enum PropertyType {
+  OFFICE = 'Office',
+  RETAIL = 'Retail',
+  INDUSTRIAL = 'Industrial',
+  MULTIFAMILY = 'Multifamily',
+  MIXED_USE = 'Mixed Use',
+  LAND = 'Land',
+  HOSPITALITY = 'Hospitality',
+  HEALTHCARE = 'Healthcare',
+  OTHER = 'Other'
+}
+
+export interface Deal {
+  id: string;
+  userId: string;
+  propertyAddress: string;
+  city?: string;
+  state?: string;
+  zipCode?: string;
+  propertyType: PropertyType;
+  dealType: DealType;
+  stage: DealStage;
+  status: DealStatus | string;
+  askingPrice: number;
+  offerPrice?: number;
+  closingPrice?: number;
+  squareFootage?: number;
+  units?: number;
+  capRate?: number;
+  noi?: number;
+  clientName?: string;
+  clientEmail?: string;
+  clientPhone?: string;
   notes?: string;
+  description?: string;
+  imageUrl?: string;
+  owner: { name: string; email: string; phone: string };
+  createdAt: string;
+  updatedAt?: string;
+  lastUpdated: string;
+  closedAt?: string;
+  closedDate?: string;
+  expectedCloseDate?: string;
+  documents?: DocumentFile[];
+  tasks?: Task[];
+  probability?: number;
+  commissionRate?: number;
+  commission?: number;
+  estimatedCommission?: number;
+  offersReceived: number;
+  highestOffer: number;
+  daysOnMarket: number;
+}
+
+export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
+export type TaskType = 'call' | 'email' | 'follow-up' | 'meeting' | 'proposal' | 'site-visit' | 'document' | 'other';
+
+export interface Task {
+  id: string;
+  userId: string;
+  dealId?: string;
+  dealAddress?: string;
+  title: string;
+  description?: string;
+  type: TaskType | string;
+  dueDate: string;
+  dueTime?: string;
+  completed: boolean;
+  status: 'pending' | 'completed';
+  priority: TaskPriority;
+  reminderTime?: number;
+  createdAt?: string;
+  completedAt?: string;
 }
 
 export interface DocumentFile {
   id: string;
   name: string;
   type: string;
-  size: string;
+  size: string | number;
+  url: string;
+  storagePath?: string;
+  uploadedAt?: string;
   uploadDate: string;
+  uploadedBy?: string;
   dealId?: string;
-  url?: string;
-  storagePath?: string; // Path in Firebase Storage bucket for deletion
-}
-
-export interface Deal {
-  id: string;
-  userId: string; // Associated Agent
-  propertyAddress: string;
-  propertyType: PropertyType;
-  askingPrice: number;
-  offersReceived: number;
-  highestOffer: number;
-  status: DealStatus;
-  daysOnMarket: number;
-  lastUpdated: string;
-  imageUrl: string;
-  owner: OwnerInfo;
-  description: string;
-  documents: DocumentFile[];
-  notes?: string;
-  commission?: number;
-  closedDate?: string;
-  createdAt: string;
-}
-
-export type TaskType = 'call' | 'email' | 'follow-up' | 'meeting' | 'proposal' | 'site-visit' | 'document' | 'other';
-export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
-
-export interface Task {
-  id: string;
-  userId: string;
-  dealId?: string; // Optional linkage to a deal
-  dealAddress?: string; // Denormalized for easy display
-  title: string;
-  description?: string;
-  type: TaskType;
-  dueDate: string; // YYYY-MM-DD
-  dueTime: string; // HH:MM
-  priority: TaskPriority;
-  status: 'pending' | 'completed' | 'cancelled' | 'overdue';
-  completedAt?: string;
-  notes?: string;
-  reminderSent?: boolean;
-  reminderTime?: number; // minutes before
-}
-
-export interface ActivityLog {
-  id: string;
-  type: 'offer' | 'status' | 'document' | 'message';
-  description: string;
-  timestamp: string;
-  dealId?: string;
-  userId: string;
-}
-
-export interface EmailMessage {
-  id: string;
-  from: string;
-  subject: string;
-  preview: string;
-  date: string;
-  read: boolean;
-  userId: string;
+  category?: 'contract' | 'financial' | 'legal' | 'marketing' | 'inspection' | 'other';
 }
 
 export interface LeadGenLog {
   id: string;
   userId: string;
   date: string;
+  activity?: string;
   callsMade: number;
   lettersSent: number;
   socialPosts: number;
@@ -163,46 +158,40 @@ export interface LeadGenLog {
   underContract: number;
   closedDeals: number;
   closedAmount: number;
+  source?: string;
+  outcome?: string;
   notes?: string;
+  createdAt?: string;
 }
 
 export interface MortgageCalculation {
   id: string;
   userId: string;
   timestamp: string;
-  purchasePrice: number;
-  downPaymentValue: number;
-  downPaymentMode: 'percent' | 'amount';
+  purchasePrice?: number;
+  propertyPrice?: number;
+  downPaymentValue?: number;
+  downPayment?: number;
+  downPaymentMode?: 'percent' | 'amount';
   loanAmount: number;
   interestRate: number;
-  loanTermYears: number;
-  annualTax: number;
-  annualInsurance: number;
-  annualHOA: number;
+  loanTermYears?: number;
+  loanTerm: number;
+  annualTax?: number;
+  annualInsurance?: number;
+  annualHOA?: number;
   monthlyPayment: number;
-  totalCostOfLoan: number;
+  totalInterest?: number;
+  totalPayment?: number;
+  totalCostOfLoan?: number;
   propertyValue?: number;
   annualNOI?: number;
+  createdAt?: string;
+  propertyAddress?: string;
   notes?: string;
 }
 
-// --- CONTACTS MODULE TYPES ---
-
-export type ContactType = 
-  | 'owner' 
-  | 'strategic_partner' 
-  | 'banker' 
-  | 'investor' 
-  | 'vendor' 
-  | 'attorney' 
-  | 'broker' 
-  | 'title_company' 
-  | 'appraiser' 
-  | 'contractor' 
-  | 'property_manager' 
-  | 'tenant' 
-  | 'other';
-
+export type ContactType = 'owner' | 'strategic_partner' | 'investor' | 'lender' | 'broker' | 'attorney' | 'title_company' | 'property_manager' | 'contractor' | 'appraiser' | 'inspector' | 'tenant' | 'banker' | 'vendor' | 'other';
 export type ContactStatus = 'active' | 'inactive' | 'lead' | 'prospect';
 
 export interface ContactAddress {
@@ -210,16 +199,20 @@ export interface ContactAddress {
   city?: string;
   state?: string;
   zip?: string;
+  zipCode?: string;
   country?: string;
 }
 
 export interface ContactInteraction {
   id: string;
+  type: 'call' | 'email' | 'meeting' | 'note' | 'other';
   date: string;
-  type: 'call' | 'email' | 'meeting' | 'note' | 'deal' | 'other';
   subject: string;
+  summary?: string;
   notes?: string;
-  dealId?: string;
+  outcome?: string;
+  followUpDate?: string;
+  createdBy?: string;
 }
 
 export interface Contact {
@@ -227,35 +220,40 @@ export interface Contact {
   userId: string;
   firstName: string;
   lastName: string;
-  company?: string;
-  jobTitle?: string;
   contactType: ContactType;
   status: ContactStatus;
-  
-  // Contact Info
+  company?: string;
+  jobTitle?: string;
   email?: string;
   phone?: string;
   mobile?: string;
-  fax?: string;
-  website?: string;
   address?: ContactAddress;
-  
-  // Social
+  website?: string;
   linkedin?: string;
   twitter?: string;
-  
-  // Organization
   tags: string[];
-  linkedDealIds: string[]; // IDs of deals associated with this contact
-  
-  // Activity
-  interactions: ContactInteraction[];
-  lastContactedAt?: string;
-  
-  // Metadata
   notes?: string;
-  source?: string;
-  referredBy?: string;
-  createdAt: string;
-  updatedAt: string;
+  linkedDealIds: string[];
+  interactions: ContactInteraction[];
+  createdAt?: string;
+  updatedAt?: string;
+  lastContactedAt?: string;
+}
+
+export interface EmailMessage {
+  id: string;
+  userId: string;
+  from: string;
+  subject: string;
+  preview: string;
+  date: string;
+  read: boolean;
+}
+
+export interface ActivityLog {
+  id: string;
+  userId: string;
+  action: string;
+  details: string;
+  timestamp: string;
 }

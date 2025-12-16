@@ -39,10 +39,10 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
         ownerName: initialData.owner.name,
         ownerEmail: initialData.owner.email,
         ownerPhone: initialData.owner.phone,
-        description: initialData.description,
+        description: initialData.description || '',
         notes: initialData.notes || '',
-        status: initialData.status,
-        imageUrl: initialData.imageUrl
+        status: initialData.status as DealStatus,
+        imageUrl: initialData.imageUrl || ''
       });
     } else {
       // Reset for new deal
