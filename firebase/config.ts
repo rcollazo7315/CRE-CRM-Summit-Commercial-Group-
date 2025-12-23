@@ -28,10 +28,10 @@ try {
     db = getFirestore(app);
     auth = getAuth(app);
     storage = getStorage(app);
-    console.log("🔥 Firebase initialized successfully");
+    console.log("🔥 Firebase verified successfully");
   }
 } catch (error) {
-  console.error("Firebase initialization failed:", error);
+  console.error("🔥 Firebase Critical Init Error:", error);
 }
 
 export { app, db, auth, storage };

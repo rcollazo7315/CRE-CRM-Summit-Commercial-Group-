@@ -37,7 +37,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     if (!isFirebaseInitialized() || !auth) {
-      console.warn("Firebase not ready, proceeding with guest state.");
+      console.warn("Database connection pending or offline.");
       setLoading(false);
       return;
     }
@@ -60,10 +60,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(false);
     });
 
-    // Fallback timer to prevent permanent hang
     const timer = setTimeout(() => {
       setLoading(prev => {
-        if (prev) console.warn("Auth check timed out, forcing app load.");
+        if (prev) console.warn("Auth check timed out, proceeding with default state.");
         return false;
       });
     }, 5000);
@@ -74,16 +73,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
+  if (loading) {
+    return (
+      <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#0f172a', color: 'white', fontFamily: 'Inter, sans-serif' }}>
+        <div style={{ width: '40px', height: '40px', border: '3px solid rgba(255,255,255,0.1)', borderTopColor: '#10b981', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+        <style dangerouslySetInnerHTML={{ __html: '@keyframes spin { to { transform: rotate(360deg); } }' }} />
+        <p style={{ marginTop: '16px', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8' }}>Verifying Identity...</p>
+      </div>
+    );
+  }
+
   return (
     <AuthContext.Provider value={{ currentUser, loading, refreshUser, isAdmin: currentUser?.role === 'admin' }}>
-      {!loading ? children : (
-        /* Fix: React style props must be objects, and <style> content needs raw string treatment to avoid JSX parsing errors on 'to' and 'transform' on line 82 */
-        <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#0f172a', color: 'white', fontFamily: 'sans-serif' }}>
-          <div style={{ width: '40px', height: '40px', border: '3px solid rgba(255,255,255,0.1)', borderTopColor: '#10b981', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
-          <style dangerouslySetInnerHTML={{ __html: '@keyframes spin { to { transform: rotate(360deg); } }' }} />
-          <p style={{ marginTop: '16px', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8' }}>Authenticating Session...</p>
-        </div>
-      )}
+      {children}
     </AuthContext.Provider>
   );
 };
