@@ -64,7 +64,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       {!loading ? children : (
         <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-900">
           <div className="w-12 h-12 border-4 border-summit-accent border-t-transparent rounded-full animate-spin mb-4"></div>
-          <div className="text-white font-medium animate-pulse tracking-widest text-xs uppercase">Connecting to Summit Cloud...</div>
+          <div className="text-white font-medium animate-pulse tracking-widest text-xs uppercase">Initialising Summit CRM...</div>
         </div>
       )}
     </AuthContext.Provider>

@@ -1,5 +1,5 @@
 
-import { Deal, ActivityLog, EmailMessage, LeadGenLog } from './types';
+import { Deal, ActivityLog, EmailMessage, LeadGenLog } from './types.ts';
 
 // Start with an empty array for a clean CRM state
 export const MOCK_DEALS: Deal[] = [];

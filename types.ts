@@ -9,20 +9,15 @@ export interface UserAccount {
   status: 'active' | 'pending' | 'inactive' | 'denied';
   createdAt?: string;
   updatedAt?: string;
-  approvedAt?: string | null;
   lastLogin?: string;
-  profileImage?: string;
   avatar?: string;
+  profileImage?: string;
   company?: string;
-  title?: string;
-  bio?: string;
+  // Fix: Add missing properties for authentication and user profile management
   username?: string;
   passwordHash?: string;
-  settings?: {
-    emailNotifications?: boolean;
-    smsNotifications?: boolean;
-  };
-  notifications?: {
+  bio?: string;
+  notifications: {
     email: { dealUpdates: boolean; taskReminders: boolean; newMessages: boolean; systemAlerts: boolean };
     sms: { dealUpdates: boolean; taskReminders: boolean; newMessages: boolean; systemAlerts: boolean };
   };
@@ -43,22 +38,15 @@ export enum DealStatus {
   NEGOTIATING = 'Negotiating',
   CLOSING = 'Closing',
   COMPLETED = 'Completed',
-  ARCHIVED = 'Archived',
-  CLOSED_LOST = 'Closed Lost'
+  ARCHIVED = 'Archived'
 }
-
-export type DealStage = 'prospecting' | 'initial_contact' | 'qualification' | 'proposal' | 'negotiation' | 'due_diligence' | 'closing' | 'closed_won' | 'closed_lost';
-export type DealType = 'acquisition' | 'disposition' | 'lease' | 'development' | 'refinance' | 'other';
 
 export enum PropertyType {
   OFFICE = 'Office',
   RETAIL = 'Retail',
   INDUSTRIAL = 'Industrial',
   MULTIFAMILY = 'Multifamily',
-  MIXED_USE = 'Mixed Use',
   LAND = 'Land',
-  HOSPITALITY = 'Hospitality',
-  HEALTHCARE = 'Healthcare',
   OTHER = 'Other'
 }
 
@@ -66,44 +54,25 @@ export interface Deal {
   id: string;
   userId: string;
   propertyAddress: string;
-  city?: string;
-  state?: string;
-  zipCode?: string;
   propertyType: PropertyType;
-  dealType: DealType;
-  stage: DealStage;
   status: DealStatus | string;
   askingPrice: number;
-  offerPrice?: number;
-  closingPrice?: number;
-  squareFootage?: number;
-  units?: number;
-  capRate?: number;
-  noi?: number;
-  clientName?: string;
-  clientEmail?: string;
-  clientPhone?: string;
-  notes?: string;
+  highestOffer: number;
+  offersReceived: number;
   description?: string;
+  notes?: string;
   imageUrl?: string;
   owner: { name: string; email: string; phone: string };
-  createdAt: string;
-  updatedAt?: string;
   lastUpdated: string;
-  closedAt?: string;
-  closedDate?: string;
-  expectedCloseDate?: string;
+  createdAt: string;
   documents?: DocumentFile[];
-  tasks?: Task[];
-  probability?: number;
-  commissionRate?: number;
+  // Fix: Add missing financial and tracking fields
   commission?: number;
-  estimatedCommission?: number;
-  offersReceived: number;
-  highestOffer: number;
-  daysOnMarket: number;
+  daysOnMarket?: number;
+  closedDate?: string;
 }
 
+// Fix: Export TaskPriority and TaskType for use in TaskModal
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
 export type TaskType = 'call' | 'email' | 'follow-up' | 'meeting' | 'proposal' | 'site-visit' | 'document' | 'other';
 
@@ -117,12 +86,8 @@ export interface Task {
   type: TaskType | string;
   dueDate: string;
   dueTime?: string;
-  completed: boolean;
   status: 'pending' | 'completed';
   priority: TaskPriority;
-  reminderTime?: number;
-  createdAt?: string;
-  completedAt?: string;
 }
 
 export interface DocumentFile {
@@ -132,34 +97,20 @@ export interface DocumentFile {
   size: string | number;
   url: string;
   storagePath?: string;
-  uploadedAt?: string;
   uploadDate: string;
-  uploadedBy?: string;
   dealId?: string;
-  category?: 'contract' | 'financial' | 'legal' | 'marketing' | 'inspection' | 'other';
 }
 
 export type ContactType = 'owner' | 'tenant' | 'investor' | 'developer' | 'partner' | 'prospect';
 export type ContactStatus = 'active' | 'inactive' | 'do_not_contact' | 'archived';
 export type RelationshipTier = 'A' | 'B' | 'C' | 'D';
-export type EngagementScore = 'hot' | 'warm' | 'cool' | 'cold';
-
-export interface ContactAddress {
-  street?: string;
-  city?: string;
-  state?: string;
-  zip?: string;
-}
 
 export interface ContactInteraction {
   id: string;
-  type: 'call' | 'email' | 'meeting' | 'text' | 'tour' | 'note';
+  type: 'call' | 'email' | 'meeting' | 'note' | 'tour';
   date: string;
   subject: string;
   notes?: string;
-  outcome?: string;
-  linkedDealId?: string;
-  linkedPropertyId?: string;
 }
 
 export interface Contact {
@@ -172,50 +123,35 @@ export interface Contact {
   contactType: ContactType;
   status: ContactStatus;
   tier: RelationshipTier;
-  engagementScore?: EngagementScore;
-  
-  // Contact Details
   email?: string;
   phone?: string;
   mobile?: string;
-  linkedinUrl?: string;
-  address?: ContactAddress;
-  preferredContactMethod?: 'phone' | 'email' | 'text' | 'in_person';
-  
-  // CRE Specific Data
-  submarkets: string[]; // e.g. "Downtown/CBD", "East End", "River Ridge"
+  submarkets: string[];
   propertyInterests: PropertyType[];
   tags: string[];
-  industry?: string;
-  
-  // Type-Specific Fields
-  tenantCriteria?: {
-    leaseExpiration?: string;
-    sfOccupied?: number;
-    requirementSF?: string;
-  };
-  investorCriteria?: {
-    is1031Active: boolean;
-    deadline1031?: string;
-    targetCapRate?: number;
-    capitalAvailable?: number;
-  };
-  
-  // Relationships
   notes?: string;
   linkedDealIds: string[];
   interactions: ContactInteraction[];
   lastContactedAt?: string;
   createdAt?: string;
   updatedAt?: string;
+  investorCriteria?: {
+    is1031Active: boolean;
+    targetCapRate?: number;
+    capitalAvailable?: number;
+  };
+  tenantCriteria?: {
+    leaseExpiration?: string;
+    sfOccupied?: number;
+  };
 }
 
 export interface LeadGenLog {
   id: string;
   userId: string;
   date: string;
-  activity?: string;
   callsMade: number;
+  // Fix: Add missing performance metrics used in LeadGenPage
   lettersSent: number;
   socialPosts: number;
   targetedEmails: number;
@@ -229,39 +165,40 @@ export interface LeadGenLog {
   underContract: number;
   closedDeals: number;
   closedAmount: number;
-  source?: string;
-  outcome?: string;
   notes?: string;
-  createdAt?: string;
 }
 
 export interface MortgageCalculation {
   id: string;
   userId: string;
   timestamp: string;
-  purchasePrice?: number;
-  propertyPrice?: number;
-  downPaymentValue?: number;
-  downPayment?: number;
-  downPaymentMode?: 'percent' | 'amount';
+  purchasePrice: number;
   loanAmount: number;
   interestRate: number;
-  loanTermYears?: number;
-  loanTerm: number;
-  annualTax?: number;
-  annualInsurance?: number;
-  annualHOA?: number;
+  loanTermYears: number;
+  // Fix: Add missing calculation and asset properties
+  loanTerm?: number;
   monthlyPayment: number;
-  totalInterest?: number;
-  totalPayment?: number;
-  totalCostOfLoan?: number;
-  propertyValue?: number;
-  annualNOI?: number;
-  createdAt?: string;
-  propertyAddress?: string;
-  notes?: string;
+  totalCostOfLoan: number;
+  downPaymentValue?: number;
+  downPaymentMode?: 'percent' | 'amount';
+  annualTax: number;
+  annualInsurance: number;
+  annualHOA: number;
+  propertyValue: number;
+  annualNOI: number;
 }
 
+// Fix: Add missing ActivityLog export for constants.ts
+export interface ActivityLog {
+  id: string;
+  userId: string;
+  action: string;
+  details: string;
+  timestamp: string;
+}
+
+// Fix: Add missing EmailMessage export for constants.ts and CommunicationsPage.tsx
 export interface EmailMessage {
   id: string;
   userId: string;
@@ -270,12 +207,4 @@ export interface EmailMessage {
   preview: string;
   date: string;
   read: boolean;
-}
-
-export interface ActivityLog {
-  id: string;
-  userId: string;
-  action: string;
-  details: string;
-  timestamp: string;
 }
