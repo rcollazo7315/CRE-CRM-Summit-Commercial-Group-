@@ -1,715 +1,496 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Users, UserPlus, Search, Filter, Download, Upload, X, Save, 
-  MapPin, Phone, Mail, Globe, Linkedin, Twitter, Tag, 
+  MapPin, Phone, Mail, Globe, Linkedin, Tag, 
   Calendar, Clock, Edit, Trash2, Link as LinkIcon, Plus, 
   Briefcase, MoreVertical, MessageSquare, StickyNote,
-  ChevronRight, Building
+  ChevronRight, Building, CheckCircle, AlertCircle, TrendingUp
 } from 'lucide-react';
-import { Contact, ContactInteraction, Deal, ContactType, ContactStatus } from '../types';
+import { Contact, ContactInteraction, Deal, ContactType, ContactStatus, PropertyType, RelationshipTier } from '../types.ts';
+import { api } from '../services/firestore.ts';
 
-// Constants for Dropdowns & Styling
+const LOUISVILLE_SUBMARKETS = [
+  "Downtown/CBD", "East End", "Hurstbourne", "Middletown", "Dixie Highway", 
+  "Riverport", "Bluegrass Industrial", "Preston Highway", "Bullitt County", 
+  "River Ridge (IN)", "Jeffersonville", "Clarksville", "New Albany"
+];
+
 const CONTACT_TYPES: { value: ContactType; label: string; color: string }[] = [
-  { value: 'owner', label: 'Owner', color: 'bg-blue-100 text-blue-700' },
-  { value: 'strategic_partner', label: 'Strategic Partner', color: 'bg-purple-100 text-purple-700' },
-  { value: 'banker', label: 'Banker', color: 'bg-green-100 text-green-700' },
-  { value: 'investor', label: 'Investor', color: 'bg-emerald-100 text-emerald-700' },
-  { value: 'vendor', label: 'Vendor', color: 'bg-orange-100 text-orange-700' },
-  { value: 'attorney', label: 'Attorney', color: 'bg-indigo-100 text-indigo-700' },
-  { value: 'broker', label: 'Broker', color: 'bg-cyan-100 text-cyan-700' },
-  { value: 'title_company', label: 'Title Co.', color: 'bg-teal-100 text-teal-700' },
-  { value: 'appraiser', label: 'Appraiser', color: 'bg-yellow-100 text-yellow-700' },
-  { value: 'contractor', label: 'Contractor', color: 'bg-stone-100 text-stone-700' },
-  { value: 'property_manager', label: 'Prop. Manager', color: 'bg-lime-100 text-lime-700' },
-  { value: 'tenant', label: 'Tenant', color: 'bg-rose-100 text-rose-700' },
-  { value: 'other', label: 'Other', color: 'bg-slate-100 text-slate-700' }
+  { value: 'owner', label: 'Owner/Landlord', color: 'bg-blue-100 text-blue-700' },
+  { value: 'tenant', label: 'Tenant/Occupier', color: 'bg-rose-100 text-rose-700' },
+  { value: 'investor', label: 'Buyer/Investor', color: 'bg-emerald-100 text-emerald-700' },
+  { value: 'developer', label: 'Developer', color: 'bg-purple-100 text-purple-700' },
+  { value: 'partner', label: 'Referral Partner', color: 'bg-orange-100 text-orange-700' },
+  { value: 'prospect', label: 'Prospect', color: 'bg-slate-100 text-slate-700' }
 ];
 
-const CONTACT_STATUSES: { value: ContactStatus; label: string; color: string }[] = [
-  { value: 'active', label: 'Active', color: 'bg-green-100 text-green-700' },
-  { value: 'lead', label: 'Lead', color: 'bg-blue-100 text-blue-700' },
-  { value: 'prospect', label: 'Prospect', color: 'bg-amber-100 text-amber-700' },
-  { value: 'inactive', label: 'Inactive', color: 'bg-slate-100 text-slate-500' }
-];
+const TIERS: RelationshipTier[] = ['A', 'B', 'C', 'D'];
 
-const INTERACTION_TYPES = [
-  { value: 'call', label: 'Call', icon: Phone },
-  { value: 'email', label: 'Email', icon: Mail },
-  { value: 'meeting', label: 'Meeting', icon: Users },
-  { value: 'note', label: 'Note', icon: StickyNote },
-  { value: 'other', label: 'Other', icon: MoreVertical }
-];
-
-interface ContactsPageProps {
-  contacts: Contact[];
-  deals: Deal[];
-  onSaveContact: (contact: Contact) => Promise<void>;
-  onDeleteContact: (contactId: string) => Promise<void>;
-  onAddInteraction: (contactId: string, interaction: ContactInteraction) => Promise<void>;
-  onLinkDeal: (contactId: string, dealId: string) => Promise<void>;
-  onUnlinkDeal: (contactId: string, dealId: string) => Promise<void>;
-  onImportContacts: (contacts: Contact[]) => Promise<void>;
-}
-
-const ContactsPage: React.FC<ContactsPageProps> = ({ 
-  contacts, deals, onSaveContact, onDeleteContact, onAddInteraction, onLinkDeal, onUnlinkDeal, onImportContacts 
-}) => {
-  // -- Local State --
+const ContactsPage: React.FC<{ 
+  contacts: Contact[]; 
+  deals: Deal[]; 
+  onSaveContact: (c: Contact) => Promise<void>;
+  onDeleteContact: (id: string) => Promise<void>;
+  onAddInteraction: (id: string, i: ContactInteraction) => Promise<void>;
+  onLinkDeal: (cid: string, did: string) => Promise<void>;
+  onUnlinkDeal: (cid: string, did: string) => Promise<void>;
+}> = ({ contacts, deals, onSaveContact, onDeleteContact, onAddInteraction, onLinkDeal, onUnlinkDeal }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
-  const [filterStatus, setFilterStatus] = useState<string>('all');
-  
-  // Modal States
+  const [filterTier, setFilterTier] = useState<string>('all');
+  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<Partial<Contact> | null>(null);
-  const [selectedContact, setSelectedContact] = useState<Contact | null>(null); // For slide-over detail view
-  const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [importText, setImportText] = useState('');
-
-  // Interaction State (within detail view)
   const [isAddingInteraction, setIsAddingInteraction] = useState(false);
   const [newInteraction, setNewInteraction] = useState<Partial<ContactInteraction>>({
-    type: 'call',
-    date: new Date().toISOString().split('T')[0],
-    subject: '',
-    notes: ''
+    type: 'call', date: new Date().toISOString().split('T')[0], subject: '', notes: ''
   });
 
-  // Deal Link State
-  const [isLinkingDeal, setIsLinkingDeal] = useState(false);
+  // Calculate Engagement Score dynamically
+  const getScore = (lastContact?: string): { label: string; color: string } => {
+    if (!lastContact) return { label: 'Cold', color: 'text-slate-400 bg-slate-50' };
+    const days = (Date.now() - new Date(lastContact).getTime()) / (1000 * 3600 * 24);
+    if (days < 14) return { label: 'Hot', color: 'text-red-600 bg-red-50' };
+    if (days < 45) return { label: 'Warm', color: 'text-orange-600 bg-orange-50' };
+    return { label: 'Cool', color: 'text-blue-600 bg-blue-50' };
+  };
 
-  // -- Computed --
   const filteredContacts = useMemo(() => {
     return contacts.filter(c => {
-      const matchesSearch = 
-        `${c.firstName} ${c.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.company?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.tags.some(t => t.toLowerCase().includes(searchTerm.toLowerCase()));
-      
+      const name = `${c.firstName} ${c.lastName}`.toLowerCase();
+      const matchesSearch = name.includes(searchTerm.toLowerCase()) || 
+                           c.company?.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesType = filterType === 'all' || c.contactType === filterType;
-      const matchesStatus = filterStatus === 'all' || c.status === filterStatus;
-
-      return matchesSearch && matchesType && matchesStatus;
+      const matchesTier = filterTier === 'all' || c.tier === filterTier;
+      return matchesSearch && matchesType && matchesTier;
     });
-  }, [contacts, searchTerm, filterType, filterStatus]);
+  }, [contacts, searchTerm, filterType, filterTier]);
 
-  // -- Helpers --
-  const getInitials = (first: string, last: string) => `${first?.[0] || ''}${last?.[0] || ''}`.toUpperCase();
-  
-  const getTypeColor = (type: ContactType) => CONTACT_TYPES.find(t => t.value === type)?.color || 'bg-slate-100 text-slate-700';
-  const getStatusColor = (status: ContactStatus) => CONTACT_STATUSES.find(s => s.value === status)?.color || 'bg-slate-100 text-slate-700';
-
-  // -- Handlers --
-
-  const handleEditClick = (contact?: Contact) => {
-    if (contact) {
-      setEditingContact(contact);
-    } else {
-      setEditingContact({
-        firstName: '', lastName: '', company: '', jobTitle: '', 
-        contactType: 'other', status: 'lead', 
-        tags: [], linkedDealIds: [], interactions: []
-      });
-    }
+  const handleOpenEdit = (contact?: Contact) => {
+    setEditingContact(contact || {
+      firstName: '', lastName: '', company: '', contactType: 'prospect', 
+      status: 'active', tier: 'C', submarkets: [], propertyInterests: [], tags: [], linkedDealIds: [], interactions: []
+    });
     setIsEditModalOpen(true);
   };
 
-  const handleSaveForm = async (e: React.FormEvent) => {
+  const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!editingContact) return;
-    
-    // Ensure required fields
-    if (!editingContact.firstName || !editingContact.lastName) {
-      alert("First and Last Name are required.");
-      return;
-    }
-
-    const contactToSave = {
-      ...editingContact,
-      id: editingContact.id || Math.random().toString(36).substr(2, 9),
-      createdAt: editingContact.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    } as Contact;
-
-    await onSaveContact(contactToSave);
-    setIsEditModalOpen(false);
-    
-    // If we were editing the currently selected contact, update the view
-    if (selectedContact && selectedContact.id === contactToSave.id) {
-        setSelectedContact(contactToSave);
+    if (editingContact) {
+      await onSaveContact(editingContact as Contact);
+      setIsEditModalOpen(false);
+      if (selectedContact?.id === editingContact.id) setSelectedContact(editingContact as Contact);
     }
   };
 
-  const handleInteractionSubmit = async (e: React.FormEvent) => {
+  const logInteraction = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!selectedContact || !newInteraction.subject) return;
-
-    const interaction: ContactInteraction = {
-        id: Math.random().toString(36).substr(2, 9),
-        date: newInteraction.date || new Date().toISOString(),
-        type: newInteraction.type as any,
-        subject: newInteraction.subject || '',
-        notes: newInteraction.notes || ''
-    };
-
-    await onAddInteraction(selectedContact.id, interaction);
-    
-    // Update local view immediately
-    const updatedContact = { ...selectedContact, interactions: [...selectedContact.interactions, interaction] };
-    setSelectedContact(updatedContact);
-    
-    setIsAddingInteraction(false);
-    setNewInteraction({ type: 'call', date: new Date().toISOString().split('T')[0], subject: '', notes: '' });
-  };
-
-  const handleCsvImport = async () => {
-    // Simple CSV parser
-    try {
-        const rows = importText.split('\n').filter(r => r.trim());
-        const newContacts: Contact[] = [];
-        
-        // Skip header if present (heuristic: check if first row has "first name" or similar)
-        const startIdx = rows[0].toLowerCase().includes('name') ? 1 : 0;
-
-        for (let i = startIdx; i < rows.length; i++) {
-            const cols = rows[i].split(',');
-            if (cols.length < 2) continue;
-            
-            // Expected Format: FirstName, LastName, Email, Phone, Company, Type
-            newContacts.push({
-                id: Math.random().toString(36).substr(2, 9),
-                userId: '', // set in app
-                firstName: cols[0]?.trim() || 'Unknown',
-                lastName: cols[1]?.trim() || '',
-                email: cols[2]?.trim(),
-                phone: cols[3]?.trim(),
-                company: cols[4]?.trim(),
-                contactType: (cols[5]?.trim().toLowerCase() as ContactType) || 'other',
-                status: 'lead',
-                tags: ['Imported'],
-                linkedDealIds: [],
-                interactions: [],
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-            });
-        }
-        
-        await onImportContacts(newContacts);
-        setIsImportModalOpen(false);
-        setImportText('');
-        alert(`Successfully imported ${newContacts.length} contacts.`);
-    } catch (e) {
-        alert("Failed to parse CSV. Please ensure format: First Name, Last Name, Email, Phone, Company, Type");
+    if (selectedContact && newInteraction.subject) {
+      const interaction = { ...newInteraction, id: Math.random().toString(36).substr(2, 9) } as ContactInteraction;
+      await onAddInteraction(selectedContact.id, interaction);
+      setIsAddingInteraction(false);
+      setNewInteraction({ type: 'call', date: new Date().toISOString().split('T')[0], subject: '', notes: '' });
     }
-  };
-
-  const exportCsv = () => {
-    const headers = "FirstName,LastName,Company,Email,Phone,Type,Status\n";
-    const rows = contacts.map(c => 
-        `${c.firstName},${c.lastName},${c.company || ''},${c.email || ''},${c.phone || ''},${c.contactType},${c.status}`
-    ).join("\n");
-    const blob = new Blob([headers + rows], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Contacts_Export_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
   };
 
   return (
-    <div className="max-w-7xl mx-auto h-[calc(100vh-100px)] flex flex-col">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4 flex-shrink-0">
+    <div className="h-full flex flex-col">
+      {/* Header Area */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
         <div>
-           <h1 className="text-2xl font-bold text-slate-900">Contacts</h1>
-           <p className="text-slate-500">Manage your network, partners, and leads.</p>
+          <h1 className="text-2xl font-bold text-slate-900 flex items-center gap-2">
+            <Users className="text-summit-accent" /> Relationship Manager
+          </h1>
+          <p className="text-slate-500 text-sm">Louisville Metro & Southern Indiana Network</p>
         </div>
         <div className="flex gap-2">
-           <button onClick={() => setIsImportModalOpen(true)} className="bg-white border border-slate-300 text-slate-700 px-3 py-2 rounded-lg font-medium hover:bg-slate-50 flex items-center gap-2 text-sm">
-             <Upload size={16} /> Import
-           </button>
-           <button onClick={exportCsv} className="bg-white border border-slate-300 text-slate-700 px-3 py-2 rounded-lg font-medium hover:bg-slate-50 flex items-center gap-2 text-sm">
-             <Download size={16} /> Export
-           </button>
-           <button onClick={() => handleEditClick()} className="bg-summit-900 text-white px-4 py-2 rounded-lg font-medium hover:bg-summit-800 flex items-center gap-2 shadow-lg shadow-summit-900/10">
-             <UserPlus size={18} /> Add Contact
-           </button>
+          <button onClick={() => handleOpenEdit()} className="bg-summit-900 text-white px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow-lg shadow-summit-900/20 hover:bg-summit-800 transition-all">
+            <UserPlus size={18} /> New Contact
+          </button>
         </div>
-      </div>
-
-      {/* Stats Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 flex-shrink-0">
-         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-            <p className="text-xs font-bold text-slate-500 uppercase">Total Contacts</p>
-            <p className="text-2xl font-bold text-slate-900">{contacts.length}</p>
-         </div>
-         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-            <p className="text-xs font-bold text-slate-500 uppercase">Active</p>
-            <p className="text-2xl font-bold text-green-600">{contacts.filter(c => c.status === 'active').length}</p>
-         </div>
-         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-            <p className="text-xs font-bold text-slate-500 uppercase">Leads</p>
-            <p className="text-2xl font-bold text-blue-600">{contacts.filter(c => c.status === 'lead').length}</p>
-         </div>
-         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-            <p className="text-xs font-bold text-slate-500 uppercase">Recent Activity</p>
-            <p className="text-2xl font-bold text-purple-600">
-                {contacts.filter(c => {
-                    if (!c.lastContactedAt) return false;
-                    const days = (new Date().getTime() - new Date(c.lastContactedAt).getTime()) / (1000 * 3600 * 24);
-                    return days <= 30;
-                }).length}
-            </p>
-         </div>
       </div>
 
       {/* Toolbar */}
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-4 flex flex-col md:flex-row gap-4 items-center justify-between flex-shrink-0">
-         <div className="relative w-full md:w-96">
-            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input 
-              type="text" 
-              placeholder="Search by name, company, email..." 
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent"
-            />
-         </div>
-         <div className="flex gap-2 w-full md:w-auto overflow-x-auto">
-            <select 
-              value={filterType} 
-              onChange={(e) => setFilterType(e.target.value)}
-              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 outline-none cursor-pointer"
-            >
-               <option value="all">All Types</option>
-               {CONTACT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
-            <select 
-              value={filterStatus} 
-              onChange={(e) => setFilterStatus(e.target.value)}
-              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 outline-none cursor-pointer"
-            >
-               <option value="all">All Statuses</option>
-               {CONTACT_STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-            </select>
-            {(filterType !== 'all' || filterStatus !== 'all' || searchTerm) && (
-                <button 
-                  onClick={() => { setFilterType('all'); setFilterStatus('all'); setSearchTerm(''); }}
-                  className="px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg text-sm font-medium transition-colors"
-                >
-                    Clear
-                </button>
-            )}
-         </div>
+      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-6 flex flex-col lg:flex-row gap-4 items-center justify-between">
+        <div className="relative w-full lg:w-96">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <input 
+            type="text" 
+            placeholder="Search by name, company, submarket..." 
+            className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent/20"
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+          />
+        </div>
+        <div className="flex gap-3 w-full lg:w-auto overflow-x-auto pb-1 lg:pb-0">
+          <select value={filterType} onChange={e => setFilterType(e.target.value)} className="bg-white border border-slate-200 px-3 py-2 rounded-lg text-sm outline-none font-medium text-slate-600">
+            <option value="all">All Roles</option>
+            {CONTACT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+          <select value={filterTier} onChange={e => setFilterTier(e.target.value)} className="bg-white border border-slate-200 px-3 py-2 rounded-lg text-sm outline-none font-medium text-slate-600">
+            <option value="all">All Tiers</option>
+            {TIERS.map(t => <option key={t} value={t}>Tier {t}</option>)}
+          </select>
+          <button className="px-3 py-2 border border-slate-200 rounded-lg text-slate-500 hover:bg-slate-50"><Filter size={18} /></button>
+        </div>
       </div>
 
-      {/* Main List */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex-1 flex flex-col">
-         <div className="overflow-auto flex-1">
-            <table className="w-full text-left border-collapse">
-               <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
-                  <tr>
-                     <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Contact Name</th>
-                     <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Contact Info</th>
-                     <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Type / Status</th>
-                     <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider hidden md:table-cell">Tags</th>
-                     <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
+      {/* Main List Table */}
+      <div className="flex-1 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+        <div className="overflow-y-auto">
+          <table className="w-full text-left">
+            <thead className="bg-slate-50 text-slate-500 text-xs font-bold uppercase tracking-wider sticky top-0 z-10 border-b border-slate-200">
+              <tr>
+                <th className="p-4">Contact</th>
+                <th className="p-4">Role & Tier</th>
+                <th className="p-4">Engagement</th>
+                <th className="p-4 hidden md:table-cell">Submarkets</th>
+                <th className="p-4 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filteredContacts.length > 0 ? filteredContacts.map(c => {
+                const score = getScore(c.lastContactedAt);
+                return (
+                  <tr key={c.id} onClick={() => setSelectedContact(c)} className="hover:bg-slate-50 cursor-pointer transition-colors group">
+                    <td className="p-4">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center font-bold text-slate-500 group-hover:border-summit-accent/30">
+                          {c.firstName[0]}{c.lastName[0]}
+                        </div>
+                        <div>
+                          <p className="font-bold text-slate-900">{c.firstName} {c.lastName}</p>
+                          <p className="text-xs text-slate-500">{c.company || 'Private Individual'}</p>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="p-4">
+                      <div className="flex items-center gap-2">
+                        <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${CONTACT_TYPES.find(t => t.value === c.contactType)?.color}`}>
+                          {c.contactType}
+                        </span>
+                        <span className="w-6 h-6 rounded-full bg-slate-900 text-white text-[10px] flex items-center justify-center font-black">
+                          {c.tier}
+                        </span>
+                      </div>
+                    </td>
+                    <td className="p-4">
+                      <div className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[10px] font-bold uppercase ${score.color}`}>
+                        <div className={`w-1.5 h-1.5 rounded-full ${score.color.replace('text-', 'bg-').split(' ')[0]}`}></div>
+                        {score.label}
+                      </div>
+                      <p className="text-[10px] text-slate-400 mt-1">Last contacted: {c.lastContactedAt ? new Date(c.lastContactedAt).toLocaleDateString() : 'Never'}</p>
+                    </td>
+                    <td className="p-4 hidden md:table-cell">
+                      <div className="flex flex-wrap gap-1 max-w-[200px]">
+                        {c.submarkets.slice(0, 2).map(m => (
+                          <span key={m} className="bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded text-[10px] font-medium">{m}</span>
+                        ))}
+                        {c.submarkets.length > 2 && <span className="text-[10px] text-slate-400">+{c.submarkets.length - 2}</span>}
+                      </div>
+                    </td>
+                    <td className="p-4 text-right">
+                       <button onClick={(e) => { e.stopPropagation(); handleOpenEdit(c); }} className="p-2 text-slate-400 hover:text-summit-900 hover:bg-slate-100 rounded-full"><Edit size={16} /></button>
+                    </td>
                   </tr>
-               </thead>
-               <tbody className="divide-y divide-slate-100">
-                  {filteredContacts.length > 0 ? filteredContacts.map(contact => (
-                     <tr key={contact.id} onClick={() => setSelectedContact(contact)} className="hover:bg-slate-50 cursor-pointer transition-colors group">
-                        <td className="p-4">
-                           <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center font-bold text-sm">
-                                 {getInitials(contact.firstName, contact.lastName)}
-                              </div>
-                              <div>
-                                 <div className="font-bold text-slate-900">{contact.firstName} {contact.lastName}</div>
-                                 <div className="text-xs text-slate-500">{contact.jobTitle} {contact.company ? `at ${contact.company}` : ''}</div>
-                              </div>
-                           </div>
-                        </td>
-                        <td className="p-4 text-sm text-slate-600">
-                           {contact.email && <div className="flex items-center gap-2 mb-1"><Mail size={12} className="text-slate-400"/> {contact.email}</div>}
-                           {contact.phone && <div className="flex items-center gap-2"><Phone size={12} className="text-slate-400"/> {contact.phone}</div>}
-                        </td>
-                        <td className="p-4">
-                           <div className="flex flex-col gap-1.5 items-start">
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${getTypeColor(contact.contactType)}`}>
-                                 {contact.contactType.replace('_', ' ')}
-                              </span>
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${getStatusColor(contact.status).replace('bg-', 'border-').replace('text-', 'text-')}`}>
-                                 {contact.status}
-                              </span>
-                           </div>
-                        </td>
-                        <td className="p-4 hidden md:table-cell">
-                           <div className="flex flex-wrap gap-1">
-                              {contact.tags.slice(0, 2).map(t => (
-                                 <span key={t} className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-xs">{t}</span>
-                              ))}
-                              {contact.tags.length > 2 && <span className="text-xs text-slate-400">+{contact.tags.length - 2}</span>}
-                           </div>
-                        </td>
-                        <td className="p-4 text-right">
-                           <button onClick={(e) => { e.stopPropagation(); handleEditClick(contact); }} className="p-2 text-slate-400 hover:text-summit-900 rounded-full hover:bg-slate-200"><Edit size={16} /></button>
-                        </td>
-                     </tr>
-                  )) : (
-                     <tr>
-                        <td colSpan={5} className="p-12 text-center text-slate-400">
-                           <Users size={48} className="mx-auto mb-4 opacity-20" />
-                           <p>No contacts found matching your filters.</p>
-                        </td>
-                     </tr>
-                  )}
-               </tbody>
-            </table>
-         </div>
+                );
+              }) : (
+                <tr>
+                  <td colSpan={5} className="p-20 text-center text-slate-400">
+                    <Users size={48} className="mx-auto mb-4 opacity-10" />
+                    <p className="font-medium text-lg">No relationships found</p>
+                    <p className="text-sm">Start building your pipeline by adding a new contact.</p>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
 
-      {/* --- SLIDE OVER DETAIL VIEW --- */}
+      {/* --- SLIDE-OVER DETAIL VIEW --- */}
       {selectedContact && (
-         <div className="fixed inset-0 z-50 flex justify-end">
-            <div className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm transition-opacity" onClick={() => setSelectedContact(null)}></div>
-            <div className="relative w-full max-w-2xl bg-white h-full shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-right duration-300">
-               {/* Detail Header */}
-               <div className="p-6 bg-slate-50 border-b border-slate-200 flex justify-between items-start">
-                  <div className="flex items-center gap-4">
-                     <div className="w-16 h-16 rounded-full bg-summit-900 text-white flex items-center justify-center font-bold text-2xl shadow-lg">
-                        {getInitials(selectedContact.firstName, selectedContact.lastName)}
-                     </div>
-                     <div>
-                        <h2 className="text-2xl font-bold text-slate-900">{selectedContact.firstName} {selectedContact.lastName}</h2>
-                        <p className="text-slate-600 font-medium">{selectedContact.jobTitle} @ {selectedContact.company}</p>
-                        <div className="flex gap-2 mt-2">
-                           <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${getTypeColor(selectedContact.contactType)}`}>{selectedContact.contactType.replace('_', ' ')}</span>
-                           <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${getStatusColor(selectedContact.status)}`}>{selectedContact.status}</span>
-                        </div>
-                     </div>
+        <div className="fixed inset-0 z-50 overflow-hidden">
+          <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity" onClick={() => setSelectedContact(null)} />
+          <div className="fixed inset-y-0 right-0 max-w-2xl w-full flex">
+            <div className="relative w-full bg-white shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+              {/* Detail Header */}
+              <div className="p-6 bg-slate-900 text-white flex justify-between items-start">
+                <div className="flex items-center gap-4">
+                  <div className="w-16 h-16 rounded-2xl bg-summit-accent text-summit-900 flex items-center justify-center font-black text-2xl">
+                    {selectedContact.firstName[0]}{selectedContact.lastName[0]}
                   </div>
-                  <div className="flex gap-2">
-                     <button onClick={() => { handleEditClick(selectedContact); setSelectedContact(null); }} className="p-2 text-slate-500 hover:text-summit-900 hover:bg-white rounded-lg border border-transparent hover:border-slate-200 transition-all">
-                        <Edit size={20} />
-                     </button>
-                     <button onClick={() => { if(confirm("Delete contact?")) { onDeleteContact(selectedContact.id); setSelectedContact(null); }}} className="p-2 text-slate-500 hover:text-red-600 hover:bg-white rounded-lg border border-transparent hover:border-red-100 transition-all">
-                        <Trash2 size={20} />
-                     </button>
-                     <button onClick={() => setSelectedContact(null)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-white rounded-lg">
-                        <X size={24} />
-                     </button>
-                  </div>
-               </div>
-
-               {/* Detail Content */}
-               <div className="flex-1 overflow-y-auto p-6 bg-white">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                     {/* Contact Info Card */}
-                     <div className="space-y-4">
-                        <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wide border-b border-slate-100 pb-2">Contact Details</h3>
-                        <div className="space-y-3 text-sm">
-                           {selectedContact.email && <div className="flex items-center gap-3 text-slate-600"><Mail size={16} className="text-slate-400"/> {selectedContact.email}</div>}
-                           {selectedContact.phone && <div className="flex items-center gap-3 text-slate-600"><Phone size={16} className="text-slate-400"/> {selectedContact.phone} (Office)</div>}
-                           {selectedContact.mobile && <div className="flex items-center gap-3 text-slate-600"><Phone size={16} className="text-slate-400"/> {selectedContact.mobile} (Mobile)</div>}
-                           {selectedContact.website && <div className="flex items-center gap-3 text-slate-600"><Globe size={16} className="text-slate-400"/> {selectedContact.website}</div>}
-                           {selectedContact.address?.city && (
-                              <div className="flex items-start gap-3 text-slate-600">
-                                 <MapPin size={16} className="text-slate-400 mt-0.5"/> 
-                                 <span>
-                                    {selectedContact.address.street}<br/>
-                                    {selectedContact.address.city}, {selectedContact.address.state} {selectedContact.address.zip}
-                                 </span>
-                              </div>
-                           )}
-                        </div>
-                     </div>
-
-                     {/* Right Column: Tags & Notes */}
-                     <div className="space-y-6">
-                        <div>
-                           <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wide border-b border-slate-100 pb-2 mb-3">Tags</h3>
-                           <div className="flex flex-wrap gap-2">
-                              {selectedContact.tags.length > 0 ? selectedContact.tags.map(t => (
-                                 <span key={t} className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1"><Tag size={12} /> {t}</span>
-                              )) : <span className="text-slate-400 text-sm italic">No tags</span>}
-                           </div>
-                        </div>
-                        <div>
-                           <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wide border-b border-slate-100 pb-2 mb-2">Notes</h3>
-                           <p className="text-sm text-slate-600 whitespace-pre-line bg-slate-50 p-3 rounded-lg border border-slate-100">
-                              {selectedContact.notes || "No notes available."}
-                           </p>
-                        </div>
-                     </div>
-                  </div>
-
-                  {/* Linked Deals Section */}
-                  <div className="mb-8">
-                     <div className="flex justify-between items-center mb-3 border-b border-slate-100 pb-2">
-                        <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wide">Linked Deals</h3>
-                        <button onClick={() => setIsLinkingDeal(true)} className="text-xs text-summit-accent font-bold hover:underline flex items-center gap-1"><LinkIcon size={12} /> Link Deal</button>
-                     </div>
-                     {selectedContact.linkedDealIds.length > 0 ? (
-                        <div className="grid grid-cols-1 gap-3">
-                           {deals.filter(d => selectedContact.linkedDealIds.includes(d.id)).map(deal => (
-                              <div key={deal.id} className="border border-slate-200 rounded-lg p-3 flex justify-between items-center bg-slate-50">
-                                 <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded bg-white border border-slate-200 flex items-center justify-center">
-                                       <Building size={18} className="text-slate-400" />
-                                    </div>
-                                    <div>
-                                       <div className="font-bold text-slate-900 text-sm">{deal.propertyAddress}</div>
-                                       <div className="text-xs text-slate-500">{deal.status} • ${deal.askingPrice.toLocaleString()}</div>
-                                    </div>
-                                 </div>
-                                 <button onClick={() => {
-                                     onUnlinkDeal(selectedContact.id, deal.id);
-                                     setSelectedContact({...selectedContact, linkedDealIds: selectedContact.linkedDealIds.filter(id => id !== deal.id)});
-                                 }} className="text-slate-400 hover:text-red-500 p-2"><X size={16} /></button>
-                              </div>
-                           ))}
-                        </div>
-                     ) : (
-                        <div className="text-center py-6 bg-slate-50 rounded-lg border border-dashed border-slate-200 text-slate-400 text-sm">
-                           No deals linked to this contact.
-                        </div>
-                     )}
-                  </div>
-
-                  {/* Activity History */}
                   <div>
-                     <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-2">
-                        <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wide">Activity History</h3>
-                        <button onClick={() => setIsAddingInteraction(!isAddingInteraction)} className="text-xs bg-summit-900 text-white px-3 py-1.5 rounded flex items-center gap-1 hover:bg-summit-800 transition-colors">
-                           <Plus size={12} /> Add Activity
-                        </button>
-                     </div>
-
-                     {/* Add Interaction Form */}
-                     {isAddingInteraction && (
-                        <form onSubmit={handleInteractionSubmit} className="bg-slate-50 p-4 rounded-lg border border-slate-200 mb-4 animate-in fade-in slide-in-from-top-2">
-                           <div className="grid grid-cols-2 gap-3 mb-3">
-                              <select 
-                                 value={newInteraction.type}
-                                 onChange={e => setNewInteraction({...newInteraction, type: e.target.value as any})}
-                                 className="w-full p-2 border border-slate-300 rounded text-sm outline-none"
-                              >
-                                 {INTERACTION_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                              </select>
-                              <input 
-                                 type="date"
-                                 value={newInteraction.date}
-                                 onChange={e => setNewInteraction({...newInteraction, date: e.target.value})}
-                                 className="w-full p-2 border border-slate-300 rounded text-sm outline-none"
-                              />
-                           </div>
-                           <input 
-                              type="text" 
-                              placeholder="Subject / Summary"
-                              className="w-full p-2 border border-slate-300 rounded text-sm outline-none mb-3"
-                              value={newInteraction.subject}
-                              onChange={e => setNewInteraction({...newInteraction, subject: e.target.value})}
-                              required
-                           />
-                           <textarea 
-                              placeholder="Notes..."
-                              rows={2}
-                              className="w-full p-2 border border-slate-300 rounded text-sm outline-none mb-3"
-                              value={newInteraction.notes}
-                              onChange={e => setNewInteraction({...newInteraction, notes: e.target.value})}
-                           />
-                           <div className="flex justify-end gap-2">
-                              <button type="button" onClick={() => setIsAddingInteraction(false)} className="text-xs text-slate-500 hover:text-slate-800 px-3 py-1.5">Cancel</button>
-                              <button type="submit" className="text-xs bg-summit-accent text-white px-3 py-1.5 rounded font-bold hover:bg-emerald-600">Save Activity</button>
-                           </div>
-                        </form>
-                     )}
-
-                     {/* Timeline */}
-                     <div className="relative border-l-2 border-slate-100 ml-3 space-y-6 pb-6">
-                        {selectedContact.interactions.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(interaction => {
-                           const Icon = INTERACTION_TYPES.find(t => t.value === interaction.type)?.icon || MoreVertical;
-                           return (
-                              <div key={interaction.id} className="relative pl-6 group">
-                                 <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-white border-2 border-slate-300 group-hover:border-summit-accent transition-colors"></div>
-                                 <div className="bg-white p-3 rounded-lg border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
-                                    <div className="flex justify-between items-start mb-1">
-                                       <div className="flex items-center gap-2">
-                                          <Icon size={14} className="text-slate-400" />
-                                          <span className="font-bold text-sm text-slate-800">{interaction.subject}</span>
-                                       </div>
-                                       <span className="text-xs text-slate-400">{new Date(interaction.date).toLocaleDateString()}</span>
-                                    </div>
-                                    {interaction.notes && <p className="text-xs text-slate-600 mt-1">{interaction.notes}</p>}
-                                 </div>
-                              </div>
-                           );
-                        })}
-                        {selectedContact.interactions.length === 0 && !isAddingInteraction && (
-                           <p className="text-sm text-slate-400 pl-6 italic">No activity recorded yet.</p>
-                        )}
-                     </div>
+                    <h2 className="text-2xl font-bold">{selectedContact.firstName} {selectedContact.lastName}</h2>
+                    <p className="text-summit-accent font-medium text-sm">{selectedContact.jobTitle || 'Decision Maker'} @ {selectedContact.company}</p>
+                    <div className="flex gap-2 mt-2">
+                       <span className="bg-white/10 px-2 py-0.5 rounded text-[10px] font-bold uppercase">Tier {selectedContact.tier}</span>
+                       <span className="bg-white/10 px-2 py-0.5 rounded text-[10px] font-bold uppercase">{selectedContact.contactType}</span>
+                    </div>
                   </div>
-               </div>
+                </div>
+                <button onClick={() => setSelectedContact(null)} className="text-white/60 hover:text-white"><X size={24} /></button>
+              </div>
+
+              {/* Action Bar */}
+              <div className="px-6 py-3 border-b border-slate-100 flex gap-4 overflow-x-auto bg-slate-50">
+                 <button className="flex items-center gap-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 px-3 py-2 rounded-lg hover:shadow-sm">
+                   <Phone size={14} className="text-blue-500" /> Call
+                 </button>
+                 <button className="flex items-center gap-2 text-xs font-bold text-slate-700 bg-white border border-slate-200 px-3 py-2 rounded-lg hover:shadow-sm">
+                   <Mail size={14} className="text-rose-500" /> Email
+                 </button>
+                 <button onClick={() => setIsAddingInteraction(true)} className="flex items-center gap-2 text-xs font-bold text-white bg-summit-900 px-3 py-2 rounded-lg hover:bg-slate-800">
+                   <Plus size={14} /> Log Activity
+                 </button>
+              </div>
+
+              {/* Scrollable Content */}
+              <div className="flex-1 overflow-y-auto p-6 space-y-8">
+                 {/* Intelligence Grid */}
+                 <div className="grid grid-cols-2 gap-6">
+                    <div className="space-y-4">
+                       <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-100 pb-2 flex items-center gap-2">
+                         <Building size={14} /> Louisville Focus
+                       </h3>
+                       <div className="flex flex-wrap gap-2">
+                          {selectedContact.submarkets.map(m => (
+                            <span key={m} className="bg-blue-50 text-blue-700 px-2 py-1 rounded text-xs font-bold">{m}</span>
+                          ))}
+                          {selectedContact.submarkets.length === 0 && <p className="text-xs text-slate-400 italic">No specific submarkets assigned.</p>}
+                       </div>
+                    </div>
+                    <div className="space-y-4">
+                       <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-100 pb-2 flex items-center gap-2">
+                         <TrendingUp size={14} /> Interests
+                       </h3>
+                       <div className="flex flex-wrap gap-2">
+                          {selectedContact.propertyInterests.map(p => (
+                            <span key={p} className="bg-emerald-50 text-emerald-700 px-2 py-1 rounded text-xs font-bold">{p}</span>
+                          ))}
+                          {selectedContact.propertyInterests.length === 0 && <p className="text-xs text-slate-400 italic">No interests logged.</p>}
+                       </div>
+                    </div>
+                 </div>
+
+                 {/* Contact Details */}
+                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-100 grid grid-cols-2 gap-4">
+                    <div>
+                       <p className="text-[10px] font-bold text-slate-400 uppercase">Primary Phone</p>
+                       <p className="text-sm font-bold text-slate-800">{selectedContact.phone || selectedContact.mobile || 'N/A'}</p>
+                    </div>
+                    <div>
+                       <p className="text-[10px] font-bold text-slate-400 uppercase">Primary Email</p>
+                       <p className="text-sm font-bold text-slate-800 truncate">{selectedContact.email || 'N/A'}</p>
+                    </div>
+                    <div className="col-span-2">
+                       <p className="text-[10px] font-bold text-slate-400 uppercase">Office Address</p>
+                       <p className="text-sm font-bold text-slate-800">
+                          {selectedContact.address?.street ? `${selectedContact.address.street}, ${selectedContact.address.city}` : 'No address on file'}
+                       </p>
+                    </div>
+                 </div>
+
+                 {/* Type Specific Context */}
+                 {selectedContact.contactType === 'investor' && selectedContact.investorCriteria && (
+                   <div className="bg-emerald-900 text-white p-4 rounded-xl shadow-lg">
+                      <h3 className="font-bold mb-3 flex items-center gap-2 text-sm"><AlertCircle size={16}/> Investor Portfolio Criteria</h3>
+                      <div className="grid grid-cols-2 gap-4 text-xs">
+                         <div className="bg-white/10 p-2 rounded">
+                            <p className="opacity-60">1031 Status</p>
+                            <p className="font-bold text-sm">{selectedContact.investorCriteria.is1031Active ? 'ACTIVE 1031' : 'No Active Exchange'}</p>
+                         </div>
+                         <div className="bg-white/10 p-2 rounded">
+                            <p className="opacity-60">Target Cap Rate</p>
+                            <p className="font-bold text-sm">{selectedContact.investorCriteria.targetCapRate}% - {Number(selectedContact.investorCriteria.targetCapRate) + 1}%</p>
+                         </div>
+                      </div>
+                   </div>
+                 )}
+
+                 {/* Timeline */}
+                 <div className="space-y-4">
+                    <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-400 border-b border-slate-100 pb-2">Activity History</h3>
+                    
+                    {isAddingInteraction && (
+                       <form onSubmit={logInteraction} className="bg-slate-50 p-4 rounded-xl border border-summit-accent/30 animate-in fade-in slide-in-from-top-2">
+                          <div className="grid grid-cols-2 gap-4 mb-4">
+                             <select value={newInteraction.type} onChange={e => setNewInteraction({...newInteraction, type: e.target.value as any})} className="bg-white border p-2 rounded text-xs outline-none">
+                                <option value="call">Phone Call</option>
+                                <option value="email">Email Sent</option>
+                                <option value="meeting">In-Person Meeting</option>
+                                <option value="tour">Property Tour</option>
+                             </select>
+                             <input type="date" value={newInteraction.date} onChange={e => setNewInteraction({...newInteraction, date: e.target.value})} className="bg-white border p-2 rounded text-xs outline-none" />
+                          </div>
+                          <input type="text" placeholder="Subject line..." value={newInteraction.subject} onChange={e => setNewInteraction({...newInteraction, subject: e.target.value})} className="w-full bg-white border p-2 rounded text-xs outline-none mb-4" required />
+                          <textarea rows={2} placeholder="Detailed notes..." value={newInteraction.notes} onChange={e => setNewInteraction({...newInteraction, notes: e.target.value})} className="w-full bg-white border p-2 rounded text-xs outline-none mb-4" />
+                          <div className="flex justify-end gap-2">
+                             <button type="button" onClick={() => setIsAddingInteraction(false)} className="text-xs font-bold text-slate-500 px-3">Cancel</button>
+                             <button type="submit" className="bg-summit-900 text-white px-4 py-2 rounded font-bold text-xs">Save Entry</button>
+                          </div>
+                       </form>
+                    )}
+
+                    <div className="relative border-l-2 border-slate-100 ml-4 pl-8 space-y-8 py-4">
+                       {selectedContact.interactions.length > 0 ? selectedContact.interactions.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(i => (
+                          <div key={i.id} className="relative group">
+                             <div className="absolute -left-[37px] top-0 w-4 h-4 rounded-full bg-white border-4 border-summit-accent group-hover:scale-125 transition-transform" />
+                             <div className="bg-white border border-slate-100 rounded-xl p-4 shadow-sm group-hover:shadow-md transition-shadow">
+                                <div className="flex justify-between items-start mb-2">
+                                   <div className="flex items-center gap-2 text-slate-400 font-bold text-[10px] uppercase tracking-tighter">
+                                      {i.type === 'call' && <Phone size={12} />}
+                                      {i.type === 'email' && <Mail size={12} />}
+                                      {i.type === 'tour' && <MapPin size={12} />}
+                                      {i.type} • {new Date(i.date).toLocaleDateString()}
+                                   </div>
+                                </div>
+                                <h4 className="font-bold text-slate-800 text-sm">{i.subject}</h4>
+                                <p className="text-xs text-slate-500 mt-2 leading-relaxed">{i.notes}</p>
+                             </div>
+                          </div>
+                       )) : (
+                         <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                            <MessageSquare className="mx-auto text-slate-200 mb-2" />
+                            <p className="text-xs text-slate-400 italic">No activity history recorded.</p>
+                         </div>
+                       )}
+                    </div>
+                 </div>
+              </div>
             </div>
-         </div>
+          </div>
+        </div>
       )}
 
       {/* --- ADD/EDIT MODAL --- */}
       {isEditModalOpen && editingContact && (
-         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white w-full max-w-3xl rounded-xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
-               <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                  <h2 className="font-bold text-lg text-slate-800">{editingContact.id ? 'Edit Contact' : 'New Contact'}</h2>
-                  <button onClick={() => setIsEditModalOpen(false)}><X size={20} className="text-slate-400 hover:text-slate-600"/></button>
-               </div>
-               <form onSubmit={handleSaveForm} className="p-6 overflow-y-auto flex-1 space-y-6">
-                  {/* Basic Info */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                     <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase">First Name *</label>
-                        <input type="text" className="w-full p-2 border border-slate-300 rounded outline-none focus:border-summit-accent" value={editingContact.firstName} onChange={e => setEditingContact({...editingContact, firstName: e.target.value})} required />
-                     </div>
-                     <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase">Last Name *</label>
-                        <input type="text" className="w-full p-2 border border-slate-300 rounded outline-none focus:border-summit-accent" value={editingContact.lastName} onChange={e => setEditingContact({...editingContact, lastName: e.target.value})} required />
-                     </div>
-                     <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase">Company</label>
-                        <input type="text" className="w-full p-2 border border-slate-300 rounded outline-none focus:border-summit-accent" value={editingContact.company || ''} onChange={e => setEditingContact({...editingContact, company: e.target.value})} />
-                     </div>
-                     <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase">Job Title</label>
-                        <input type="text" className="w-full p-2 border border-slate-300 rounded outline-none focus:border-summit-accent" value={editingContact.jobTitle || ''} onChange={e => setEditingContact({...editingContact, jobTitle: e.target.value})} />
-                     </div>
-                     <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase">Type</label>
-                        <select className="w-full p-2 border border-slate-300 rounded outline-none focus:border-summit-accent bg-white" value={editingContact.contactType} onChange={e => setEditingContact({...editingContact, contactType: e.target.value as ContactType})}>
-                           {CONTACT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                        </select>
-                     </div>
-                     <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase">Status</label>
-                        <select className="w-full p-2 border border-slate-300 rounded outline-none focus:border-summit-accent bg-white" value={editingContact.status} onChange={e => setEditingContact({...editingContact, status: e.target.value as ContactStatus})}>
-                           {CONTACT_STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                        </select>
-                     </div>
-                  </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-in fade-in duration-200">
+           <form onSubmit={handleSave} className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+              <div className="p-6 border-b flex justify-between items-center bg-slate-50">
+                 <h2 className="text-xl font-bold text-slate-800">{editingContact.id ? 'Edit Relationship' : 'Register New Contact'}</h2>
+                 <button type="button" onClick={() => setIsEditModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X /></button>
+              </div>
+              <div className="p-8 overflow-y-auto grid grid-cols-1 md:grid-cols-2 gap-8">
+                 {/* Basic Profile */}
+                 <div className="space-y-6">
+                    <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest border-b pb-2">Professional Profile</h3>
+                    <div className="grid grid-cols-2 gap-4">
+                       <div>
+                          <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">First Name</label>
+                          <input required type="text" className="w-full p-2.5 bg-slate-50 border rounded-lg outline-none focus:ring-2 focus:ring-summit-accent/20" value={editingContact.firstName} onChange={e => setEditingContact({...editingContact, firstName: e.target.value})} />
+                       </div>
+                       <div>
+                          <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Last Name</label>
+                          <input required type="text" className="w-full p-2.5 bg-slate-50 border rounded-lg outline-none focus:ring-2 focus:ring-summit-accent/20" value={editingContact.lastName} onChange={e => setEditingContact({...editingContact, lastName: e.target.value})} />
+                       </div>
+                    </div>
+                    <div>
+                       <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Company / Entity</label>
+                       <input type="text" className="w-full p-2.5 bg-slate-50 border rounded-lg outline-none" value={editingContact.company || ''} onChange={e => setEditingContact({...editingContact, company: e.target.value})} placeholder="e.g. Hogan Real Estate" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                       <div>
+                          <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Contact Type</label>
+                          <select className="w-full p-2.5 bg-slate-50 border rounded-lg outline-none" value={editingContact.contactType} onChange={e => setEditingContact({...editingContact, contactType: e.target.value as ContactType})}>
+                             {CONTACT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                          </select>
+                       </div>
+                       <div>
+                          <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Relationship Tier</label>
+                          <select className="w-full p-2.5 bg-slate-50 border rounded-lg outline-none" value={editingContact.tier} onChange={e => setEditingContact({...editingContact, tier: e.target.value as RelationshipTier})}>
+                             {TIERS.map(t => <option key={t} value={t}>Tier {t}</option>)}
+                          </select>
+                       </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                       <div>
+                          <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Email</label>
+                          <input type="email" className="w-full p-2.5 bg-slate-50 border rounded-lg outline-none" value={editingContact.email || ''} onChange={e => setEditingContact({...editingContact, email: e.target.value})} />
+                       </div>
+                       <div>
+                          <label className="block text-[10px] font-black text-slate-500 uppercase mb-1">Phone</label>
+                          <input type="tel" className="w-full p-2.5 bg-slate-50 border rounded-lg outline-none" value={editingContact.phone || ''} onChange={e => setEditingContact({...editingContact, phone: e.target.value})} />
+                       </div>
+                    </div>
+                 </div>
 
-                  {/* Contact Info */}
-                  <div className="border-t border-slate-100 pt-4">
-                     <h3 className="font-bold text-sm text-slate-800 mb-3 flex items-center gap-2"><Phone size={14} className="text-summit-accent"/> Contact Information</h3>
-                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <input type="email" placeholder="Email Address" className="w-full p-2 border border-slate-300 rounded outline-none" value={editingContact.email || ''} onChange={e => setEditingContact({...editingContact, email: e.target.value})} />
-                        <input type="tel" placeholder="Work Phone" className="w-full p-2 border border-slate-300 rounded outline-none" value={editingContact.phone || ''} onChange={e => setEditingContact({...editingContact, phone: e.target.value})} />
-                        <input type="tel" placeholder="Mobile Phone" className="w-full p-2 border border-slate-300 rounded outline-none" value={editingContact.mobile || ''} onChange={e => setEditingContact({...editingContact, mobile: e.target.value})} />
-                        <input type="text" placeholder="Website" className="w-full p-2 border border-slate-300 rounded outline-none" value={editingContact.website || ''} onChange={e => setEditingContact({...editingContact, website: e.target.value})} />
-                     </div>
-                  </div>
-
-                  {/* Address */}
-                  <div className="border-t border-slate-100 pt-4">
-                     <h3 className="font-bold text-sm text-slate-800 mb-3 flex items-center gap-2"><MapPin size={14} className="text-summit-accent"/> Address</h3>
-                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        <input type="text" placeholder="Street" className="col-span-2 md:col-span-4 w-full p-2 border border-slate-300 rounded outline-none" value={editingContact.address?.street || ''} onChange={e => setEditingContact({...editingContact, address: {...editingContact.address, street: e.target.value}})} />
-                        <input type="text" placeholder="City" className="w-full p-2 border border-slate-300 rounded outline-none" value={editingContact.address?.city || ''} onChange={e => setEditingContact({...editingContact, address: {...editingContact.address, city: e.target.value}})} />
-                        <input type="text" placeholder="State" className="w-full p-2 border border-slate-300 rounded outline-none" value={editingContact.address?.state || ''} onChange={e => setEditingContact({...editingContact, address: {...editingContact.address, state: e.target.value}})} />
-                        <input type="text" placeholder="Zip" className="w-full p-2 border border-slate-300 rounded outline-none" value={editingContact.address?.zip || ''} onChange={e => setEditingContact({...editingContact, address: {...editingContact.address, zip: e.target.value}})} />
-                        <input type="text" placeholder="Country" className="w-full p-2 border border-slate-300 rounded outline-none" value={editingContact.address?.country || ''} onChange={e => setEditingContact({...editingContact, address: {...editingContact.address, country: e.target.value}})} />
-                     </div>
-                  </div>
-
-                  {/* Meta */}
-                  <div className="border-t border-slate-100 pt-4">
-                     <h3 className="font-bold text-sm text-slate-800 mb-3 flex items-center gap-2"><Tag size={14} className="text-summit-accent"/> Tags & Notes</h3>
-                     <input 
-                        type="text" 
-                        placeholder="Tags (comma separated)" 
-                        className="w-full p-2 border border-slate-300 rounded outline-none mb-4" 
-                        value={editingContact.tags?.join(', ') || ''} 
-                        onChange={e => setEditingContact({...editingContact, tags: e.target.value.split(',').map(t => t.trim()).filter(Boolean)})} 
-                     />
-                     <textarea 
-                        rows={3} 
-                        placeholder="Internal Notes..." 
-                        className="w-full p-2 border border-slate-300 rounded outline-none" 
-                        value={editingContact.notes || ''} 
-                        onChange={e => setEditingContact({...editingContact, notes: e.target.value})} 
-                     />
-                  </div>
-                  
-                  <div className="flex justify-end gap-3 pt-4">
-                     <button type="button" onClick={() => setIsEditModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
-                     <button type="submit" className="px-6 py-2 bg-summit-900 text-white rounded-lg hover:bg-summit-800 font-medium">Save Contact</button>
-                  </div>
-               </form>
-            </div>
-         </div>
-      )}
-
-      {/* --- IMPORT MODAL --- */}
-      {isImportModalOpen && (
-         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white w-full max-w-lg rounded-xl shadow-2xl overflow-hidden">
-               <div className="p-5 border-b border-slate-100 flex justify-between items-center">
-                  <h2 className="font-bold text-lg text-slate-800">Import Contacts</h2>
-                  <button onClick={() => setIsImportModalOpen(false)}><X size={20} className="text-slate-400"/></button>
-               </div>
-               <div className="p-6">
-                  <p className="text-sm text-slate-600 mb-4">
-                     Paste your CSV data below. Format: <br/>
-                     <code className="bg-slate-100 px-1 py-0.5 rounded text-xs font-mono">First Name, Last Name, Email, Phone, Company, Type</code>
-                  </p>
-                  <textarea 
-                     rows={10} 
-                     className="w-full p-3 border border-slate-300 rounded-lg font-mono text-xs outline-none focus:border-summit-accent"
-                     placeholder="John, Doe, john@example.com, 555-1234, Acme Corp, investor"
-                     value={importText}
-                     onChange={e => setImportText(e.target.value)}
-                  />
-                  <div className="flex justify-end gap-3 mt-4">
-                     <button onClick={() => setIsImportModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-50 rounded-lg">Cancel</button>
-                     <button onClick={handleCsvImport} className="px-4 py-2 bg-summit-900 text-white rounded-lg hover:bg-summit-800">Process Import</button>
-                  </div>
-               </div>
-            </div>
-         </div>
-      )}
-
-      {/* --- LINK DEAL MODAL --- */}
-      {isLinkingDeal && selectedContact && (
-         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white w-full max-w-md rounded-xl shadow-2xl overflow-hidden">
-               <div className="p-5 border-b border-slate-100 flex justify-between items-center">
-                  <h2 className="font-bold text-lg text-slate-800">Link Deal to Contact</h2>
-                  <button onClick={() => setIsLinkingDeal(false)}><X size={20} className="text-slate-400"/></button>
-               </div>
-               <div className="p-4 max-h-96 overflow-y-auto">
-                  {deals.filter(d => !selectedContact.linkedDealIds.includes(d.id)).length > 0 ? (
-                     <div className="space-y-2">
-                        {deals.filter(d => !selectedContact.linkedDealIds.includes(d.id)).map(deal => (
-                           <div key={deal.id} 
-                                onClick={async () => {
-                                    await onLinkDeal(selectedContact.id, deal.id);
-                                    setSelectedContact({...selectedContact, linkedDealIds: [...selectedContact.linkedDealIds, deal.id]});
-                                    setIsLinkingDeal(false);
-                                }}
-                                className="p-3 border border-slate-200 rounded hover:border-summit-accent hover:bg-green-50 cursor-pointer transition-all"
-                           >
-                              <div className="font-bold text-sm text-slate-800">{deal.propertyAddress}</div>
-                              <div className="text-xs text-slate-500">${deal.askingPrice.toLocaleString()} • {deal.status}</div>
-                           </div>
-                        ))}
-                     </div>
-                  ) : (
-                     <p className="text-center text-slate-500 text-sm py-4">No available deals to link.</p>
-                  )}
-               </div>
-            </div>
-         </div>
+                 {/* CRE Specifics */}
+                 <div className="space-y-6">
+                    <h3 className="text-xs font-black uppercase text-slate-400 tracking-widest border-b pb-2">Market Intelligence</h3>
+                    <div>
+                       <label className="block text-[10px] font-black text-slate-500 uppercase mb-2">Louisville Submarket Focus</label>
+                       <div className="grid grid-cols-2 gap-2">
+                          {LOUISVILLE_SUBMARKETS.map(market => (
+                            <label key={market} className="flex items-center gap-2 p-2 rounded-lg hover:bg-slate-50 border border-transparent cursor-pointer">
+                               <input 
+                                 type="checkbox" 
+                                 className="rounded border-slate-300 text-summit-accent focus:ring-summit-accent" 
+                                 checked={editingContact.submarkets?.includes(market)} 
+                                 onChange={e => {
+                                    const current = editingContact.submarkets || [];
+                                    const next = e.target.checked ? [...current, market] : current.filter(m => m !== market);
+                                    setEditingContact({...editingContact, submarkets: next});
+                                 }}
+                               />
+                               <span className="text-[10px] font-bold text-slate-600">{market}</span>
+                            </label>
+                          ))}
+                       </div>
+                    </div>
+                    <div>
+                       <label className="block text-[10px] font-black text-slate-500 uppercase mb-2">Property Type Interest</label>
+                       <div className="flex flex-wrap gap-2">
+                          {Object.values(PropertyType).map(pt => (
+                            <button 
+                              key={pt} 
+                              type="button"
+                              onClick={() => {
+                                 const current = editingContact.propertyInterests || [];
+                                 const next = current.includes(pt) ? current.filter(x => x !== pt) : [...current, pt];
+                                 setEditingContact({...editingContact, propertyInterests: next});
+                              }}
+                              className={`px-3 py-1.5 rounded-full text-[10px] font-bold border transition-all ${
+                                 editingContact.propertyInterests?.includes(pt) ? 'bg-summit-accent border-summit-accent text-white' : 'bg-white border-slate-200 text-slate-500 hover:border-summit-accent/30'
+                              }`}
+                            >
+                               {pt}
+                            </button>
+                          ))}
+                       </div>
+                    </div>
+                    {editingContact.contactType === 'investor' && (
+                       <div className="p-4 bg-slate-900 rounded-xl space-y-4">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                             <input 
+                               type="checkbox" 
+                               className="rounded border-white/20 bg-white/10 text-summit-accent focus:ring-0" 
+                               checked={editingContact.investorCriteria?.is1031Active} 
+                               onChange={e => setEditingContact({...editingContact, investorCriteria: {...(editingContact.investorCriteria || {is1031Active: false}), is1031Active: e.target.checked}})}
+                             />
+                             <span className="text-[10px] font-black text-white uppercase tracking-widest">Active 1031 Exchange</span>
+                          </label>
+                          <div className="grid grid-cols-2 gap-4">
+                             <div>
+                                <label className="block text-[10px] font-bold text-white/50 uppercase mb-1">Target Cap Rate %</label>
+                                <input type="number" step="0.1" className="w-full p-2 bg-white/10 border border-white/10 rounded outline-none text-white text-xs" value={editingContact.investorCriteria?.targetCapRate || ''} onChange={e => setEditingContact({...editingContact, investorCriteria: {...(editingContact.investorCriteria || {is1031Active: false}), targetCapRate: Number(e.target.value)}})} />
+                             </div>
+                             <div>
+                                <label className="block text-[10px] font-bold text-white/50 uppercase mb-1">Cap Available ($M)</label>
+                                <input type="number" className="w-full p-2 bg-white/10 border border-white/10 rounded outline-none text-white text-xs" value={editingContact.investorCriteria?.capitalAvailable || ''} onChange={e => setEditingContact({...editingContact, investorCriteria: {...(editingContact.investorCriteria || {is1031Active: false}), capitalAvailable: Number(e.target.value)}})} />
+                             </div>
+                          </div>
+                       </div>
+                    )}
+                 </div>
+              </div>
+              <div className="p-6 border-t bg-slate-50 flex justify-end gap-3">
+                 <button type="button" onClick={() => setIsEditModalOpen(false)} className="px-6 py-2 rounded-lg font-bold text-slate-500 hover:bg-slate-200">Cancel</button>
+                 <button type="submit" className="px-8 py-2 rounded-lg bg-summit-900 text-white font-black shadow-lg shadow-summit-900/20 hover:bg-slate-800 transition-all">Save Relationship</button>
+              </div>
+           </form>
+        </div>
       )}
     </div>
   );

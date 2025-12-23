@@ -139,6 +139,77 @@ export interface DocumentFile {
   category?: 'contract' | 'financial' | 'legal' | 'marketing' | 'inspection' | 'other';
 }
 
+export type ContactType = 'owner' | 'tenant' | 'investor' | 'developer' | 'partner' | 'prospect';
+export type ContactStatus = 'active' | 'inactive' | 'do_not_contact' | 'archived';
+export type RelationshipTier = 'A' | 'B' | 'C' | 'D';
+export type EngagementScore = 'hot' | 'warm' | 'cool' | 'cold';
+
+export interface ContactAddress {
+  street?: string;
+  city?: string;
+  state?: string;
+  zip?: string;
+}
+
+export interface ContactInteraction {
+  id: string;
+  type: 'call' | 'email' | 'meeting' | 'text' | 'tour' | 'note';
+  date: string;
+  subject: string;
+  notes?: string;
+  outcome?: string;
+  linkedDealId?: string;
+  linkedPropertyId?: string;
+}
+
+export interface Contact {
+  id: string;
+  userId: string;
+  firstName: string;
+  lastName: string;
+  company?: string;
+  jobTitle?: string;
+  contactType: ContactType;
+  status: ContactStatus;
+  tier: RelationshipTier;
+  engagementScore?: EngagementScore;
+  
+  // Contact Details
+  email?: string;
+  phone?: string;
+  mobile?: string;
+  linkedinUrl?: string;
+  address?: ContactAddress;
+  preferredContactMethod?: 'phone' | 'email' | 'text' | 'in_person';
+  
+  // CRE Specific Data
+  submarkets: string[]; // e.g. "Downtown/CBD", "East End", "River Ridge"
+  propertyInterests: PropertyType[];
+  tags: string[];
+  industry?: string;
+  
+  // Type-Specific Fields
+  tenantCriteria?: {
+    leaseExpiration?: string;
+    sfOccupied?: number;
+    requirementSF?: string;
+  };
+  investorCriteria?: {
+    is1031Active: boolean;
+    deadline1031?: string;
+    targetCapRate?: number;
+    capitalAvailable?: number;
+  };
+  
+  // Relationships
+  notes?: string;
+  linkedDealIds: string[];
+  interactions: ContactInteraction[];
+  lastContactedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 export interface LeadGenLog {
   id: string;
   userId: string;
@@ -189,55 +260,6 @@ export interface MortgageCalculation {
   createdAt?: string;
   propertyAddress?: string;
   notes?: string;
-}
-
-export type ContactType = 'owner' | 'strategic_partner' | 'investor' | 'lender' | 'broker' | 'attorney' | 'title_company' | 'property_manager' | 'contractor' | 'appraiser' | 'inspector' | 'tenant' | 'banker' | 'vendor' | 'other';
-export type ContactStatus = 'active' | 'inactive' | 'lead' | 'prospect';
-
-export interface ContactAddress {
-  street?: string;
-  city?: string;
-  state?: string;
-  zip?: string;
-  zipCode?: string;
-  country?: string;
-}
-
-export interface ContactInteraction {
-  id: string;
-  type: 'call' | 'email' | 'meeting' | 'note' | 'other';
-  date: string;
-  subject: string;
-  summary?: string;
-  notes?: string;
-  outcome?: string;
-  followUpDate?: string;
-  createdBy?: string;
-}
-
-export interface Contact {
-  id: string;
-  userId: string;
-  firstName: string;
-  lastName: string;
-  contactType: ContactType;
-  status: ContactStatus;
-  company?: string;
-  jobTitle?: string;
-  email?: string;
-  phone?: string;
-  mobile?: string;
-  address?: ContactAddress;
-  website?: string;
-  linkedin?: string;
-  twitter?: string;
-  tags: string[];
-  notes?: string;
-  linkedDealIds: string[];
-  interactions: ContactInteraction[];
-  createdAt?: string;
-  updatedAt?: string;
-  lastContactedAt?: string;
 }
 
 export interface EmailMessage {

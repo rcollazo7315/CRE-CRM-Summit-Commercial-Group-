@@ -1,3 +1,4 @@
+
 import { 
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, 
   query, where, orderBy, serverTimestamp, Timestamp, writeBatch, arrayUnion, arrayRemove
@@ -257,8 +258,9 @@ export const api = {
 
   saveContact: async (contact: Contact) => {
     checkDb();
-    if (contact.id) await setDoc(doc(db!, 'contacts', contact.id), contact, { merge: true });
-    else await addDoc(collection(db!, 'contacts'), contact);
+    const data = { ...contact, updatedAt: serverTimestamp() };
+    if (contact.id && contact.id.length > 5) await updateDoc(doc(db!, 'contacts', contact.id), data as any);
+    else await addDoc(collection(db!, 'contacts'), { ...data, createdAt: serverTimestamp() });
   },
 
   deleteContact: async (id: string) => {
@@ -268,7 +270,11 @@ export const api = {
 
   addContactInteraction: async (contactId: string, interaction: ContactInteraction) => {
     checkDb();
-    await updateDoc(doc(db!, 'contacts', contactId), { interactions: arrayUnion(interaction), lastContactedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    await updateDoc(doc(db!, 'contacts', contactId), { 
+      interactions: arrayUnion(interaction), 
+      lastContactedAt: serverTimestamp(), 
+      updatedAt: serverTimestamp() 
+    });
   },
 
   linkContactToDeal: async (contactId: string, dealId: string) => {
