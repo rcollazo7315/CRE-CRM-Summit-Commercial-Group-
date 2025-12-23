@@ -1,4 +1,3 @@
-
 export interface UserAccount {
   id: string;
   email: string;
@@ -13,10 +12,9 @@ export interface UserAccount {
   avatar?: string;
   profileImage?: string;
   company?: string;
-  // Fix: Add missing properties for authentication and user profile management
+  bio?: string;
   username?: string;
   passwordHash?: string;
-  bio?: string;
   notifications: {
     email: { dealUpdates: boolean; taskReminders: boolean; newMessages: boolean; systemAlerts: boolean };
     sms: { dealUpdates: boolean; taskReminders: boolean; newMessages: boolean; systemAlerts: boolean };
@@ -66,13 +64,11 @@ export interface Deal {
   lastUpdated: string;
   createdAt: string;
   documents?: DocumentFile[];
-  // Fix: Add missing financial and tracking fields
   commission?: number;
   daysOnMarket?: number;
   closedDate?: string;
 }
 
-// Fix: Export TaskPriority and TaskType for use in TaskModal
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
 export type TaskType = 'call' | 'email' | 'follow-up' | 'meeting' | 'proposal' | 'site-visit' | 'document' | 'other';
 
@@ -102,7 +98,7 @@ export interface DocumentFile {
 }
 
 export type ContactType = 'owner' | 'tenant' | 'investor' | 'developer' | 'partner' | 'prospect';
-export type ContactStatus = 'active' | 'inactive' | 'do_not_contact' | 'archived';
+export type ContactStatus = 'active' | 'inactive' | 'do_not_contact' | 'archived' | 'lead' | 'prospect';
 export type RelationshipTier = 'A' | 'B' | 'C' | 'D';
 
 export interface ContactInteraction {
@@ -140,10 +136,6 @@ export interface Contact {
     targetCapRate?: number;
     capitalAvailable?: number;
   };
-  tenantCriteria?: {
-    leaseExpiration?: string;
-    sfOccupied?: number;
-  };
 }
 
 export interface LeadGenLog {
@@ -151,7 +143,6 @@ export interface LeadGenLog {
   userId: string;
   date: string;
   callsMade: number;
-  // Fix: Add missing performance metrics used in LeadGenPage
   lettersSent: number;
   socialPosts: number;
   targetedEmails: number;
@@ -176,20 +167,17 @@ export interface MortgageCalculation {
   loanAmount: number;
   interestRate: number;
   loanTermYears: number;
-  // Fix: Add missing calculation and asset properties
-  loanTerm?: number;
   monthlyPayment: number;
   totalCostOfLoan: number;
+  propertyValue: number;
+  annualNOI: number;
   downPaymentValue?: number;
   downPaymentMode?: 'percent' | 'amount';
   annualTax: number;
   annualInsurance: number;
   annualHOA: number;
-  propertyValue: number;
-  annualNOI: number;
 }
 
-// Fix: Add missing ActivityLog export for constants.ts
 export interface ActivityLog {
   id: string;
   userId: string;
@@ -198,7 +186,6 @@ export interface ActivityLog {
   timestamp: string;
 }
 
-// Fix: Add missing EmailMessage export for constants.ts and CommunicationsPage.tsx
 export interface EmailMessage {
   id: string;
   userId: string;

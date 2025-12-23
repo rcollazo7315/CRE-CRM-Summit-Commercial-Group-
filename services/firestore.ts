@@ -1,4 +1,3 @@
-
 import { 
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, 
   query, where, orderBy, serverTimestamp, Timestamp, writeBatch, arrayUnion, arrayRemove
@@ -100,7 +99,6 @@ export const api = {
     return convertTimestamps({ id: userDoc.id, ...userDoc.data() }) as UserAccount;
   },
 
-  // Fix: Add updateUserProfile for SettingsPage
   updateUserProfile: async (userId: string, updates: Partial<UserAccount>) => {
     checkDbConnection();
     const userRef = doc(db!, 'users', userId);
@@ -109,7 +107,6 @@ export const api = {
     return convertTimestamps({ id: updated.id, ...updated.data() }) as UserAccount;
   },
 
-  // Fix: Add updateUserPassword for SettingsPage
   updateUserPassword: async (newPassword: string) => {
     checkDbConnection();
     const user = auth!.currentUser;
@@ -134,7 +131,6 @@ export const api = {
     await updateDoc(ref, { status, approvedAt: status === 'active' ? serverTimestamp() : null });
   },
 
-  // Fix: Add deleteUser for AdminDashboardPage
   deleteUser: async (userId: string) => {
     checkDbConnection();
     await deleteDoc(doc(db!, 'users', userId));
@@ -250,14 +246,12 @@ export const api = {
     await updateDoc(ref, { interactions: arrayUnion(interaction), lastContactedAt: serverTimestamp(), updatedAt: serverTimestamp() });
   },
 
-  // Fix: Add linkContactToDeal for ContactsPage
   linkContactToDeal: async (contactId: string, dealId: string) => {
     checkDbConnection();
     const ref = doc(db!, 'contacts', contactId);
     await updateDoc(ref, { linkedDealIds: arrayUnion(dealId), updatedAt: serverTimestamp() });
   },
 
-  // Fix: Add unlinkContactFromDeal for ContactsPage
   unlinkContactFromDeal: async (contactId: string, dealId: string) => {
     checkDbConnection();
     const ref = doc(db!, 'contacts', contactId);
@@ -369,7 +363,6 @@ export const api = {
     await api.recalcUserStats(task.userId);
   },
 
-  // Fix: Add saveLeadLog for LeadGenPage
   saveLeadLog: async (log: LeadGenLog) => {
     checkDbConnection();
     const { id, ...rest } = log;
@@ -377,13 +370,11 @@ export const api = {
     else await addDoc(collection(db!, 'leadLogs'), rest);
   },
 
-  // Fix: Add deleteLeadLog for LeadGenPage
   deleteLeadLog: async (logId: string) => {
     checkDbConnection();
     await deleteDoc(doc(db!, 'leadLogs', logId));
   },
 
-  // Fix: Add getLeadLogs for App.tsx
   getLeadLogs: async (userId: string) => {
     checkDbConnection();
     const q = query(collection(db!, 'leadLogs'), where('userId', '==', userId));
@@ -391,14 +382,12 @@ export const api = {
     return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as LeadGenLog[];
   },
 
-  // Fix: Add saveCalculation for MortgageCalculatorPage
   saveCalculation: async (calc: MortgageCalculation) => {
     checkDbConnection();
     const { id, ...rest } = calc;
     await addDoc(collection(db!, 'mortgageCalculations'), { ...rest, timestamp: serverTimestamp() });
   },
 
-  // Fix: Add getCalculations for MortgageCalculatorPage
   getCalculations: async (userId: string) => {
     checkDbConnection();
     const q = query(collection(db!, 'mortgageCalculations'), where('userId', '==', userId));

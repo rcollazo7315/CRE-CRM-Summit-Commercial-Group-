@@ -73,6 +73,9 @@ export const analyzeSiteNeighborhood = async (address: string): Promise<{ text: 
   }
 };
 
+/**
+ * Generates a professional CRE listing description
+ */
 export const generateListingDescription = async (
   address: string,
   type: PropertyType,
@@ -81,17 +84,18 @@ export const generateListingDescription = async (
 ): Promise<string> => {
   try {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
-    const prompt = `Create a professional listing description for ${address} (${type}) asking $${price.toLocaleString()}. Highlights: ${highlights}`;
+    const prompt = `Create a professional, highly persuasive commercial real estate listing description for ${address} (${type}) asking $${price.toLocaleString()}. Highlights for context: ${highlights}`;
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
-        systemInstruction: "You are an expert CRE copywriter.",
+        systemInstruction: "You are an expert CRE copywriter specializing in investment properties.",
         temperature: 0.7,
       }
     });
     return response.text || "Description generation failed.";
   } catch (error) {
-    return "Description unavailable.";
+    console.error("Gemini Error:", error);
+    return "Description generation currently unavailable.";
   }
 };

@@ -37,6 +37,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   useEffect(() => {
     if (!isFirebaseInitialized() || !auth) {
+      console.warn("Firebase not ready, proceeding with guest state.");
       setLoading(false);
       return;
     }
@@ -54,17 +55,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setCurrentUser(null);
       }
       setLoading(false);
+    }, (error) => {
+      console.error("Auth State Listener Error:", error);
+      setLoading(false);
     });
 
-    return () => unsubscribe();
+    // Fallback timer to prevent permanent hang
+    const timer = setTimeout(() => {
+      setLoading(prev => {
+        if (prev) console.warn("Auth check timed out, forcing app load.");
+        return false;
+      });
+    }, 5000);
+
+    return () => {
+      unsubscribe();
+      clearTimeout(timer);
+    };
   }, []);
 
   return (
     <AuthContext.Provider value={{ currentUser, loading, refreshUser, isAdmin: currentUser?.role === 'admin' }}>
       {!loading ? children : (
-        <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-900">
-          <div className="w-12 h-12 border-4 border-summit-accent border-t-transparent rounded-full animate-spin mb-4"></div>
-          <div className="text-white font-medium animate-pulse tracking-widest text-xs uppercase">Initialising Summit CRM...</div>
+        /* Fix: React style props must be objects, and <style> content needs raw string treatment to avoid JSX parsing errors on 'to' and 'transform' on line 82 */
+        <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#0f172a', color: 'white', fontFamily: 'sans-serif' }}>
+          <div style={{ width: '40px', height: '40px', border: '3px solid rgba(255,255,255,0.1)', borderTopColor: '#10b981', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+          <style dangerouslySetInnerHTML={{ __html: '@keyframes spin { to { transform: rotate(360deg); } }' }} />
+          <p style={{ marginTop: '16px', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8' }}>Authenticating Session...</p>
         </div>
       )}
     </AuthContext.Provider>

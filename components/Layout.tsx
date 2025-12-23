@@ -1,7 +1,6 @@
-
 import React from 'react';
 import { LayoutDashboard, Building2, FileText, Settings, Bell, Search, LogOut, Menu, X, PieChart, Target, Shield, Calculator, CheckCircle2, Users } from 'lucide-react';
-import { UserAccount } from '../types';
+import { UserAccount } from '../types.ts';
 
 interface LayoutProps {
   children: React.ReactNode;

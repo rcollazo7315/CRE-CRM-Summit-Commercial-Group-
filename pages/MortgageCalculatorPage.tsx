@@ -129,7 +129,7 @@ const MortgageCalculatorPage: React.FC = () => {
         loanAmount,
         interestRate,
         loanTermYears,
-        loanTerm: loanTermYears,
+        /* Fix: Removed non-existent 'loanTerm' property to fix type error */
         annualTax,
         annualInsurance,
         annualHOA,
@@ -475,15 +475,15 @@ const MortgageCalculatorPage: React.FC = () => {
                   </div>
                   <div className="flex justify-between items-center py-2 border-b border-slate-100">
                      <span className="font-bold text-slate-700">Monthly Property Tax:</span>
-                     <span className="font-mono text-lg">${(annualTax/12).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                     <span className="font-mono text-lg">${(annualTax / 12).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                   </div>
                   <div className="flex justify-between items-center py-2 border-b border-slate-100">
                      <span className="font-bold text-slate-700">Monthly Insurance:</span>
-                     <span className="font-mono text-lg">${(annualInsurance/12).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                     <span className="font-mono text-lg">${(annualInsurance / 12).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                   </div>
                   <div className="flex justify-between items-center py-2 border-b border-slate-100">
                      <span className="font-bold text-slate-700">Monthly HOA:</span>
-                     <span className="font-mono text-lg">${(annualHOA/12).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                     <span className="font-mono text-lg">${(annualHOA / 12).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                   </div>
                   
                   <div className="bg-yellow-200 p-4 rounded-lg mt-4 flex justify-between items-center border border-yellow-300 print:bg-yellow-100 print:border-yellow-200">

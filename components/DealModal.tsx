@@ -1,8 +1,7 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Sparkles, Upload, Loader2, Save, Image as ImageIcon } from 'lucide-react';
-import { PropertyType, DealStatus, Deal } from '../types';
-import { generateListingDescription } from '../services/geminiService';
+import { PropertyType, DealStatus, Deal } from '../types.ts';
+import { generateListingDescription } from '../services/geminiService.ts';
 
 interface DealModalProps {
   isOpen: boolean;
