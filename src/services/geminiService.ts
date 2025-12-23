@@ -1,31 +1,8 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { PropertyType } from "../types.ts";
 
-const getApiKey = () => {
-  try {
-    if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
-      return process.env.API_KEY;
-    }
-  } catch (e) {
-    // Ignore
-  }
-  return '';
-};
-
-// Lazy initialization to prevent startup crashes
-let aiInstance: GoogleGenAI | null = null;
-
-const getAi = (): GoogleGenAI => {
-  if (!aiInstance) {
-    const key = getApiKey();
-    // Provide a dummy key if missing to allow instantiation, 
-    // requests will fail gracefully later instead of crashing app on load
-    aiInstance = new GoogleGenAI({ apiKey: key || 'dummy-key-for-init' });
-  }
-  return aiInstance;
-};
-
-const MODEL_NAME = 'gemini-2.5-flash';
+// Fix: Use 'gemini-3-flash-preview' for basic text tasks
+const MODEL_NAME = 'gemini-3-flash-preview';
 
 export const generateListingDescription = async (
   address: string,
@@ -34,7 +11,8 @@ export const generateListingDescription = async (
   highlights: string
 ): Promise<string> => {
   try {
-    const ai = getAi();
+    // Fix: Initialize GoogleGenAI inside the function call
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const prompt = `
       Create a professional, compelling commercial real estate listing description for the following property:
       Address: ${address}
@@ -69,7 +47,8 @@ export const generateOwnerUpdateEmail = async (
   updates: string
 ): Promise<string> => {
   try {
-    const ai = getAi();
+    // Fix: Initialize GoogleGenAI inside the function call
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const prompt = `
       Draft a professional email to a property owner giving them a weekly update on their asset.
       Owner Name: ${ownerName}
@@ -98,7 +77,8 @@ export const generateRegistrationEmails = async (
   licenseNumber: string
 ): Promise<{ adminEmail: string; userEmail: string }> => {
   try {
-    const ai = getAi();
+    // Fix: Initialize GoogleGenAI inside the function call
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const prompt = `
       Generate the content for two automated emails triggered by a new agent registration on the Summit Commercial Group portal.
       

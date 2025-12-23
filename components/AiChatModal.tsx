@@ -36,8 +36,9 @@ const AiChatModal: React.FC<AiChatModalProps> = ({ isOpen, onClose }) => {
 
     try {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
+      // Fix: Use 'gemini-3-flash-preview' for general text assistant tasks
       const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
+        model: 'gemini-3-flash-preview',
         contents: `You are a helpful expert commercial real estate assistant. Answer the following request concisely and professionally: ${userMsg}`,
       });
       

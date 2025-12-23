@@ -1,4 +1,3 @@
-
 import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
 import { getFirestore, Firestore } from 'firebase/firestore';
 import { getAuth, Auth } from 'firebase/auth';
@@ -28,15 +27,10 @@ try {
   if (app) {
     db = getFirestore(app);
     auth = getAuth(app);
-    try {
-      storage = getStorage(app);
-    } catch (e) {
-      console.warn("Storage failed to init", e);
-    }
-    console.log("🔥 Firebase initialized successfully");
+    storage = getStorage(app);
   }
 } catch (error) {
-  console.error("🔥 Firebase Initialization Critical Error:", error);
+  console.error("Firebase Initialization Error:", error);
 }
 
 export { app, db, auth, storage };

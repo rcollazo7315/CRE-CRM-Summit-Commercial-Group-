@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Calendar, Clock } from 'lucide-react';
+import { X, Calendar, Clock, AlertCircle } from 'lucide-react';
 import { Task, TaskType, TaskPriority } from '../types.ts';
 
 interface TaskModalProps {

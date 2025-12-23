@@ -40,6 +40,7 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
         </div>
       );
     }
+    // Fix: Explicitly cast 'this' to any to avoid "Property 'props' does not exist on type 'ErrorBoundary'" error
     return (this as any).props.children;
   }
 }

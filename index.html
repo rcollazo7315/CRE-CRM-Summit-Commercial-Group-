@@ -3,25 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Summit Commercial Group | Agent Portal</title>
+    <title>Summit Commercial Group | Deal Management</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script>
-      // Polyfill process for libraries that expect it (like @google/genai)
+      // Polyfill for libraries expecting process.env
       window.process = { env: { NODE_ENV: 'production' } };
       
       tailwind.config = {
         theme: {
           extend: {
-            fontFamily: {
-              sans: ['Inter', 'sans-serif'],
-            },
+            fontFamily: { sans: ['Inter', 'sans-serif'] },
             colors: {
               summit: {
-                900: '#0f172a', // Deep slate blue/black
+                900: '#0f172a',
                 800: '#1e293b',
                 700: '#334155',
-                accent: '#10b981', // Emerald green
+                accent: '#10b981',
               }
             }
           }
@@ -45,13 +43,13 @@
     "firebase/storage": "https://esm.sh/firebase@10.8.0/storage",
     "jspdf": "https://esm.sh/jspdf@2.5.1",
     "jspdf-autotable": "https://esm.sh/jspdf-autotable@3.8.2",
-    "firebase/": "https://esm.sh/firebase@^12.6.0/"
+    "firebase/": "https://esm.sh/firebase@^12.7.0/"
   }
 }
 </script>
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
+    <script type="module" src="./index.tsx"></script>
   </body>
 </html>

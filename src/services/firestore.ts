@@ -1,8 +1,8 @@
+
 import { 
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, 
-  query, where, orderBy, serverTimestamp, writeBatch, arrayUnion, arrayRemove
+  query, where, orderBy, serverTimestamp, Timestamp, writeBatch, arrayUnion, arrayRemove
 } from 'firebase/firestore';
-import type { Timestamp } from 'firebase/firestore';
 import { 
   createUserWithEmailAndPassword, 
   signInWithEmailAndPassword, 
@@ -22,8 +22,7 @@ import { UserAccount, Deal, Task, LeadGenLog, MortgageCalculation, DocumentFile,
 const convertTimestamps = (data: any): any => {
   if (!data) return data;
   if (Array.isArray(data)) return data.map(item => convertTimestamps(item));
-  // Simple check for Firestore Timestamp (duck typing) if type import fails or at runtime
-  if (data && typeof data.toDate === 'function') return data.toDate().toISOString();
+  if (data instanceof Timestamp) return data.toDate().toISOString();
   if (typeof data === 'object' && data !== null) {
     const result: any = {};
     for (const key in data) result[key] = convertTimestamps(data[key]);
@@ -172,21 +171,46 @@ export const api = {
 
   deleteDeal: async (dealId: string, userId: string) => {
     checkDbConnection();
-    const dealRef = doc(db!, 'deals', dealId);
-    const dealSnap = await getDoc(dealRef);
-    if (dealSnap.exists()) {
+    try {
+      const dealRef = doc(db!, 'deals', dealId);
+      const dealSnap = await getDoc(dealRef);
+      
+      if (!dealSnap.exists()) return;
+
       const dealData = dealSnap.data();
+
+      // 1. Delete associated tasks
+      const tasksQ = query(collection(db!, 'tasks'), where('dealId', '==', dealId));
+      const tasksSnap = await getDocs(tasksQ);
+      if (!tasksSnap.empty) {
+        const batch = writeBatch(db!);
+        tasksSnap.docs.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+      }
+
+      // 2. Delete associated documents from Storage
       const documents = dealData.documents || [];
       if (documents.length > 0 && storage) {
         for (const doc of documents) {
           if (doc.storagePath) {
-            try { await deleteObject(ref(storage, doc.storagePath)); } catch (e) {}
+            try { 
+              await deleteObject(ref(storage, doc.storagePath)); 
+            } catch (e) {
+              console.error(`Storage item cleanup failed for path ${doc.storagePath}:`, e);
+            }
           }
         }
       }
+
+      // 3. Delete Deal document
+      await deleteDoc(dealRef);
+
+      // 4. Recalculate stats
+      await api.recalcUserStats(userId);
+    } catch (error: any) {
+      console.error("Deal deletion procedure failed:", error);
+      throw new Error(`Deletion failed: ${error.message}`);
     }
-    await deleteDoc(dealRef);
-    await api.recalcUserStats(userId);
   },
 
   getContacts: async (userId: string, isAdmin = false) => {
