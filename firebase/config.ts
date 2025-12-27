@@ -31,7 +31,7 @@ try {
     console.log("🔥 Firebase verified successfully");
   }
 } catch (error) {
-  console.error("🔥 Firebase Critical Init Error:", error);
+  console.error("🔥 Firebase Initialization Error:", error);
 }
 
 export { app, db, auth, storage };

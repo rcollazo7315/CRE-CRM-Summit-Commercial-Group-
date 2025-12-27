@@ -1,11 +1,10 @@
-
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Users, UserPlus, Search, Filter, Download, Upload, X, Save, 
   MapPin, Phone, Mail, Globe, Linkedin, Twitter, Tag, 
   Calendar, Clock, Edit, Trash2, Link as LinkIcon, Plus, 
   Briefcase, MoreVertical, MessageSquare, StickyNote,
-  ChevronRight, Building
+  ChevronRight, Building, ArrowRight, Check
 } from 'lucide-react';
 import { Contact, ContactInteraction, Deal, ContactType, ContactStatus } from '../types.ts';
 
@@ -63,11 +62,17 @@ const ContactsPage: React.FC<ContactsPageProps> = ({
   // Modal States
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<Partial<Contact> | null>(null);
-  const [selectedContact, setSelectedContact] = useState<Contact | null>(null); // For slide-over detail view
+  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  
+  // Import States
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
+  const [importStep, setImportStep] = useState<'paste' | 'map'>('paste');
   const [importText, setImportText] = useState('');
+  const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
+  const [csvRows, setCsvRows] = useState<string[][]>([]);
+  const [fieldMappings, setFieldMappings] = useState<Record<string, number>>({});
 
-  // Interaction State (within detail view)
+  // Interaction State
   const [isAddingInteraction, setIsAddingInteraction] = useState(false);
   const [newInteraction, setNewInteraction] = useState<Partial<ContactInteraction>>({
     type: 'call',
@@ -97,12 +102,10 @@ const ContactsPage: React.FC<ContactsPageProps> = ({
 
   // -- Helpers --
   const getInitials = (first: string, last: string) => `${first?.[0] || ''}${last?.[0] || ''}`.toUpperCase();
-  
   const getTypeColor = (type: ContactType) => CONTACT_TYPES.find(t => t.value === type)?.color || 'bg-slate-100 text-slate-700';
   const getStatusColor = (status: ContactStatus) => CONTACT_STATUSES.find(s => s.value === status)?.color || 'bg-slate-100 text-slate-700';
 
   // -- Handlers --
-
   const handleEditClick = (contact?: Contact) => {
     if (contact) {
       setEditingContact(contact);
@@ -120,7 +123,6 @@ const ContactsPage: React.FC<ContactsPageProps> = ({
     e.preventDefault();
     if (!editingContact) return;
     
-    // Ensure required fields
     if (!editingContact.firstName || !editingContact.lastName) {
       alert("First and Last Name are required.");
       return;
@@ -136,7 +138,6 @@ const ContactsPage: React.FC<ContactsPageProps> = ({
     await onSaveContact(contactToSave);
     setIsEditModalOpen(false);
     
-    // If we were editing the currently selected contact, update the view
     if (selectedContact && selectedContact.id === contactToSave.id) {
         setSelectedContact(contactToSave);
     }
@@ -155,54 +156,71 @@ const ContactsPage: React.FC<ContactsPageProps> = ({
     };
 
     await onAddInteraction(selectedContact.id, interaction);
-    
-    // Update local view immediately
     const updatedContact = { ...selectedContact, interactions: [...selectedContact.interactions, interaction] };
     setSelectedContact(updatedContact);
-    
     setIsAddingInteraction(false);
     setNewInteraction({ type: 'call', date: new Date().toISOString().split('T')[0], subject: '', notes: '' });
   };
 
-  const handleCsvImport = async () => {
-    // Simple CSV parser
-    try {
-        const rows = importText.split('\n').filter(r => r.trim());
-        const newContacts: Contact[] = [];
-        
-        // Skip header if present (heuristic: check if first row has "first name" or similar)
-        const startIdx = rows[0].toLowerCase().includes('name') ? 1 : 0;
-
-        for (let i = startIdx; i < rows.length; i++) {
-            const cols = rows[i].split(',');
-            if (cols.length < 2) continue;
-            
-            // Expected Format: FirstName, LastName, Email, Phone, Company, Type
-            newContacts.push({
-                id: Math.random().toString(36).substr(2, 9),
-                userId: '', // set in app
-                firstName: cols[0]?.trim() || 'Unknown',
-                lastName: cols[1]?.trim() || '',
-                email: cols[2]?.trim(),
-                phone: cols[3]?.trim(),
-                company: cols[4]?.trim(),
-                contactType: (cols[5]?.trim().toLowerCase() as ContactType) || 'other',
-                status: 'lead',
-                tags: ['Imported'],
-                linkedDealIds: [],
-                interactions: [],
-                createdAt: new Date().toISOString(),
-                updatedAt: new Date().toISOString()
-            });
-        }
-        
-        await onImportContacts(newContacts);
-        setIsImportModalOpen(false);
-        setImportText('');
-        alert(`Successfully imported ${newContacts.length} contacts.`);
-    } catch (e) {
-        alert("Failed to parse CSV. Please ensure format: First Name, Last Name, Email, Phone, Company, Type");
+  const handleParseCsv = () => {
+    const lines = importText.split('\n').filter(l => l.trim());
+    if (lines.length < 2) {
+      alert("CSV must contain a header row and at least one data row.");
+      return;
     }
+
+    const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+    const rows = lines.slice(1).map(line => line.split(',').map(c => c.trim().replace(/^"|"$/g, '')));
+
+    setCsvHeaders(headers);
+    setCsvRows(rows);
+
+    // Try to auto-map based on common names
+    const autoMappings: Record<string, number> = {};
+    const fieldKeys = ['firstName', 'lastName', 'email', 'phone', 'company', 'contactType', 'jobTitle'];
+    
+    fieldKeys.forEach(field => {
+      const matchIndex = headers.findIndex(h => {
+        const header = h.toLowerCase().replace(/[\s_]/g, '');
+        const fieldName = field.toLowerCase();
+        return header.includes(fieldName) || fieldName.includes(header);
+      });
+      if (matchIndex !== -1) autoMappings[field] = matchIndex;
+    });
+
+    setFieldMappings(autoMappings);
+    setImportStep('map');
+  };
+
+  const handleCompleteImport = async () => {
+    if (fieldMappings['firstName'] === undefined || fieldMappings['lastName'] === undefined) {
+      alert("Mapping for First Name and Last Name is required.");
+      return;
+    }
+
+    const newContacts: Contact[] = csvRows.map(row => ({
+      id: Math.random().toString(36).substr(2, 9),
+      userId: '', // Set by parent
+      firstName: row[fieldMappings['firstName']] || 'Unknown',
+      lastName: row[fieldMappings['lastName']] || '',
+      email: row[fieldMappings['email']] || '',
+      phone: row[fieldMappings['phone']] || '',
+      company: row[fieldMappings['company']] || '',
+      jobTitle: row[fieldMappings['jobTitle']] || '',
+      contactType: (row[fieldMappings['contactType']]?.toLowerCase() as ContactType) || 'other',
+      status: 'lead',
+      tags: ['Imported'],
+      linkedDealIds: [],
+      interactions: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }));
+
+    await onImportContacts(newContacts);
+    setIsImportModalOpen(false);
+    setImportStep('paste');
+    setImportText('');
+    alert(`Imported ${newContacts.length} contacts.`);
   };
 
   const exportCsv = () => {
@@ -227,7 +245,7 @@ const ContactsPage: React.FC<ContactsPageProps> = ({
            <p className="text-slate-500">Manage your network, partners, and leads.</p>
         </div>
         <div className="flex gap-2">
-           <button onClick={() => setIsImportModalOpen(true)} className="bg-white border border-slate-300 text-slate-700 px-3 py-2 rounded-lg font-medium hover:bg-slate-50 flex items-center gap-2 text-sm">
+           <button onClick={() => { setIsImportModalOpen(true); setImportStep('paste'); }} className="bg-white border border-slate-300 text-slate-700 px-3 py-2 rounded-lg font-medium hover:bg-slate-50 flex items-center gap-2 text-sm">
              <Upload size={16} /> Import
            </button>
            <button onClick={exportCsv} className="bg-white border border-slate-300 text-slate-700 px-3 py-2 rounded-lg font-medium hover:bg-slate-50 flex items-center gap-2 text-sm">
@@ -294,14 +312,6 @@ const ContactsPage: React.FC<ContactsPageProps> = ({
                <option value="all">All Statuses</option>
                {CONTACT_STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
             </select>
-            {(filterType !== 'all' || filterStatus !== 'all' || searchTerm) && (
-                <button 
-                  onClick={() => { setFilterType('all'); setFilterStatus('all'); setSearchTerm(''); }}
-                  className="px-3 py-2 text-red-600 hover:bg-red-50 rounded-lg text-sm font-medium transition-colors"
-                >
-                    Clear
-                </button>
-            )}
          </div>
       </div>
 
@@ -371,7 +381,7 @@ const ContactsPage: React.FC<ContactsPageProps> = ({
          </div>
       </div>
 
-      {/* --- SLIDE OVER DETAIL VIEW --- */}
+      {/* Detail Slide-over */}
       {selectedContact && (
          <div className="fixed inset-0 z-50 flex justify-end">
             <div className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm transition-opacity" onClick={() => setSelectedContact(null)}></div>
@@ -407,27 +417,14 @@ const ContactsPage: React.FC<ContactsPageProps> = ({
                {/* Detail Content */}
                <div className="flex-1 overflow-y-auto p-6 bg-white">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                     {/* Contact Info Card */}
                      <div className="space-y-4">
                         <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wide border-b border-slate-100 pb-2">Contact Details</h3>
                         <div className="space-y-3 text-sm">
                            {selectedContact.email && <div className="flex items-center gap-3 text-slate-600"><Mail size={16} className="text-slate-400"/> {selectedContact.email}</div>}
                            {selectedContact.phone && <div className="flex items-center gap-3 text-slate-600"><Phone size={16} className="text-slate-400"/> {selectedContact.phone} (Office)</div>}
                            {selectedContact.mobile && <div className="flex items-center gap-3 text-slate-600"><Phone size={16} className="text-slate-400"/> {selectedContact.mobile} (Mobile)</div>}
-                           {selectedContact.website && <div className="flex items-center gap-3 text-slate-600"><Globe size={16} className="text-slate-400"/> {selectedContact.website}</div>}
-                           {selectedContact.address?.city && (
-                              <div className="flex items-start gap-3 text-slate-600">
-                                 <MapPin size={16} className="text-slate-400 mt-0.5"/> 
-                                 <span>
-                                    {selectedContact.address.street}<br/>
-                                    {selectedContact.address.city}, {selectedContact.address.state} {selectedContact.address.zip}
-                                 </span>
-                              </div>
-                           )}
                         </div>
                      </div>
-
-                     {/* Right Column: Tags & Notes */}
                      <div className="space-y-6">
                         <div>
                            <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wide border-b border-slate-100 pb-2 mb-3">Tags</h3>
@@ -445,114 +442,6 @@ const ContactsPage: React.FC<ContactsPageProps> = ({
                         </div>
                      </div>
                   </div>
-
-                  {/* Linked Deals Section */}
-                  <div className="mb-8">
-                     <div className="flex justify-between items-center mb-3 border-b border-slate-100 pb-2">
-                        <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wide">Linked Deals</h3>
-                        <button onClick={() => setIsLinkingDeal(true)} className="text-xs text-summit-accent font-bold hover:underline flex items-center gap-1"><LinkIcon size={12} /> Link Deal</button>
-                     </div>
-                     {selectedContact.linkedDealIds.length > 0 ? (
-                        <div className="grid grid-cols-1 gap-3">
-                           {deals.filter(d => selectedContact.linkedDealIds.includes(d.id)).map(deal => (
-                              <div key={deal.id} className="border border-slate-200 rounded-lg p-3 flex justify-between items-center bg-slate-50">
-                                 <div className="flex items-center gap-3">
-                                    <div className="w-10 h-10 rounded bg-white border border-slate-200 flex items-center justify-center">
-                                       <Building size={18} className="text-slate-400" />
-                                    </div>
-                                    <div>
-                                       <div className="font-bold text-slate-900 text-sm">{deal.propertyAddress}</div>
-                                       <div className="text-xs text-slate-500">{deal.status} • ${deal.askingPrice.toLocaleString()}</div>
-                                    </div>
-                                 </div>
-                                 <button onClick={() => {
-                                     onUnlinkDeal(selectedContact.id, deal.id);
-                                     setSelectedContact({...selectedContact, linkedDealIds: selectedContact.linkedDealIds.filter(id => id !== deal.id)});
-                                 }} className="text-slate-400 hover:text-red-500 p-2"><X size={16} /></button>
-                              </div>
-                           ))}
-                        </div>
-                     ) : (
-                        <div className="text-center py-6 bg-slate-50 rounded-lg border border-dashed border-slate-200 text-slate-400 text-sm">
-                           No deals linked to this contact.
-                        </div>
-                     )}
-                  </div>
-
-                  {/* Activity History */}
-                  <div>
-                     <div className="flex justify-between items-center mb-4 border-b border-slate-100 pb-2">
-                        <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wide">Activity History</h3>
-                        <button onClick={() => setIsAddingInteraction(!isAddingInteraction)} className="text-xs bg-summit-900 text-white px-3 py-1.5 rounded flex items-center gap-1 hover:bg-summit-800 transition-colors">
-                           <Plus size={12} /> Add Activity
-                        </button>
-                     </div>
-
-                     {/* Add Interaction Form */}
-                     {isAddingInteraction && (
-                        <form onSubmit={handleInteractionSubmit} className="bg-slate-50 p-4 rounded-lg border border-slate-200 mb-4 animate-in fade-in slide-in-from-top-2">
-                           <div className="grid grid-cols-2 gap-3 mb-3">
-                              <select 
-                                 value={newInteraction.type}
-                                 onChange={e => setNewInteraction({...newInteraction, type: e.target.value as any})}
-                                 className="w-full p-2 border border-slate-300 rounded text-sm outline-none"
-                              >
-                                 {INTERACTION_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                              </select>
-                              <input 
-                                 type="date"
-                                 value={newInteraction.date}
-                                 onChange={e => setNewInteraction({...newInteraction, date: e.target.value})}
-                                 className="w-full p-2 border border-slate-300 rounded text-sm outline-none"
-                              />
-                           </div>
-                           <input 
-                              type="text" 
-                              placeholder="Subject / Summary"
-                              className="w-full p-2 border border-slate-300 rounded text-sm outline-none mb-3"
-                              value={newInteraction.subject}
-                              onChange={e => setNewInteraction({...newInteraction, subject: e.target.value})}
-                              required
-                           />
-                           <textarea 
-                              placeholder="Notes..."
-                              rows={2}
-                              className="w-full p-2 border border-slate-300 rounded text-sm outline-none mb-3"
-                              value={newInteraction.notes}
-                              onChange={e => setNewInteraction({...newInteraction, notes: e.target.value})}
-                           />
-                           <div className="flex justify-end gap-2">
-                              <button type="button" onClick={() => setIsAddingInteraction(false)} className="text-xs text-slate-500 hover:text-slate-800 px-3 py-1.5">Cancel</button>
-                              <button type="submit" className="text-xs bg-summit-accent text-white px-3 py-1.5 rounded font-bold hover:bg-emerald-600">Save Activity</button>
-                           </div>
-                        </form>
-                     )}
-
-                     {/* Timeline */}
-                     <div className="relative border-l-2 border-slate-100 ml-3 space-y-6 pb-6">
-                        {selectedContact.interactions.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(interaction => {
-                           const Icon = INTERACTION_TYPES.find(t => t.value === interaction.type)?.icon || MoreVertical;
-                           return (
-                              <div key={interaction.id} className="relative pl-6 group">
-                                 <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-white border-2 border-slate-300 group-hover:border-summit-accent transition-colors"></div>
-                                 <div className="bg-white p-3 rounded-lg border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
-                                    <div className="flex justify-between items-start mb-1">
-                                       <div className="flex items-center gap-2">
-                                          <Icon size={14} className="text-slate-400" />
-                                          <span className="font-bold text-sm text-slate-800">{interaction.subject}</span>
-                                       </div>
-                                       <span className="text-xs text-slate-400">{new Date(interaction.date).toLocaleDateString()}</span>
-                                    </div>
-                                    {interaction.notes && <p className="text-xs text-slate-600 mt-1">{interaction.notes}</p>}
-                                 </div>
-                              </div>
-                           );
-                        })}
-                        {selectedContact.interactions.length === 0 && !isAddingInteraction && (
-                           <p className="text-sm text-slate-400 pl-6 italic">No activity recorded yet.</p>
-                        )}
-                     </div>
-                  </div>
                </div>
             </div>
          </div>
@@ -567,7 +456,6 @@ const ContactsPage: React.FC<ContactsPageProps> = ({
                   <button onClick={() => setIsEditModalOpen(false)}><X size={20} className="text-slate-400 hover:text-slate-600"/></button>
                </div>
                <form onSubmit={handleSaveForm} className="p-6 overflow-y-auto flex-1 space-y-6">
-                  {/* Basic Info */}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                      <div>
                         <label className="text-xs font-bold text-slate-500 uppercase">First Name *</label>
@@ -585,62 +473,7 @@ const ContactsPage: React.FC<ContactsPageProps> = ({
                         <label className="text-xs font-bold text-slate-500 uppercase">Job Title</label>
                         <input type="text" className="w-full p-2 border border-slate-300 rounded outline-none focus:border-summit-accent" value={editingContact.jobTitle || ''} onChange={e => setEditingContact({...editingContact, jobTitle: e.target.value})} />
                      </div>
-                     <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase">Type</label>
-                        <select className="w-full p-2 border border-slate-300 rounded outline-none focus:border-summit-accent bg-white" value={editingContact.contactType} onChange={e => setEditingContact({...editingContact, contactType: e.target.value as ContactType})}>
-                           {CONTACT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                        </select>
-                     </div>
-                     <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase">Status</label>
-                        <select className="w-full p-2 border border-slate-300 rounded outline-none focus:border-summit-accent bg-white" value={editingContact.status} onChange={e => setEditingContact({...editingContact, status: e.target.value as ContactStatus})}>
-                           {CONTACT_STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                        </select>
-                     </div>
                   </div>
-
-                  {/* Contact Info */}
-                  <div className="border-t border-slate-100 pt-4">
-                     <h3 className="font-bold text-sm text-slate-800 mb-3 flex items-center gap-2"><Phone size={14} className="text-summit-accent"/> Contact Information</h3>
-                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <input type="email" placeholder="Email Address" className="w-full p-2 border border-slate-300 rounded outline-none" value={editingContact.email || ''} onChange={e => setEditingContact({...editingContact, email: e.target.value})} />
-                        <input type="tel" placeholder="Work Phone" className="w-full p-2 border border-slate-300 rounded outline-none" value={editingContact.phone || ''} onChange={e => setEditingContact({...editingContact, phone: e.target.value})} />
-                        <input type="tel" placeholder="Mobile Phone" className="w-full p-2 border border-slate-300 rounded outline-none" value={editingContact.mobile || ''} onChange={e => setEditingContact({...editingContact, mobile: e.target.value})} />
-                        <input type="text" placeholder="Website" className="w-full p-2 border border-slate-300 rounded outline-none" value={editingContact.website || ''} onChange={e => setEditingContact({...editingContact, website: e.target.value})} />
-                     </div>
-                  </div>
-
-                  {/* Address */}
-                  <div className="border-t border-slate-100 pt-4">
-                     <h3 className="font-bold text-sm text-slate-800 mb-3 flex items-center gap-2"><MapPin size={14} className="text-summit-accent"/> Address</h3>
-                     <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        <input type="text" placeholder="Street" className="col-span-2 md:col-span-4 w-full p-2 border border-slate-300 rounded outline-none" value={editingContact.address?.street || ''} onChange={e => setEditingContact({...editingContact, address: {...editingContact.address, street: e.target.value}})} />
-                        <input type="text" placeholder="City" className="w-full p-2 border border-slate-300 rounded outline-none" value={editingContact.address?.city || ''} onChange={e => setEditingContact({...editingContact, address: {...editingContact.address, city: e.target.value}})} />
-                        <input type="text" placeholder="State" className="w-full p-2 border border-slate-300 rounded outline-none" value={editingContact.address?.state || ''} onChange={e => setEditingContact({...editingContact, address: {...editingContact.address, state: e.target.value}})} />
-                        <input type="text" placeholder="Zip" className="w-full p-2 border border-slate-300 rounded outline-none" value={editingContact.address?.zip || ''} onChange={e => setEditingContact({...editingContact, address: {...editingContact.address, zip: e.target.value}})} />
-                        <input type="text" placeholder="Country" className="w-full p-2 border border-slate-300 rounded outline-none" value={editingContact.address?.country || ''} onChange={e => setEditingContact({...editingContact, address: {...editingContact.address, country: e.target.value}})} />
-                     </div>
-                  </div>
-
-                  {/* Meta */}
-                  <div className="border-t border-slate-100 pt-4">
-                     <h3 className="font-bold text-sm text-slate-800 mb-3 flex items-center gap-2"><Tag size={14} className="text-summit-accent"/> Tags & Notes</h3>
-                     <input 
-                        type="text" 
-                        placeholder="Tags (comma separated)" 
-                        className="w-full p-2 border border-slate-300 rounded outline-none mb-4" 
-                        value={editingContact.tags?.join(', ') || ''} 
-                        onChange={e => setEditingContact({...editingContact, tags: e.target.value.split(',').map(t => t.trim()).filter(Boolean)})} 
-                     />
-                     <textarea 
-                        rows={3} 
-                        placeholder="Internal Notes..." 
-                        className="w-full p-2 border border-slate-300 rounded outline-none" 
-                        value={editingContact.notes || ''} 
-                        onChange={e => setEditingContact({...editingContact, notes: e.target.value})} 
-                     />
-                  </div>
-                  
                   <div className="flex justify-end gap-3 pt-4">
                      <button type="button" onClick={() => setIsEditModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
                      <button type="submit" className="px-6 py-2 bg-summit-900 text-white rounded-lg hover:bg-summit-800 font-medium">Save Contact</button>
@@ -650,36 +483,99 @@ const ContactsPage: React.FC<ContactsPageProps> = ({
          </div>
       )}
 
-      {/* --- IMPORT MODAL --- */}
+      {/* --- ENHANCED IMPORT MODAL --- */}
       {isImportModalOpen && (
          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white w-full max-w-lg rounded-xl shadow-2xl overflow-hidden">
-               <div className="p-5 border-b border-slate-100 flex justify-between items-center">
-                  <h2 className="font-bold text-lg text-slate-800">Import Contacts</h2>
+            <div className="bg-white w-full max-w-2xl rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+               <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                  <div>
+                    <h2 className="font-bold text-lg text-slate-800">Import Contacts</h2>
+                    <p className="text-xs text-slate-500">Step {importStep === 'paste' ? '1' : '2'} of 2</p>
+                  </div>
                   <button onClick={() => setIsImportModalOpen(false)}><X size={20} className="text-slate-400"/></button>
                </div>
-               <div className="p-6">
-                  <p className="text-sm text-slate-600 mb-4">
-                     Paste your CSV data below. Format: <br/>
-                     <code className="bg-slate-100 px-1 py-0.5 rounded text-xs font-mono">First Name, Last Name, Email, Phone, Company, Type</code>
-                  </p>
-                  <textarea 
-                     rows={10} 
-                     className="w-full p-3 border border-slate-300 rounded-lg font-mono text-xs outline-none focus:border-summit-accent"
-                     placeholder="John, Doe, john@example.com, 555-1234, Acme Corp, investor"
-                     value={importText}
-                     onChange={e => setImportText(e.target.value)}
-                  />
-                  <div className="flex justify-end gap-3 mt-4">
-                     <button onClick={() => setIsImportModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-50 rounded-lg">Cancel</button>
-                     <button onClick={handleCsvImport} className="px-4 py-2 bg-summit-900 text-white rounded-lg hover:bg-summit-800">Process Import</button>
-                  </div>
+               
+               <div className="p-6 overflow-y-auto flex-1">
+                  {importStep === 'paste' ? (
+                    <div className="space-y-4">
+                      <p className="text-sm text-slate-600">
+                        Paste your CSV data below. Ensure the first row contains headers.
+                      </p>
+                      <textarea 
+                        rows={12} 
+                        className="w-full p-4 border border-slate-300 rounded-lg font-mono text-xs outline-none focus:ring-2 focus:ring-summit-accent/20 transition-all"
+                        placeholder="FirstName,LastName,Email,Phone,Company,Type..."
+                        value={importText}
+                        onChange={e => setImportText(e.target.value)}
+                      />
+                      <div className="flex justify-end">
+                        <button 
+                          onClick={handleParseCsv}
+                          disabled={!importText.trim()}
+                          className="px-6 py-2.5 bg-summit-900 text-white rounded-lg hover:bg-summit-800 font-bold flex items-center gap-2 disabled:opacity-50 transition-all"
+                        >
+                          Next: Map Columns <ArrowRight size={18} />
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 mb-4">
+                        <p className="text-sm text-blue-800 font-medium">
+                          We found {csvHeaders.length} columns and {csvRows.length} contacts. Match them below:
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-6">
+                        {[
+                          { field: 'firstName', label: 'First Name', required: true },
+                          { field: 'lastName', label: 'Last Name', required: true },
+                          { field: 'email', label: 'Email Address' },
+                          { field: 'phone', label: 'Phone Number' },
+                          { field: 'company', label: 'Company' },
+                          { field: 'jobTitle', label: 'Job Title' },
+                          { field: 'contactType', label: 'Contact Type' }
+                        ].map(f => (
+                          <div key={f.field} className="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-slate-100 pb-4">
+                            <label className="text-sm font-bold text-slate-700">
+                              {f.label} {f.required && <span className="text-red-500">*</span>}
+                            </label>
+                            <select 
+                              className="w-full md:w-64 p-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-summit-accent/20"
+                              value={fieldMappings[f.field] === undefined ? "" : fieldMappings[f.field]}
+                              onChange={e => setFieldMappings({...fieldMappings, [f.field]: parseInt(e.target.value)})}
+                            >
+                              <option value="">-- Ignore Field --</option>
+                              {csvHeaders.map((h, i) => (
+                                <option key={i} value={i}>{h}</option>
+                              ))}
+                            </select>
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="flex justify-between mt-8 pt-6 border-t border-slate-100">
+                        <button 
+                          onClick={() => setImportStep('paste')}
+                          className="px-5 py-2.5 text-slate-600 hover:bg-slate-50 rounded-lg font-medium"
+                        >
+                          Back to Paste
+                        </button>
+                        <button 
+                          onClick={handleCompleteImport}
+                          className="px-8 py-2.5 bg-summit-accent text-white rounded-lg hover:bg-emerald-600 font-bold shadow-lg shadow-emerald-900/10 flex items-center gap-2"
+                        >
+                          <Check size={18} /> Complete Import
+                        </button>
+                      </div>
+                    </div>
+                  )}
                </div>
             </div>
          </div>
       )}
 
-      {/* --- LINK DEAL MODAL --- */}
+      {/* Link Deal Modal */}
       {isLinkingDeal && selectedContact && (
          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-white w-full max-w-md rounded-xl shadow-2xl overflow-hidden">
