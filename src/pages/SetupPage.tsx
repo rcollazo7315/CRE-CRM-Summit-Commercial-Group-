@@ -1,7 +1,12 @@
-import React, { useState } from 'react';
-import { Shield, Save, AlertTriangle } from 'lucide-react';
 
-const SetupPage: React.FC = () => {
+import React, { useState } from 'react';
+import { Shield, Save, AlertTriangle, AlertCircle } from 'lucide-react';
+
+interface SetupPageProps {
+  error?: Error | null;
+}
+
+const SetupPage: React.FC<SetupPageProps> = ({ error }) => {
   const [keys, setKeys] = useState({
     VITE_FIREBASE_API_KEY: '',
     VITE_FIREBASE_AUTH_DOMAIN: '',
@@ -28,17 +33,27 @@ const SetupPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 font-sans">
       <div className="bg-white max-w-2xl w-full rounded-2xl shadow-2xl overflow-hidden">
-        <div className="bg-amber-500 p-6 text-white flex items-center gap-3">
+        <div className={`p-6 text-white flex items-center gap-3 ${error ? 'bg-red-500' : 'bg-amber-500'}`}>
           <AlertTriangle size={32} />
           <div>
-            <h1 className="text-2xl font-bold">Database Connection Required</h1>
-            <p className="opacity-90">The application cannot find your Firebase configuration.</p>
+            <h1 className="text-2xl font-bold">{error ? 'Initialization Failed' : 'Database Connection Required'}</h1>
+            <p className="opacity-90">{error ? 'Firebase failed to start. Check your configuration.' : 'The application cannot find your Firebase configuration.'}</p>
           </div>
         </div>
         
         <div className="p-8">
+          {error && (
+            <div className="bg-red-50 text-red-800 p-4 rounded-xl border border-red-200 mb-6 flex gap-3 items-start">
+               <AlertCircle className="shrink-0 mt-0.5" size={20} />
+               <div className="overflow-hidden">
+                 <p className="font-bold mb-1">Error Details:</p>
+                 <pre className="text-xs whitespace-pre-wrap font-mono break-all">{error.message}</pre>
+               </div>
+            </div>
+          )}
+
           <p className="text-slate-600 mb-6">
-            To fix the "White Screen" issue, please copy your configuration values from the 
+            To fix the issue, please copy your configuration values from the 
             <strong> Firebase Console {'>'} Project Settings {'>'} General {'>'} Your Apps</strong> and paste them below.
           </p>
 

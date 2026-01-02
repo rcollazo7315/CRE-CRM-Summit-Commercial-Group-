@@ -1,7 +1,6 @@
-
 import React, { useState, useMemo } from 'react';
 import { Plus, TrendingUp, Phone, Users, FileText, ArrowUp, ArrowDown, Download, Save, X, Calendar, Edit, Trash2 } from 'lucide-react';
-import { LeadGenLog } from '../types';
+import { LeadGenLog } from '../types.ts';
 
 interface LeadGenPageProps {
   logs: LeadGenLog[];

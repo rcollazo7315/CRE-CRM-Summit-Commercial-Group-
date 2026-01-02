@@ -1,7 +1,7 @@
 
 import { 
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, 
-  query, where, orderBy, serverTimestamp, Timestamp, writeBatch, arrayUnion, arrayRemove
+  query, where, orderBy, serverTimestamp, Timestamp, writeBatch, arrayUnion, arrayRemove, limit
 } from 'firebase/firestore';
 import { 
   createUserWithEmailAndPassword, 
@@ -32,47 +32,44 @@ const convertTimestamps = (data: any): any => {
 };
 
 const checkDbConnection = () => {
-  if (!db || !auth) throw new Error("Database not connected. Please refresh.");
+  if (!db || !auth) throw new Error("Database offline.");
 };
 
 export const api = {
   register: async (userData: any) => {
     checkDbConnection();
-    try {
-      const userCredential = await createUserWithEmailAndPassword(auth!, userData.email, userData.passwordHash);
-      const uid = userCredential.user.uid;
-      await updateProfile(userCredential.user, { displayName: `${userData.firstName} ${userData.lastName}` });
+    const userCredential = await createUserWithEmailAndPassword(auth!, userData.email, userData.passwordHash);
+    const uid = userCredential.user.uid;
+    await updateProfile(userCredential.user, { displayName: `${userData.firstName} ${userData.lastName}` });
 
-      const newUser: UserAccount = {
-        id: uid,
-        username: userData.username,
-        email: userData.email,
-        passwordHash: 'PROTECTED', 
-        firstName: userData.firstName,
-        lastName: userData.lastName,
-        phone: userData.phone,
-        role: 'agent',
-        status: 'pending',
-        avatar: `https://ui-avatars.com/api/?name=${userData.firstName}+${userData.lastName}&background=random`,
-        notifications: {
-          email: { dealUpdates: true, taskReminders: true, newMessages: true, systemAlerts: true },
-          sms: { dealUpdates: false, taskReminders: true, newMessages: false, systemAlerts: false }
-        },
-        stats: { totalDeals: 0, totalCommissions: 0, activeDeals: 0, closedDeals: 0, pendingTasks: 0, totalVolume: 0 },
-        gmailIntegration: { connected: false },
-        createdAt: new Date().toISOString()
-      };
+    // Check if this is the first user in the system
+    const usersRef = collection(db!, 'users');
+    const snapshot = await getDocs(query(usersRef, limit(1)));
+    const isFirstUser = snapshot.empty;
 
-      await setDoc(doc(db!, 'users', uid), { ...newUser, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-      return newUser;
-    } catch (error: any) {
-      if (error.code === 'permission-denied') {
-        const currentUser = auth!.currentUser;
-        if (currentUser) await currentUser.delete();
-        throw new Error("Registration unavailable. Permissions locked.");
-      }
-      throw error;
-    }
+    const newUser: UserAccount = {
+      id: uid,
+      username: userData.username,
+      email: userData.email,
+      passwordHash: 'PROTECTED', 
+      firstName: userData.firstName,
+      lastName: userData.lastName,
+      phone: userData.phone,
+      role: isFirstUser ? 'admin' : 'agent',
+      status: isFirstUser ? 'active' : 'pending',
+      approvedAt: isFirstUser ? new Date().toISOString() : null,
+      avatar: `https://ui-avatars.com/api/?name=${userData.firstName}+${userData.lastName}&background=random`,
+      notifications: {
+        email: { dealUpdates: true, taskReminders: true, newMessages: true, systemAlerts: true },
+        sms: { dealUpdates: false, taskReminders: true, newMessages: false, systemAlerts: false }
+      },
+      stats: { totalDeals: 0, totalCommissions: 0, activeDeals: 0, closedDeals: 0, pendingTasks: 0, totalVolume: 0 },
+      gmailIntegration: { connected: false },
+      createdAt: new Date().toISOString()
+    };
+
+    await setDoc(doc(db!, 'users', uid), { ...newUser, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    return newUser;
   },
 
   login: async (email: string, password: string) => {
@@ -80,13 +77,16 @@ export const api = {
     const userCredential = await signInWithEmailAndPassword(auth!, email, password);
     const uid = userCredential.user.uid;
     const userDoc = await getDoc(doc(db!, 'users', uid));
-    if (!userDoc.exists()) throw new Error('User profile not found.');
+    if (!userDoc.exists()) throw new Error('Profile not found.');
     
     const userData = convertTimestamps(userDoc.data()) as UserAccount;
     if (userData.status === 'denied') {
       await signOut(auth!);
-      throw new Error('Account request denied.');
+      throw new Error('Access denied.');
     }
+    // Note: Pending users are allowed to log in but might be restricted by App logic if implemented.
+    // Ideally, we block them here if we want to enforce it strictly, but allowing login lets AuthContext pick them up.
+    
     await updateDoc(doc(db!, 'users', uid), { lastLogin: serverTimestamp() });
     return userData;
   },
@@ -102,21 +102,17 @@ export const api = {
 
   updateUserProfile: async (userId: string, updates: Partial<UserAccount>) => {
     checkDbConnection();
-    const ref = doc(db!, 'users', userId);
-    await updateDoc(ref, { ...updates, updatedAt: serverTimestamp() });
-    const updated = await getDoc(ref);
+    const userRef = doc(db!, 'users', userId);
+    await updateDoc(userRef, { ...updates, updatedAt: serverTimestamp() });
+    const updated = await getDoc(userRef);
     return convertTimestamps({ id: updated.id, ...updated.data() }) as UserAccount;
   },
 
   updateUserPassword: async (newPassword: string) => {
     checkDbConnection();
     const user = auth!.currentUser;
-    if (!user) throw new Error("No authenticated user found");
-    try { await updatePassword(user, newPassword); } 
-    catch (error: any) { 
-        if (error.code === 'auth/requires-recent-login') throw new Error("Re-login required."); 
-        throw error; 
-    }
+    if (!user) throw new Error("Unauthorized");
+    await updatePassword(user, newPassword);
   },
 
   getUsers: async () => {
@@ -146,12 +142,7 @@ export const api = {
       q = query(collection(db!, 'deals'), where('userId', '==', userId));
     }
     const snapshot = await getDocs(q);
-    const deals = snapshot.docs.map(d => {
-      const data = d.data();
-      const docs = Array.isArray(data.documents) ? data.documents : [];
-      return convertTimestamps({ id: d.id, ...data, documents: docs });
-    }) as Deal[];
-    return deals.sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime());
+    return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Deal[];
   },
 
   saveDeal: async (deal: Deal) => {
@@ -171,46 +162,8 @@ export const api = {
 
   deleteDeal: async (dealId: string, userId: string) => {
     checkDbConnection();
-    try {
-      const dealRef = doc(db!, 'deals', dealId);
-      const dealSnap = await getDoc(dealRef);
-      
-      if (!dealSnap.exists()) return;
-
-      const dealData = dealSnap.data();
-
-      // 1. Delete associated tasks
-      const tasksQ = query(collection(db!, 'tasks'), where('dealId', '==', dealId));
-      const tasksSnap = await getDocs(tasksQ);
-      if (!tasksSnap.empty) {
-        const batch = writeBatch(db!);
-        tasksSnap.docs.forEach(d => batch.delete(d.ref));
-        await batch.commit();
-      }
-
-      // 2. Delete associated documents from Storage
-      const documents = dealData.documents || [];
-      if (documents.length > 0 && storage) {
-        for (const doc of documents) {
-          if (doc.storagePath) {
-            try { 
-              await deleteObject(ref(storage, doc.storagePath)); 
-            } catch (e) {
-              console.error(`Storage item cleanup failed for path ${doc.storagePath}:`, e);
-            }
-          }
-        }
-      }
-
-      // 3. Delete Deal document
-      await deleteDoc(dealRef);
-
-      // 4. Recalculate stats
-      await api.recalcUserStats(userId);
-    } catch (error: any) {
-      console.error("Deal deletion procedure failed:", error);
-      throw new Error(`Deletion failed: ${error.message}`);
-    }
+    await deleteDoc(doc(db!, 'deals', dealId));
+    await api.recalcUserStats(userId);
   },
 
   getContacts: async (userId: string, isAdmin = false) => {
@@ -261,90 +214,37 @@ export const api = {
 
   adminHardReset: async () => {
     checkDbConnection();
-    try {
-      const dealsSnap = await getDocs(collection(db!, 'deals'));
-      for (const d of dealsSnap.docs) {
-        const data = d.data();
-        if (data.documents && Array.isArray(data.documents) && storage) {
-          for (const docFile of data.documents) {
-            if (docFile.storagePath) {
-              try { await deleteObject(ref(storage, docFile.storagePath)); } catch (e) {}
-            }
-          }
-        }
-        await deleteDoc(d.ref);
-      }
-      
-      const collections = ['contacts', 'tasks', 'leadLogs', 'mortgageCalculations'];
-      for (const col of collections) {
-        const snap = await getDocs(collection(db!, col));
-        const batch = writeBatch(db!);
-        snap.docs.forEach(d => batch.delete(d.ref));
-        await batch.commit();
-      }
-
-      const usersSnap = await getDocs(collection(db!, 'users'));
-      const userBatch = writeBatch(db!);
-      usersSnap.docs.forEach(d => {
-        userBatch.update(d.ref, { stats: { totalDeals: 0, totalCommissions: 0, activeDeals: 0, closedDeals: 0, pendingTasks: 0, totalVolume: 0 } });
-      });
-      await userBatch.commit();
-    } catch (error: any) {
-      throw new Error(`Reset failed: ${error.message}`);
+    const collections = ['deals', 'contacts', 'tasks', 'leadLogs', 'mortgageCalculations'];
+    for (const col of collections) {
+      const snap = await getDocs(collection(db!, col));
+      const batch = writeBatch(db!);
+      snap.docs.forEach(d => batch.delete(d.ref));
+      await batch.commit();
     }
   },
 
   saveDocument: async (dealId: string, document: DocumentFile, fileData?: Blob | File) => {
     checkDbConnection();
-    if (!storage) throw new Error("Firebase Storage is not initialized.");
-    if (!fileData) throw new Error("No file data.");
-
-    try {
-      const dealRef = doc(db!, 'deals', dealId);
-      const dealSnap = await getDoc(dealRef);
-      if (!dealSnap.exists()) throw new Error(`Deal ${dealId} not found`);
-      
-      const timestamp = Date.now();
-      const sanitizedName = document.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-      const storagePath = `deals/${dealId}/${timestamp}_${sanitizedName}`;
-      const storageRef = ref(storage, storagePath);
-
-      await uploadBytes(storageRef, fileData);
-      const downloadURL = await getDownloadURL(storageRef);
-
-      const docMetadata = {
-        ...document,
-        url: downloadURL,
-        storagePath: storagePath,
-        uploadDate: new Date().toISOString()
-      };
-      
-      await updateDoc(dealRef, { documents: arrayUnion(docMetadata), lastUpdated: serverTimestamp() });
-    } catch (error: any) {
-      if (error.code === 'storage/unauthorized') throw new Error("Permission denied. Check rules.");
-      throw new Error(`Upload failed: ${error.message}`);
-    }
+    if (!storage || !fileData) return;
+    const storagePath = `deals/${dealId}/${Date.now()}_${document.name}`;
+    const storageRef = ref(storage, storagePath);
+    await uploadBytes(storageRef, fileData);
+    const downloadURL = await getDownloadURL(storageRef);
+    const docMetadata = { ...document, url: downloadURL, storagePath, uploadDate: new Date().toISOString() };
+    await updateDoc(doc(db!, 'deals', dealId), { documents: arrayUnion(docMetadata), lastUpdated: serverTimestamp() });
   },
 
   deleteDocument: async (dealId: string, documentId: string) => {
     checkDbConnection();
-    try {
-      const dealRef = doc(db!, 'deals', dealId);
-      const dealSnap = await getDoc(dealRef);
-      if (!dealSnap.exists()) throw new Error(`Deal not found`);
-
-      const dealData = dealSnap.data();
-      const docs = Array.isArray(dealData.documents) ? dealData.documents : [];
-      const docToDelete = docs.find((d: any) => d.id === documentId);
-      
-      if (docToDelete && docToDelete.storagePath && storage) {
-        try { await deleteObject(ref(storage, docToDelete.storagePath)); } catch (e) {}
-      }
-
-      await updateDoc(dealRef, { documents: arrayRemove(docToDelete), lastUpdated: serverTimestamp() });
-    } catch (error: any) {
-      throw new Error(`Failed to delete document: ${error.message}`);
+    const dealRef = doc(db!, 'deals', dealId);
+    const dealSnap = await getDoc(dealRef);
+    if (!dealSnap.exists()) return;
+    const docs = dealSnap.data().documents || [];
+    const docToDelete = docs.find((d: any) => d.id === documentId);
+    if (docToDelete && docToDelete.storagePath && storage) {
+      try { await deleteObject(ref(storage, docToDelete.storagePath)); } catch (e) {}
     }
+    await updateDoc(dealRef, { documents: arrayRemove(docToDelete), lastUpdated: serverTimestamp() });
   },
 
   getTasks: async (userId: string) => {
@@ -356,11 +256,8 @@ export const api = {
 
   saveTask: async (task: Task) => {
     checkDbConnection();
-    if (task.id) {
-       await setDoc(doc(db!, 'tasks', task.id), task, { merge: true });
-    } else {
-       await addDoc(collection(db!, 'tasks'), task);
-    }
+    if (task.id) await setDoc(doc(db!, 'tasks', task.id), task, { merge: true });
+    else await addDoc(collection(db!, 'tasks'), task);
     await api.recalcUserStats(task.userId);
   },
 
@@ -393,15 +290,13 @@ export const api = {
     checkDbConnection();
     const q = query(collection(db!, 'mortgageCalculations'), where('userId', '==', userId));
     const snapshot = await getDocs(q);
-    const calcs = snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as MortgageCalculation[];
-    return calcs.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as MortgageCalculation[];
   },
 
   recalcUserStats: async (userId: string) => {
     checkDbConnection();
     const deals = await api.getDeals(userId);
     const tasks = await api.getTasks(userId);
-    
     const stats = {
       totalDeals: deals.length,
       totalCommissions: deals.filter(d => d.status === 'Completed').reduce((acc, d) => acc + (d.commission || (d.askingPrice * 0.03)), 0),
@@ -410,7 +305,6 @@ export const api = {
       pendingTasks: tasks.filter(t => t.status === 'pending').length,
       totalVolume: deals.filter(d => d.status === 'Completed').reduce((acc, d) => acc + d.askingPrice, 0),
     };
-
     await updateDoc(doc(db!, 'users', userId), { stats });
   }
 };

@@ -1,5 +1,4 @@
-
-import { UserAccount, Deal, Task, LeadGenLog, DealStatus, PropertyType, MortgageCalculation } from '../types';
+import { UserAccount, Deal, Task, LeadGenLog, DealStatus, PropertyType, MortgageCalculation } from '../types.ts';
 
 // Storage Keys
 const USERS_KEY = 'summit_users';

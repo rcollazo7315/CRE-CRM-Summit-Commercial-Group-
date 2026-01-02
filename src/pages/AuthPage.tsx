@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Building2, AlertCircle, User, Phone, Mail, Lock, Loader2, ShieldCheck, ArrowRight } from 'lucide-react';
 import { api } from '../services/firestore.ts';
@@ -35,7 +36,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
           throw new Error("Password must be at least 6 characters");
         }
 
-        await api.register({
+        const newUser = await api.register({
           firstName: formData.firstName,
           lastName: formData.lastName,
           email: formData.email,
@@ -44,7 +45,13 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
           username: formData.email.split('@')[0]
         });
 
-        setViewState('pending');
+        // If the system was empty, this user became Admin/Active immediately.
+        if (newUser.status === 'active') {
+          onLogin(newUser);
+        } else {
+          setViewState('pending');
+        }
+
       } else if (viewState === 'login') {
         const user = await api.login(formData.email, formData.password);
         

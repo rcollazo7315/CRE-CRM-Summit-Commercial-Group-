@@ -1,8 +1,7 @@
-
 import React, { useState } from 'react';
 import { Building2, AlertCircle, User, Phone, Mail, Lock, Loader2, ShieldCheck, ArrowRight } from 'lucide-react';
-import { api } from '../services/firestore';
-import { UserAccount } from '../types';
+import { api } from '../services/firestore.ts';
+import { UserAccount } from '../types.ts';
 
 interface AuthPageProps {
   onLogin: (user: UserAccount) => void;

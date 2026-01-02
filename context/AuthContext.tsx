@@ -62,8 +62,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     const timer = setTimeout(() => {
       setLoading(prev => {
-        if (prev) console.warn("Auth check timed out, proceeding.");
-        return false;
+        if (prev) {
+          console.warn("Auth check timed out, proceeding.");
+          return false;
+        }
+        return prev;
       });
     }, 5000);
 
@@ -73,3 +76,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, []);
 
+  const value = {
+    currentUser,
+    loading,
+    refreshUser,
+    isAdmin: currentUser?.role === 'admin',
+  };
+
+  return (
+    <AuthContext.Provider value={value}>
+      {!loading && children}
+      {loading && (
+        <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#0f172a', color: 'white', fontFamily: 'Inter, sans-serif' }}>
+          <div style={{ width: '40px', height: '40px', border: '3px solid rgba(255,255,255,0.1)', borderTopColor: '#10b981', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+          <style dangerouslySetInnerHTML={{ __html: '@keyframes spin{to{transform:rotate(360deg)}}' }} />
+          <p style={{ marginTop: '16px', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8' }}>Verifying Credentials...</p>
+        </div>
+      )}
+    </AuthContext.Provider>
+  );
+};

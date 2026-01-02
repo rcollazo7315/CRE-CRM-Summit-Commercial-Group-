@@ -1,54 +1,69 @@
-import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
-import type { Firestore } from 'firebase/firestore';
-import { getAuth } from 'firebase/auth';
-import type { Auth } from 'firebase/auth';
-import { getStorage } from 'firebase/storage';
-import type { FirebaseStorage } from 'firebase/storage';
 
-// DIRECTLY HARDCODED KEYS
-const firebaseConfig = {
-  apiKey: "AIzaSyD00EHnA1iFfB20ybdcAXBgZBp4JqaT5gg",
-  authDomain: "summit-crm-3c378.firebaseapp.com",
-  projectId: "summit-crm-3c378",
-  storageBucket: "summit-crm-3c378.firebasestorage.app",
-  messagingSenderId: "622709880120",
-  appId: "1:622709880120:web:57786312b02d59dccffdcd"
+import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
+import { getFirestore, Firestore } from 'firebase/firestore';
+import { getAuth, Auth } from 'firebase/auth';
+import { getStorage, FirebaseStorage } from 'firebase/storage';
+
+// 1. Try LocalStorage (for SetupPage)
+// 2. Fallback to hardcoded defaults
+const getConfiguration = () => {
+  const localKey = localStorage.getItem('VITE_FIREBASE_API_KEY');
+  if (localKey) {
+    return {
+      apiKey: localKey,
+      authDomain: localStorage.getItem('VITE_FIREBASE_AUTH_DOMAIN'),
+      projectId: localStorage.getItem('VITE_FIREBASE_PROJECT_ID'),
+      storageBucket: localStorage.getItem('VITE_FIREBASE_STORAGE_BUCKET'),
+      messagingSenderId: localStorage.getItem('VITE_FIREBASE_MESSAGING_SENDER_ID'),
+      appId: localStorage.getItem('VITE_FIREBASE_APP_ID')
+    };
+  }
+
+  // Fallback / Default
+  return {
+    apiKey: "AIzaSyD00EHnA1iFfB20ybdcAXBgZBp4JqaT5gg",
+    authDomain: "summit-crm-3c378.firebaseapp.com",
+    projectId: "summit-crm-3c378",
+    storageBucket: "summit-crm-3c378.firebasestorage.app",
+    messagingSenderId: "622709880120",
+    appId: "1:622709880120:web:57786312b02d59dccffdcd"
+  };
 };
 
-let app: FirebaseApp | null = null;
-let db: Firestore | null = null;
-let auth: Auth | null = null;
-let storage: FirebaseStorage | null = null;
+const firebaseConfig = getConfiguration();
+
+let app: FirebaseApp | undefined;
+let db: Firestore | undefined;
+let auth: Auth | undefined;
+let storage: FirebaseStorage | undefined;
+let initializationError: Error | null = null;
 
 try {
-  // Prevent double initialization in hot-reload environments
-  if (!getApps().length) {
-    app = initializeApp(firebaseConfig);
-  } else {
-    app = getApps()[0];
-  }
-  
-  if (app) {
-    db = getFirestore(app);
-    auth = getAuth(app);
-    try {
-      storage = getStorage(app);
-    } catch (e) {
-      console.warn("Storage failed to init (optional)", e);
+  // Only initialize if we have an API key
+  if (firebaseConfig.apiKey) {
+    if (!getApps().length) {
+      app = initializeApp(firebaseConfig as any);
+    } else {
+      app = getApps()[0];
     }
-    console.log("🔥 Firebase initialized successfully");
+
+    if (app) {
+      db = getFirestore(app);
+      auth = getAuth(app);
+      try {
+        storage = getStorage(app);
+      } catch (e) {
+        console.warn("Storage init failed (optional):", e);
+      }
+      console.log("Firebase initialized with project:", firebaseConfig.projectId);
+    }
+  } else {
+    console.warn("No Firebase configuration found.");
   }
-} catch (error) {
-  console.error("🔥 Firebase Initialization Critical Error:", error);
-  // We swallow the error so imports don't crash the app. 
-  // Services remain null, which we handle in AuthContext.
+} catch (error: any) {
+  console.error("Critical Firebase Initialization Error:", error);
+  initializationError = error;
 }
 
-// Export instances (can be null)
-export { app, db, auth, storage };
-
-// Helper to check if we are good to go
-export const isFirebaseInitialized = () => {
-  return !!app && !!db && !!auth;
-};
+export { app, db, auth, storage, initializationError };
+export const isFirebaseInitialized = () => !!(app && db && auth);

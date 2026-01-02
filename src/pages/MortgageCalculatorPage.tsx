@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Calculator, Save, RefreshCw, DollarSign, Info, Download } from 'lucide-react';
 import { MortgageCalculation } from '../types.ts';
@@ -589,10 +590,10 @@ const MortgageCalculatorPage: React.FC = () => {
                                             setPurchasePrice(c.purchasePrice || 0);
                                             setDownPaymentValue(c.downPaymentValue || 0);
                                             setInterestRate(c.interestRate);
-                                            setLoanTermYears(c.loanTermYears);
-                                            setAnnualTax(c.annualTax);
-                                            setAnnualInsurance(c.annualInsurance);
-                                            setAnnualHOA(c.annualHOA);
+                                            setLoanTermYears(c.loanTermYears || 0); // Fixed optional property access
+                                            setAnnualTax(c.annualTax || 0);
+                                            setAnnualInsurance(c.annualInsurance || 0);
+                                            setAnnualHOA(c.annualHOA || 0);
                                             if(c.propertyValue) setPropertyValue(c.propertyValue);
                                             if(c.annualNOI) setAnnualNOI(c.annualNOI);
                                         }}

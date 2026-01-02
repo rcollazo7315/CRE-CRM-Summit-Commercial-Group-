@@ -1,3 +1,4 @@
+
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { auth, isFirebaseInitialized } from '../firebase/config.ts';
 import { api } from '../services/firestore.ts';
@@ -9,7 +10,6 @@ interface AuthContextType {
   loading: boolean;
   refreshUser: () => Promise<void>;
   isAdmin: boolean;
-  error: string | null;
 }
 
 const AuthContext = createContext<AuthContextType>({
@@ -17,7 +17,6 @@ const AuthContext = createContext<AuthContextType>({
   loading: true,
   refreshUser: async () => {},
   isAdmin: false,
-  error: null,
 });
 
 export const useAuth = () => useContext(AuthContext);
@@ -25,67 +24,59 @@ export const useAuth = () => useContext(AuthContext);
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [currentUser, setCurrentUser] = useState<UserAccount | null>(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   const refreshUser = async () => {
-    if (auth && auth.currentUser) {
+    if (auth?.currentUser) {
       try {
         const userData = await api.getCurrentUser(auth.currentUser.uid);
         setCurrentUser(userData);
       } catch (error) {
-        console.error("Error refreshing user:", error);
+        console.error("Auth Refresh Failed:", error);
       }
     }
   };
 
   useEffect(() => {
+    // Safety valve: If Firebase isn't ready in 2 seconds, stop loading so user sees the Login screen (or error)
+    const safetyTimer = setTimeout(() => {
+      setLoading((prev) => {
+        if (prev) {
+          console.warn("Auth initialization timed out - forcing load.");
+          return false;
+        }
+        return prev;
+      });
+    }, 2000);
+
     if (!isFirebaseInitialized() || !auth) {
-      console.error("🔥 Firebase NOT initialized");
-      setError("System unavailable");
-      setLoading(false);
+      console.warn("Database connection pending or offline.");
+      // We don't set loading false immediately to allow safetyTimer to handle the visual transition
       return;
     }
 
-    let unsubscribe: (() => void) | undefined;
-    try {
-      unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-        if (firebaseUser) {
-          try {
-            const userData = await api.getCurrentUser(firebaseUser.uid);
-            setCurrentUser(userData);
-          } catch (err: any) {
-            console.error("Failed to fetch user profile", err);
-            setError("Failed to load user profile");
-            setCurrentUser(null);
-          }
-        } else {
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        try {
+          const userData = await api.getCurrentUser(firebaseUser.uid);
+          setCurrentUser(userData);
+        } catch (err) {
+          console.error("Profile Load Failed:", err);
           setCurrentUser(null);
         }
-        setLoading(false);
-      }, (err) => {
-        console.error("Auth State Error:", err);
-        setError(err.message);
-        setLoading(false);
-      });
-    } catch (e: any) {
-      console.error("Auth Init Error:", e);
-      setError(e.message);
+      } else {
+        setCurrentUser(null);
+      }
       setLoading(false);
-    }
-
-    const timeoutId = setTimeout(() => {
-      setLoading((isLoading) => {
-        if (isLoading) {
-          console.warn("⚠️ Auth listener timed out. Forcing app load.");
-          return false;
-        }
-        return isLoading;
-      });
-    }, 4000);
+      clearTimeout(safetyTimer);
+    }, (error) => {
+      console.error("Auth State Listener Error:", error);
+      setLoading(false);
+      clearTimeout(safetyTimer);
+    });
 
     return () => {
-      if (unsubscribe) unsubscribe();
-      clearTimeout(timeoutId);
+      unsubscribe();
+      clearTimeout(safetyTimer);
     };
   }, []);
 
@@ -94,16 +85,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     loading,
     refreshUser,
     isAdmin: currentUser?.role === 'admin',
-    error
   };
 
   return (
     <AuthContext.Provider value={value}>
       {!loading && children}
       {loading && (
-        <div className="h-screen w-full flex flex-col items-center justify-center bg-slate-50">
-          <div className="w-12 h-12 border-4 border-summit-900 border-t-transparent rounded-full animate-spin mb-4"></div>
-          <div className="text-slate-500 font-medium animate-pulse">Starting Summit Portal...</div>
+        <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#0f172a', color: 'white', fontFamily: 'Inter, sans-serif' }}>
+          <div style={{ width: '40px', height: '40px', border: '3px solid rgba(255,255,255,0.1)', borderTopColor: '#10b981', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+          <style dangerouslySetInnerHTML={{ __html: '@keyframes spin{to{transform:rotate(360deg)}}' }} />
+          <p style={{ marginTop: '16px', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8' }}>Verifying Credentials...</p>
         </div>
       )}
     </AuthContext.Provider>

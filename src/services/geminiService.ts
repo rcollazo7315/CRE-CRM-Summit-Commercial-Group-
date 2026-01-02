@@ -1,8 +1,23 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { PropertyType } from "../types.ts";
 
 // Fix: Use 'gemini-3-flash-preview' for basic text tasks
 const MODEL_NAME = 'gemini-3-flash-preview';
+
+export interface GroundingSource {
+  title: string;
+  uri: string;
+}
+
+// Helper to safely initialize client
+const getAiClient = () => {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    throw new Error("API Key is missing. Please check your environment configuration.");
+  }
+  return new GoogleGenAI({ apiKey });
+};
 
 export const generateListingDescription = async (
   address: string,
@@ -11,8 +26,7 @@ export const generateListingDescription = async (
   highlights: string
 ): Promise<string> => {
   try {
-    // Fix: Initialize GoogleGenAI inside the function call
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = getAiClient();
     const prompt = `
       Create a professional, compelling commercial real estate listing description for the following property:
       Address: ${address}
@@ -36,8 +50,80 @@ export const generateListingDescription = async (
 
     return response.text || "Description generation unavailable.";
   } catch (error) {
-    console.error("Error generating description:", error);
-    return "Unable to generate description. Please check API configuration.";
+    console.error("Gemini Listing Gen Error:", error);
+    return "Unable to generate listing description. Please check your network connection.";
+  }
+};
+
+export const researchMarketContext = async (query: string): Promise<{ text: string; sources: GroundingSource[] }> => {
+  try {
+    const ai = getAiClient();
+    const response = await ai.models.generateContent({
+      model: MODEL_NAME,
+      contents: query,
+      config: {
+        tools: [{ googleSearch: {} }],
+        systemInstruction: "You are a professional commercial real estate analyst. Use search results to provide verified, grounded data on cap rates, vacancies, and news. Always cite your data points.",
+      },
+    });
+
+    const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    const sources: GroundingSource[] = groundingChunks
+      .filter(chunk => chunk.web)
+      .map(chunk => ({
+        title: chunk.web?.title || 'Source',
+        uri: chunk.web?.uri || ''
+      }));
+
+    return {
+      text: response.text || "No insights found.",
+      sources
+    };
+  } catch (error) {
+    console.error("Gemini Market Research Error:", error);
+    return { 
+      text: "Unable to retrieve live market data at this time. Please try again later.", 
+      sources: [] 
+    };
+  }
+};
+
+export const analyzeSiteNeighborhood = async (address: string): Promise<{ text: string; sources: GroundingSource[] }> => {
+  try {
+    const ai = getAiClient();
+    
+    // Get user location for better proximity results if available
+    let locationConfig = {};
+    try {
+        // Check if navigator exists (browser env) and we have permissions
+        // Skipping complex async location logic here to ensure robustness of the API call itself
+    } catch (e) {
+        console.warn("Location check skipped");
+    }
+
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents: `Analyze the surrounding infrastructure for the commercial property at ${address}. Focus on transit hubs, major retail anchors, and business drivers.`,
+      config: {
+        tools: [{ googleMaps: {} }],
+      },
+    });
+
+    const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
+    const sources: GroundingSource[] = groundingChunks
+      .filter(chunk => chunk.maps)
+      .map(chunk => ({
+        title: chunk.maps?.title || 'Map Location',
+        uri: chunk.maps?.uri || ''
+      }));
+
+    return {
+      text: response.text || "Site analysis unavailable.",
+      sources
+    };
+  } catch (error) {
+    console.error("Gemini Site Analysis Error:", error);
+    return { text: "Unable to analyze site location. Please verify the address and try again.", sources: [] };
   }
 };
 
@@ -47,8 +133,7 @@ export const generateOwnerUpdateEmail = async (
   updates: string
 ): Promise<string> => {
   try {
-    // Fix: Initialize GoogleGenAI inside the function call
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = getAiClient();
     const prompt = `
       Draft a professional email to a property owner giving them a weekly update on their asset.
       Owner Name: ${ownerName}
@@ -65,8 +150,8 @@ export const generateOwnerUpdateEmail = async (
 
     return response.text || "Draft generation unavailable.";
   } catch (error) {
-    console.error("Error generating email:", error);
-    return "Unable to generate draft.";
+    console.error("Gemini Email Gen Error:", error);
+    return "Unable to generate email draft. Please try again.";
   }
 };
 
@@ -77,8 +162,7 @@ export const generateRegistrationEmails = async (
   licenseNumber: string
 ): Promise<{ adminEmail: string; userEmail: string }> => {
   try {
-    // Fix: Initialize GoogleGenAI inside the function call
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    const ai = getAiClient();
     const prompt = `
       Generate the content for two automated emails triggered by a new agent registration on the Summit Commercial Group portal.
       
@@ -118,12 +202,15 @@ export const generateRegistrationEmails = async (
     });
 
     const result = JSON.parse(response.text || '{}');
-    return result;
-  } catch (error) {
-    console.error("Error generating registration emails:", error);
     return {
-      adminEmail: "System Error: Unable to generate admin notification.",
-      userEmail: "System Error: Unable to generate user confirmation."
+        adminEmail: result.adminEmail || "Admin notification content unavailable.",
+        userEmail: result.userEmail || "User notification content unavailable."
+    };
+  } catch (error) {
+    console.error("Gemini Registration Email Error:", error);
+    return {
+      adminEmail: "System Error: Unable to generate admin notification due to an AI service interruption.",
+      userEmail: "System Error: Unable to generate user confirmation due to an AI service interruption."
     };
   }
 };

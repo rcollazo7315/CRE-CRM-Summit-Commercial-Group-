@@ -1,7 +1,6 @@
-
 import React from 'react';
 import { BarChart, TrendingUp, PieChart, Download, ArrowUp } from 'lucide-react';
-import { Deal, DealStatus, UserAccount } from '../types';
+import { Deal, DealStatus, UserAccount } from '../types.ts';
 import { jsPDF } from 'jspdf';
 
 interface ReportsPageProps {

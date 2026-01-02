@@ -1,3 +1,4 @@
+
 import React, { Component, useState, useEffect, ErrorInfo, ReactNode } from 'react';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import Layout from './components/Layout.tsx';
@@ -15,9 +16,11 @@ import ContactsPage from './pages/ContactsPage.tsx';
 import DealModal from './components/DealModal.tsx';
 import AiChatModal from './components/AiChatModal.tsx';
 import ConfirmModal from './components/ConfirmModal.tsx';
+import SetupPage from './pages/SetupPage.tsx'; 
 import { Deal, LeadGenLog, UserAccount, DocumentFile, Contact, ContactInteraction } from './types.ts';
 import { api } from './services/firestore.ts';
 import { AuthProvider, useAuth } from './context/AuthContext.tsx';
+import { isFirebaseInitialized, initializationError } from './firebase/config.ts'; 
 import { AlertTriangle, RefreshCw } from 'lucide-react';
 
 interface ErrorBoundaryProps { children?: ReactNode; }
@@ -35,12 +38,12 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
             <div className="w-16 h-16 bg-red-100 text-red-600 rounded-full flex items-center justify-center mx-auto mb-4"><AlertTriangle size={32} /></div>
             <h1 className="text-xl font-bold text-slate-900 mb-2">Something went wrong</h1>
             <p className="text-slate-500 mb-6 text-sm">The application encountered an unexpected error.</p>
+            <pre className="bg-slate-100 p-4 rounded text-xs text-left mb-6 overflow-auto max-h-40">{this.state.error?.message}</pre>
             <button onClick={() => window.location.reload()} className="bg-summit-900 text-white px-6 py-2 rounded-lg font-medium flex items-center justify-center gap-2 w-full"><RefreshCw size={16} /> Reload Page</button>
           </div>
         </div>
       );
     }
-    // Fix: Explicitly cast 'this' to any to avoid "Property 'props' does not exist on type 'ErrorBoundary'" error
     return (this as any).props.children;
   }
 }
@@ -58,6 +61,11 @@ const AppContent: React.FC = () => {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [documentFilterId, setDocumentFilterId] = useState<string | null>(null);
   const [deleteConfirmModal, setDeleteConfirmModal] = useState<{isOpen: boolean; dealId: string | null; dealAddress: string; hasDocuments: boolean; documentCount: number; isDeleting: boolean;}>({isOpen: false, dealId: null, dealAddress: '', hasDocuments: false, documentCount: 0, isDeleting: false});
+
+  // 1. Check for valid Firebase configuration immediately
+  if (!isFirebaseInitialized()) {
+    return <SetupPage error={initializationError} />;
+  }
 
   useEffect(() => {
     if (currentUser) {

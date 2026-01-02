@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Mail, Plus, Star, Search, X, Send, CheckCircle, Loader2 } from 'lucide-react';
 import { UserAccount, EmailMessage } from '../types.ts';
