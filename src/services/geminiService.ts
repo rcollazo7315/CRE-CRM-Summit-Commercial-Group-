@@ -1,8 +1,6 @@
 
-import { GoogleGenAI, Type } from "@google/genai";
 import { PropertyType } from "../types.ts";
 
-// Fix: Use 'gemini-3-flash-preview' for basic text tasks
 const MODEL_NAME = 'gemini-3-flash-preview';
 
 export interface GroundingSource {
@@ -10,13 +8,20 @@ export interface GroundingSource {
   uri: string;
 }
 
-// Helper to safely initialize client
-const getAiClient = () => {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) {
-    throw new Error("API Key is missing. Please check your environment configuration.");
+// Helper to safely initialize client using Dynamic Import
+// This prevents the entire app from crashing on load if the `@google/genai` package is missing or fails to fetch.
+const getAiClient = async () => {
+  try {
+    const { GoogleGenAI } = await import("@google/genai");
+    const apiKey = process.env.API_KEY;
+    if (!apiKey) {
+      throw new Error("API Key is missing. Please check your environment configuration.");
+    }
+    return new GoogleGenAI({ apiKey });
+  } catch (e) {
+    console.error("Failed to load Google GenAI SDK:", e);
+    throw new Error("AI Service Unavailable: SDK failed to load.");
   }
-  return new GoogleGenAI({ apiKey });
 };
 
 export const generateListingDescription = async (
@@ -26,7 +31,7 @@ export const generateListingDescription = async (
   highlights: string
 ): Promise<string> => {
   try {
-    const ai = getAiClient();
+    const ai = await getAiClient();
     const prompt = `
       Create a professional, compelling commercial real estate listing description for the following property:
       Address: ${address}
@@ -51,13 +56,13 @@ export const generateListingDescription = async (
     return response.text || "Description generation unavailable.";
   } catch (error) {
     console.error("Gemini Listing Gen Error:", error);
-    return "Unable to generate listing description. Please check your network connection.";
+    return "Unable to generate listing description. AI Service may be unavailable.";
   }
 };
 
 export const researchMarketContext = async (query: string): Promise<{ text: string; sources: GroundingSource[] }> => {
   try {
-    const ai = getAiClient();
+    const ai = await getAiClient();
     const response = await ai.models.generateContent({
       model: MODEL_NAME,
       contents: query,
@@ -69,8 +74,8 @@ export const researchMarketContext = async (query: string): Promise<{ text: stri
 
     const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
     const sources: GroundingSource[] = groundingChunks
-      .filter(chunk => chunk.web)
-      .map(chunk => ({
+      .filter((chunk: any) => chunk.web)
+      .map((chunk: any) => ({
         title: chunk.web?.title || 'Source',
         uri: chunk.web?.uri || ''
       }));
@@ -90,17 +95,9 @@ export const researchMarketContext = async (query: string): Promise<{ text: stri
 
 export const analyzeSiteNeighborhood = async (address: string): Promise<{ text: string; sources: GroundingSource[] }> => {
   try {
-    const ai = getAiClient();
+    const ai = await getAiClient();
     
-    // Get user location for better proximity results if available
-    let locationConfig = {};
-    try {
-        // Check if navigator exists (browser env) and we have permissions
-        // Skipping complex async location logic here to ensure robustness of the API call itself
-    } catch (e) {
-        console.warn("Location check skipped");
-    }
-
+    // Note: User location omitted for robustness
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: `Analyze the surrounding infrastructure for the commercial property at ${address}. Focus on transit hubs, major retail anchors, and business drivers.`,
@@ -111,8 +108,8 @@ export const analyzeSiteNeighborhood = async (address: string): Promise<{ text: 
 
     const groundingChunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
     const sources: GroundingSource[] = groundingChunks
-      .filter(chunk => chunk.maps)
-      .map(chunk => ({
+      .filter((chunk: any) => chunk.maps)
+      .map((chunk: any) => ({
         title: chunk.maps?.title || 'Map Location',
         uri: chunk.maps?.uri || ''
       }));
@@ -133,7 +130,7 @@ export const generateOwnerUpdateEmail = async (
   updates: string
 ): Promise<string> => {
   try {
-    const ai = getAiClient();
+    const ai = await getAiClient();
     const prompt = `
       Draft a professional email to a property owner giving them a weekly update on their asset.
       Owner Name: ${ownerName}
@@ -162,7 +159,11 @@ export const generateRegistrationEmails = async (
   licenseNumber: string
 ): Promise<{ adminEmail: string; userEmail: string }> => {
   try {
-    const ai = getAiClient();
+    // Dynamic import for types if needed, though usually types are erased. 
+    // We import GoogleGenAI class dynamically in getAiClient.
+    const { Type } = await import("@google/genai"); 
+    const ai = await getAiClient();
+    
     const prompt = `
       Generate the content for two automated emails triggered by a new agent registration on the Summit Commercial Group portal.
       

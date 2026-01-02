@@ -62,16 +62,15 @@ const AppContent: React.FC = () => {
   const [documentFilterId, setDocumentFilterId] = useState<string | null>(null);
   const [deleteConfirmModal, setDeleteConfirmModal] = useState<{isOpen: boolean; dealId: string | null; dealAddress: string; hasDocuments: boolean; documentCount: number; isDeleting: boolean;}>({isOpen: false, dealId: null, dealAddress: '', hasDocuments: false, documentCount: 0, isDeleting: false});
 
-  // 1. Check for valid Firebase configuration immediately
-  if (!isFirebaseInitialized()) {
-    return <SetupPage error={initializationError} />;
-  }
+  const firebaseReady = isFirebaseInitialized();
+
+  console.log("[AppContent] Render - firebaseReady:", firebaseReady, "loading:", loading, "currentUser:", currentUser?.id);
 
   useEffect(() => {
-    if (currentUser) {
+    if (firebaseReady && currentUser) {
       loadUserData(currentUser.id, currentUser.role === 'admin');
     }
-  }, [currentUser]);
+  }, [currentUser, firebaseReady]);
 
   const loadUserData = async (userId: string, isAdmin: boolean) => {
     try {
@@ -120,7 +119,22 @@ const AppContent: React.FC = () => {
   const handleAddDocument = async (dealId: string, doc: DocumentFile, file: File) => { if (!currentUser) return; await api.saveDocument(dealId, doc, file); await loadUserData(currentUser.id, currentUser.role === 'admin'); };
   const handleDeleteDocument = async (dealId: string, docId: string) => { if (!currentUser) return; await api.deleteDocument(dealId, docId); await loadUserData(currentUser.id, currentUser.role === 'admin'); };
 
-  if (loading) return <div className="h-screen flex flex-col items-center justify-center bg-slate-50"><div className="w-10 h-10 border-4 border-summit-900 border-t-transparent rounded-full animate-spin"></div></div>;
+  // Conditional Rendering Logic
+  
+  // 1. Firebase Missing? -> Setup Page
+  if (!firebaseReady) {
+    return <SetupPage error={initializationError} />;
+  }
+
+  // 2. Auth Loading? -> Spinner
+  if (loading) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center bg-slate-50">
+        <div className="w-10 h-10 border-4 border-summit-900 border-t-transparent rounded-full animate-spin"></div>
+        <p className="mt-4 text-xs font-bold text-slate-400 uppercase tracking-widest">Secure Connection...</p>
+      </div>
+    );
+  }
 
   const renderContent = () => {
     if (activeTab === 'admin-dashboard' && currentUser?.role === 'admin') return <AdminDashboardPage />;
@@ -129,7 +143,7 @@ const AppContent: React.FC = () => {
         return <DashboardPage activeTab={activeTab} deals={deals} onAddDeal={() => { setDealModalInitialData(null); setIsDealModalOpen(true); }} onDealClick={(id) => { setSelectedDealId(id); setActiveTab('deal-details'); }} onDeleteDeal={handleDeleteDeal} onRouteChange={setActiveTab} onOpenAi={() => setIsChatOpen(true)} onSaveDeal={handleSaveDeal} />;
       case 'deal-details':
         const deal = deals.find(d => d.id === selectedDealId);
-        if (!deal) return <div>Deal not found.</div>;
+        if (!deal) return <div className="p-8 text-center">Deal not found. <button onClick={() => setActiveTab('deals')} className="text-blue-600 hover:underline">Return to list</button></div>;
         return <DealDetailsPage deal={deal} onBack={() => setActiveTab('deals')} onUpdateDeal={handleSaveDeal} onEditDeal={() => { setDealModalInitialData(deal); setIsDealModalOpen(true); }} onDeleteDeal={() => handleDeleteDeal(deal.id)} onViewDocuments={() => { setDocumentFilterId(deal.id); setActiveTab('documents'); }} onAddDocument={handleAddDocument} onDeleteDocument={handleDeleteDocument} />;
       case 'contacts': return <ContactsPage contacts={contacts} deals={deals} onSaveContact={handleSaveContact} onDeleteContact={handleDeleteContact} onAddInteraction={handleAddInteraction} onLinkDeal={handleLinkDeal} onUnlinkDeal={handleUnlinkDeal} onImportContacts={handleImportContacts} />;
       case 'calculator': return <MortgageCalculatorPage />;
@@ -150,7 +164,7 @@ const AppContent: React.FC = () => {
             {renderContent()}
             <DealModal isOpen={isDealModalOpen} onClose={() => setIsDealModalOpen(false)} onSave={handleSaveDeal} initialData={dealModalInitialData} onDelete={handleDeleteDeal} />
             <AiChatModal isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
-            <ConfirmModal isOpen={deleteConfirmModal.isOpen} onClose={closeDeleteModal} onConfirm={executeDeleteDeal} title="Delete Deal" message={deleteConfirmModal.hasDocuments ? "Warning: Contains documents." : "Are you sure?"} confirmText={deleteConfirmModal.isDeleting ? "Deleting..." : "Delete"} isLoading={deleteConfirmModal.isDeleting} />
+            <ConfirmModal isOpen={deleteConfirmModal.isOpen} onClose={closeDeleteModal} onConfirm={executeDeleteDeal} title="Delete Deal" message={deleteConfirmModal.hasDocuments ? "Warning: This deal contains documents that will also be deleted." : "Are you sure you want to delete this deal?"} confirmText={deleteConfirmModal.isDeleting ? "Deleting..." : "Delete"} isLoading={deleteConfirmModal.isDeleting} />
           </Layout>
         ) : <Navigate to="/login" />
       } />
@@ -158,5 +172,15 @@ const AppContent: React.FC = () => {
   );
 };
 
-const App: React.FC = () => { return <ErrorBoundary><AuthProvider><HashRouter><AppContent /></HashRouter></AuthProvider></ErrorBoundary>; };
+const App: React.FC = () => { 
+  return (
+    <ErrorBoundary>
+      <AuthProvider>
+        <HashRouter>
+          <AppContent />
+        </HashRouter>
+      </AuthProvider>
+    </ErrorBoundary>
+  ); 
+};
 export default App;

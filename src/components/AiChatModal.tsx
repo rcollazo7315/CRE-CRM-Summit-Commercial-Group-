@@ -1,6 +1,6 @@
+
 import React, { useState, useRef, useEffect } from 'react';
 import { X, Send, Bot, User, Loader2, Sparkles } from 'lucide-react';
-import { GoogleGenAI } from "@google/genai";
 
 interface AiChatModalProps {
   isOpen: boolean;
@@ -35,8 +35,10 @@ const AiChatModal: React.FC<AiChatModalProps> = ({ isOpen, onClose }) => {
     setLoading(true);
 
     try {
+      // Dynamic import to prevent crash if module fails to load
+      const { GoogleGenAI } = await import("@google/genai");
+      
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
-      // Fix: Use 'gemini-3-flash-preview' for text-based assistant queries
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: `You are a helpful expert commercial real estate assistant. Answer the following request concisely and professionally: ${userMsg}`,
@@ -44,7 +46,8 @@ const AiChatModal: React.FC<AiChatModalProps> = ({ isOpen, onClose }) => {
       
       setMessages(prev => [...prev, { role: 'model', text: response.text || "I apologize, I couldn't generate a response." }]);
     } catch (error) {
-      setMessages(prev => [...prev, { role: 'model', text: "I'm having trouble connecting to the network right now." }]);
+      console.error("AI Error:", error);
+      setMessages(prev => [...prev, { role: 'model', text: "I'm having trouble connecting to the intelligence network right now. The AI module may not be fully loaded." }]);
     } finally {
       setLoading(false);
     }
