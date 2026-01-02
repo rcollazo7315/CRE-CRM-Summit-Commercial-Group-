@@ -6,8 +6,6 @@ import { getStorage, FirebaseStorage } from 'firebase/storage';
 
 console.log("[Firebase Config] Module loading...");
 
-// 1. Try LocalStorage (for SetupPage)
-// 2. Fallback to hardcoded defaults provided by user
 const getConfiguration = () => {
   try {
     const localKey = localStorage.getItem('VITE_FIREBASE_API_KEY');
@@ -26,7 +24,7 @@ const getConfiguration = () => {
     console.warn("Local storage access blocked:", e);
   }
 
-  // Fallback / Default - Updated with user provided values
+  // Fallback defaults - will likely fail if domain restricted, triggering fallback to mock
   return {
     apiKey: "AIzaSyD00EHnA1iFfB20ybdcAXBgZBp4JqaT5gg",
     authDomain: "summit-crm-3c378.firebaseapp.com",
@@ -56,28 +54,34 @@ try {
     }
 
     if (app) {
+      // Initialize Firestore - Catch errors to allow fallback
       try {
         db = getFirestore(app);
       } catch (e: any) {
-        console.error("Firestore Init Error:", e);
-        throw new Error(`Firestore unavailable: ${e.message}. Check browser console for version conflicts.`);
+        console.warn("Firestore Init Error (Using Mock Mode):", e.message);
       }
       
-      auth = getAuth(app);
+      // Initialize Auth - Catch errors to allow fallback
+      try {
+        auth = getAuth(app);
+      } catch (e: any) {
+        console.warn("Auth Init Error (Using Mock Mode):", e.message);
+      }
       
+      // Initialize Storage - Optional
       try {
         storage = getStorage(app);
       } catch (e) {
         console.warn("Storage init failed (optional):", e);
       }
-      console.log("[Firebase Config] Initialization complete for project:", firebaseConfig.projectId);
+      
+      console.log("[Firebase Config] Initialization attempts complete.");
     }
   } else {
-    console.warn("[Firebase Config] No configuration found.");
+    console.warn("[Firebase Config] No configuration found. Using mock mode.");
   }
 } catch (error: any) {
-  console.error("[Firebase Config] Critical Error:", error);
-  initializationError = error;
+  console.error("[Firebase Config] Critical Init Error:", error);
 }
 
 export { app, db, auth, storage, initializationError };

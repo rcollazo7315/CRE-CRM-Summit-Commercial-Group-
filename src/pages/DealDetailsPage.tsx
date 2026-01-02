@@ -1,9 +1,12 @@
+
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, MapPin, Building2, User, Phone, Mail, Calendar, Edit, CheckCircle, FileText, Download, Trash2, CheckSquare, Clock, Plus, Map as MapIcon, Upload, Loader2, MoreVertical } from 'lucide-react';
-import { Deal, DealStatus, DocumentFile, Task } from '../types.ts';
+import { ArrowLeft, MapPin, User, Phone, Mail, Edit, FileText, Download, Trash2, CheckSquare, Clock, Plus, Map as MapIcon, Upload, Loader2, MoreVertical, Tag, Briefcase, Building, CheckCircle2, Zap, Compass, Sparkles, MapPinned, ExternalLink, Target, Globe, ShieldCheck } from 'lucide-react';
+import { Deal, DealStatus, DocumentFile, Task, LEAD_SOURCE_LABELS, REPRESENTATION_LABELS } from '../types.ts';
 import TaskModal from '../components/TaskModal.tsx';
 import { api } from '../services/firestore.ts';
 import { useAuth } from '../context/AuthContext.tsx';
+import { analyzeSiteNeighborhood, GroundingSource } from '../services/geminiService.ts';
+import { generateOwnerReport } from '../utils/pdfGenerator.ts';
 
 interface DealDetailsPageProps {
   deal: Deal;
@@ -23,10 +26,16 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Partial<Task> | undefined>(undefined);
   const [mapError, setMapError] = useState(false);
+  const [loadingInsights, setLoadingInsights] = useState(false);
+  const [insights, setInsights] = useState<{ text: string; sources: GroundingSource[] } | null>(null);
   
   // Document Upload State
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const isDemandSide = deal.representation === 'buyer' || deal.representation === 'tenant';
+  const isLeasing = deal.representation === 'landlord' || deal.representation === 'tenant';
+  const isClosed = deal.status === DealStatus.COMPLETED;
 
   const loadTasks = async () => {
     if (currentUser) {
@@ -55,6 +64,18 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
 
   const handleStatusChange = (value: string) => {
     onUpdateDeal({ ...deal, status: value as DealStatus });
+  };
+
+  const fetchSiteAudit = async () => {
+    setLoadingInsights(true);
+    try {
+      const result = await analyzeSiteNeighborhood(deal.propertyAddress);
+      setInsights(result);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingInsights(false);
+    }
   };
 
   // Google Maps Embed URL
@@ -105,16 +126,18 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
       <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6 mb-6">
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
           <div>
-             <div className="flex items-center gap-2 text-slate-500 text-sm mb-1">
-                <Building2 size={14} />
-                <span>{deal.propertyType}</span>
-                <span>•</span>
-                <span className="text-slate-400">ID: {deal.id}</span>
+             <div className="flex items-center gap-2 text-slate-500 text-sm mb-2">
+                <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 ${isDemandSide ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+                    {isDemandSide ? <Briefcase size={12}/> : <Building size={12}/>}
+                    {REPRESENTATION_LABELS[deal.representation || 'seller']}
+                </span>
+                <span className="text-slate-300">•</span>
+                <span className="font-medium text-slate-500">{deal.propertyType}</span>
              </div>
              <h1 className="text-3xl font-bold text-slate-900">{deal.propertyAddress}</h1>
              <p className="flex items-center text-slate-500 mt-2">
                <MapPin size={16} className="mr-1" />
-               {deal.propertyAddress}
+               {isDemandSide ? 'Search Area / Target Location' : 'Property Location'}
              </p>
           </div>
           <div className="flex items-center gap-3">
@@ -131,6 +154,9 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
                 </div>
              </div>
              <button onClick={onEditDeal} className="bg-summit-900 text-white px-5 py-2.5 rounded-lg font-medium shadow-lg hover:bg-summit-800 transition-colors">Edit Deal</button>
+             <button onClick={() => generateOwnerReport(deal, tasks)} className="bg-white border border-slate-200 text-slate-700 hover:text-summit-900 px-3 py-2.5 rounded-lg flex items-center gap-2 font-medium" title="Export Owner Report">
+               <Download size={18} /> Owner Report
+             </button>
              <button onClick={onDeleteDeal} className="bg-white border border-slate-200 text-slate-400 hover:text-red-600 px-3 py-2.5 rounded-lg"><Trash2 size={20} /></button>
           </div>
         </div>
@@ -151,12 +177,117 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Info Content - Left Col */}
            <div className="lg:col-span-2 space-y-6">
+              
+              {/* FINAL DEAL POINTS CARD */}
+              {(deal.closingPrice || deal.finalLeaseRate || isClosed) && (
+                <div className={`rounded-xl shadow-sm border p-6 ${isClosed ? 'bg-emerald-50 border-emerald-200' : 'bg-white border-slate-200'}`}>
+                   <h3 className={`font-bold text-lg mb-4 flex items-center gap-2 ${isClosed ? 'text-emerald-900' : 'text-slate-800'}`}>
+                     <CheckCircle2 size={20} className={isClosed ? 'text-emerald-600' : 'text-slate-400'} />
+                     Final Term Sheet
+                   </h3>
+                   <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+                      {isLeasing ? (
+                        <>
+                          <div>
+                             <p className="text-xs font-bold uppercase opacity-60 mb-1">Exec. Lease Rate</p>
+                             <p className="text-xl font-bold">${deal.finalLeaseRate || 0}<span className="text-sm font-normal">/sf/yr</span></p>
+                          </div>
+                          <div>
+                             <p className="text-xs font-bold uppercase opacity-60 mb-1">Lease Term</p>
+                             <p className="text-xl font-bold">{deal.finalLeaseTerm || 0} <span className="text-sm font-normal">Months</span></p>
+                          </div>
+                          <div>
+                             <p className="text-xs font-bold uppercase opacity-60 mb-1">Lease Type</p>
+                             <p className="text-xl font-bold">{deal.finalLeaseType || deal.leaseType || 'N/A'}</p>
+                          </div>
+                          <div>
+                             <p className="text-xs font-bold uppercase opacity-60 mb-1">Commencement</p>
+                             <p className="text-lg font-semibold">{deal.leaseStartDate ? new Date(deal.leaseStartDate).toLocaleDateString() : 'Pending'}</p>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div>
+                             <p className="text-xs font-bold uppercase opacity-60 mb-1">Final Price</p>
+                             <p className="text-2xl font-bold text-emerald-700">${deal.closingPrice?.toLocaleString() || '-'}</p>
+                          </div>
+                          <div>
+                             <p className="text-xs font-bold uppercase opacity-60 mb-1">Closing Date</p>
+                             <p className="text-lg font-semibold">{deal.closingDate ? new Date(deal.closingDate).toLocaleDateString() : 'Pending'}</p>
+                          </div>
+                        </>
+                      )}
+                      
+                      {deal.actualCommission && (
+                        <div className="p-3 bg-white/50 rounded-lg border border-slate-200/50">
+                           <p className="text-xs font-bold uppercase opacity-60 mb-1">Gross Commission</p>
+                           <p className="text-lg font-mono font-bold text-slate-800">${deal.actualCommission.toLocaleString()}</p>
+                        </div>
+                      )}
+                   </div>
+                </div>
+              )}
+
+              {/* Site Intelligence */}
+              <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6 relative overflow-hidden group">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-6">
+                   <div>
+                     <h3 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                       <Zap size={20} className="text-summit-accent" /> Site Intelligence IQ
+                     </h3>
+                     <p className="text-xs text-slate-500 mt-1 font-bold uppercase tracking-widest flex items-center gap-2">
+                        <Compass size={12} className="text-slate-400" /> AI Infrastructure Audit
+                     </p>
+                   </div>
+                   {!insights && (
+                     <button onClick={fetchSiteAudit} disabled={loadingInsights} className="bg-purple-100 text-purple-700 px-4 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-purple-200 disabled:opacity-50 transition-all">
+                       {loadingInsights ? <Loader2 size={14} className="animate-spin" /> : <Sparkles size={14} />}
+                       {loadingInsights ? 'Analyzing...' : 'Run Neural Audit'}
+                     </button>
+                   )}
+                </div>
+
+                {insights ? (
+                  <div className="space-y-4 animate-in fade-in duration-500">
+                    <div className="prose prose-sm max-w-none text-slate-600 bg-slate-50 p-4 rounded-lg border border-slate-100 whitespace-pre-wrap">
+                      {insights.text}
+                    </div>
+                    <div>
+                      <p className="text-[10px] font-black uppercase text-slate-400 tracking-[0.3em] mb-2">Sources</p>
+                      <div className="flex flex-wrap gap-2">
+                        {insights.sources.map((src, i) => (
+                          <a key={i} href={src.uri} target="_blank" rel="noreferrer" className="flex items-center gap-2 bg-white border border-slate-200 px-3 py-1.5 rounded-lg text-xs font-bold text-slate-700 hover:border-purple-300 transition-colors">
+                            <Target size={12} className="text-rose-500" />
+                            {src.title}
+                            <ExternalLink size={10} className="text-slate-300 ml-1" />
+                          </a>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ) : !loadingInsights && (
+                   <div className="bg-slate-50/50 rounded-xl border-2 border-dashed border-slate-100 p-8 text-center">
+                      <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center mx-auto mb-4 shadow-sm border border-slate-50">
+                        <Globe size={24} className="text-slate-300" />
+                      </div>
+                      <p className="text-slate-400 text-sm font-medium">Generate spatial awareness for this asset.</p>
+                   </div>
+                )}
+              </div>
+
               <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
-                <div className="h-64 bg-slate-100 relative">
+                <div className="h-64 bg-slate-100 relative group">
                    <img src={deal.imageUrl} className="w-full h-full object-cover" alt="Property" />
+                   {isDemandSide && (
+                       <div className="absolute inset-0 flex items-center justify-center bg-slate-900/30">
+                           <div className="bg-white/90 backdrop-blur px-4 py-2 rounded-lg font-bold text-slate-800 shadow-sm">
+                               Reference Image / Target Style
+                           </div>
+                       </div>
+                   )}
                 </div>
                 <div className="p-6">
-                   <h3 className="font-bold text-lg mb-4">Property Description</h3>
+                   <h3 className="font-bold text-lg mb-4">{isDemandSide ? 'Requirements Brief' : 'Property Description'}</h3>
                    <p className="text-slate-600 leading-relaxed whitespace-pre-line">{deal.description || "No description."}</p>
                 </div>
               </div>
@@ -165,7 +296,7 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
               <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
                 <div className="flex justify-between items-center mb-4">
                   <h3 className="font-bold text-lg flex items-center gap-2">
-                    <MapIcon size={20} className="text-slate-400"/> Location Map
+                    <MapIcon size={20} className="text-slate-400"/> {isDemandSide ? 'Search Area' : 'Location Map'}
                   </h3>
                   <button 
                     onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(deal.propertyAddress)}`, '_blank')}
@@ -193,27 +324,29 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
                         allowFullScreen
                       ></iframe>
                    )}
-                   {/* Fallback Pin Drop Simulation */}
-                   <button 
-                     className="absolute bottom-3 right-3 bg-white shadow-md text-slate-700 px-3 py-1.5 rounded-md text-xs font-bold border border-slate-200 hover:bg-slate-50"
-                     onClick={() => console.log("Pin Drop Mode: In a full production app, this would allow you to drag a marker on a Google Maps JS API instance to correct coordinates.")}
-                   >
-                     Drop Pin
-                   </button>
                 </div>
               </div>
 
               <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
-                 <h3 className="font-bold text-lg mb-4">Financials</h3>
+                 <h3 className="font-bold text-lg mb-4">Initial Financial Targets</h3>
                  <div className="grid grid-cols-2 gap-4">
                     <div className="p-4 bg-slate-50 rounded-lg">
-                       <p className="text-xs text-slate-500 uppercase">Asking Price</p>
+                       <p className="text-xs text-slate-500 uppercase">{isDemandSide ? 'Target Budget' : 'Asking Price'}</p>
                        <p className="text-xl font-bold text-slate-900">${deal.askingPrice.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
                     </div>
-                    <div className="p-4 bg-slate-50 rounded-lg">
-                       <p className="text-xs text-slate-500 uppercase">Highest Offer</p>
-                       <p className="text-xl font-bold text-green-600">{deal.highestOffer > 0 ? `$${deal.highestOffer.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : '-'}</p>
-                    </div>
+                    {isDemandSide ? (
+                        <div className="p-4 bg-slate-50 rounded-lg">
+                            <p className="text-xs text-slate-500 uppercase">Size Requirements</p>
+                            <p className="text-xl font-bold text-slate-900">
+                                {deal.minSqFt ? deal.minSqFt.toLocaleString() : '0'} - {deal.maxSqFt ? deal.maxSqFt.toLocaleString() : 'Any'} <span className="text-sm font-normal text-slate-500">sqft</span>
+                            </p>
+                        </div>
+                    ) : (
+                        <div className="p-4 bg-slate-50 rounded-lg">
+                            <p className="text-xs text-slate-500 uppercase">Highest Offer</p>
+                            <p className="text-xl font-bold text-green-600">{deal.highestOffer > 0 ? `$${deal.highestOffer.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : '-'}</p>
+                        </div>
+                    )}
                  </div>
               </div>
            </div>
@@ -221,16 +354,32 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
            {/* Right Col */}
            <div className="space-y-6">
               <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
-                 <h3 className="font-bold text-sm text-slate-400 uppercase mb-4">Owner Contact</h3>
+                 <h3 className="font-bold text-sm text-slate-400 uppercase mb-4">{isDemandSide ? 'Client Contact' : 'Owner Contact'}</h3>
                  <div className="flex items-center gap-3 mb-4">
                     <div className="w-10 h-10 rounded-full bg-summit-100 flex items-center justify-center text-summit-900"><User size={20} /></div>
-                    <div><p className="font-bold text-slate-900">{deal.owner.name}</p><p className="text-xs text-slate-500">Property Owner</p></div>
+                    <div><p className="font-bold text-slate-900">{deal.owner.name}</p><p className="text-xs text-slate-500">{isDemandSide ? 'Client' : 'Property Owner'}</p></div>
                  </div>
                  <div className="space-y-3 text-sm">
                     <div className="flex gap-3"><Mail size={16} className="text-slate-400" /> {deal.owner.email}</div>
                     <div className="flex gap-3"><Phone size={16} className="text-slate-400" /> {deal.owner.phone}</div>
                  </div>
               </div>
+
+              {/* Lead Source Info */}
+              {deal.leadSource && (
+                <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6">
+                  <h3 className="font-bold text-sm text-slate-400 uppercase mb-4 flex items-center gap-2">
+                    <Tag size={16} /> Attribution
+                  </h3>
+                  <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+                    <h4 className="text-xs font-semibold text-slate-500 uppercase mb-1">Lead Source</h4>
+                    <p className="font-medium text-slate-800">{LEAD_SOURCE_LABELS[deal.leadSource] || deal.leadSource}</p>
+                    {deal.leadSourceNotes && (
+                      <p className="text-sm text-slate-600 mt-2 italic border-t border-slate-200 pt-2">{deal.leadSourceNotes}</p>
+                    )}
+                  </div>
+                </div>
+              )}
            </div>
         </div>
       )}

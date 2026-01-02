@@ -1,12 +1,13 @@
-import React, { useState, useEffect, useMemo } from 'react';
+
+import React, { useState, useMemo } from 'react';
 import { 
-  Users, UserPlus, Search, Filter, Download, Upload, X, Save, 
-  MapPin, Phone, Mail, Globe, Linkedin, Twitter, Tag, 
-  Calendar, Clock, Edit, Trash2, Link as LinkIcon, Plus, 
-  Briefcase, MoreVertical, MessageSquare, StickyNote,
-  ChevronRight, Building, ArrowRight, Check
+  Users, UserPlus, Search, Download, Upload, X, 
+  MapPin, Phone, Mail, Globe, Linkedin, Tag, 
+  Edit, Trash2, Building, MoreVertical, StickyNote,
+  ArrowRight, Check
 } from 'lucide-react';
 import { Contact, ContactInteraction, Deal, ContactType, ContactStatus } from '../types.ts';
+import ConfirmModal from '../components/ConfirmModal.tsx';
 
 // Constants for Dropdowns & Styling
 const CONTACT_TYPES: { value: ContactType; label: string; color: string }[] = [
@@ -32,14 +33,6 @@ const CONTACT_STATUSES: { value: ContactStatus; label: string; color: string }[]
   { value: 'inactive', label: 'Inactive', color: 'bg-slate-100 text-slate-500' }
 ];
 
-const INTERACTION_TYPES = [
-  { value: 'call', label: 'Call', icon: Phone },
-  { value: 'email', label: 'Email', icon: Mail },
-  { value: 'meeting', label: 'Meeting', icon: Users },
-  { value: 'note', label: 'Note', icon: StickyNote },
-  { value: 'other', label: 'Other', icon: MoreVertical }
-];
-
 interface ContactsPageProps {
   contacts: Contact[];
   deals: Deal[];
@@ -49,20 +42,23 @@ interface ContactsPageProps {
   onLinkDeal: (contactId: string, dealId: string) => Promise<void>;
   onUnlinkDeal: (contactId: string, dealId: string) => Promise<void>;
   onImportContacts: (contacts: Contact[]) => Promise<void>;
+  searchTerm: string;
 }
 
 const ContactsPage: React.FC<ContactsPageProps> = ({ 
-  contacts, deals, onSaveContact, onDeleteContact, onAddInteraction, onLinkDeal, onUnlinkDeal, onImportContacts 
+  contacts, deals, onSaveContact, onDeleteContact, onAddInteraction, onLinkDeal, onUnlinkDeal, onImportContacts, searchTerm
 }) => {
   // -- Local State --
-  const [searchTerm, setSearchTerm] = useState('');
+  const [localSearch, setLocalSearch] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
+  const [tagInput, setTagInput] = useState('');
   
   // Modal States
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<Partial<Contact> | null>(null);
   const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
+  const [deleteId, setDeleteId] = useState<string | null>(null);
   
   // Import States
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
@@ -73,7 +69,6 @@ const ContactsPage: React.FC<ContactsPageProps> = ({
   const [fieldMappings, setFieldMappings] = useState<Record<string, number>>({});
 
   // Interaction State
-  const [isAddingInteraction, setIsAddingInteraction] = useState(false);
   const [newInteraction, setNewInteraction] = useState<Partial<ContactInteraction>>({
     type: 'call',
     date: new Date().toISOString().split('T')[0],
@@ -87,18 +82,21 @@ const ContactsPage: React.FC<ContactsPageProps> = ({
   // -- Computed --
   const filteredContacts = useMemo(() => {
     return contacts.filter(c => {
+      const term = (localSearch || searchTerm).toLowerCase();
       const matchesSearch = 
-        `${c.firstName} ${c.lastName}`.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.company?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        c.tags.some(t => t.toLowerCase().includes(searchTerm.toLowerCase()));
+        `${c.firstName} ${c.lastName}`.toLowerCase().includes(term) ||
+        c.company?.toLowerCase().includes(term) ||
+        c.email?.toLowerCase().includes(term) ||
+        c.phone?.includes(term) ||
+        c.mobile?.includes(term) ||
+        c.tags.some(t => t.toLowerCase().includes(term));
       
       const matchesType = filterType === 'all' || c.contactType === filterType;
       const matchesStatus = filterStatus === 'all' || c.status === filterStatus;
 
       return matchesSearch && matchesType && matchesStatus;
     });
-  }, [contacts, searchTerm, filterType, filterStatus]);
+  }, [contacts, searchTerm, localSearch, filterType, filterStatus]);
 
   // -- Helpers --
   const getInitials = (first: string, last: string) => `${first?.[0] || ''}${last?.[0] || ''}`.toUpperCase();
@@ -107,16 +105,51 @@ const ContactsPage: React.FC<ContactsPageProps> = ({
 
   // -- Handlers --
   const handleEditClick = (contact?: Contact) => {
+    setTagInput('');
     if (contact) {
-      setEditingContact(contact);
+      setEditingContact(JSON.parse(JSON.stringify(contact))); // Deep copy
     } else {
       setEditingContact({
-        firstName: '', lastName: '', company: '', jobTitle: '', 
-        contactType: 'other', status: 'lead', 
-        tags: [], linkedDealIds: [], interactions: []
+        firstName: '', 
+        lastName: '', 
+        company: '', 
+        jobTitle: '', 
+        email: '',
+        phone: '',
+        mobile: '',
+        linkedin: '',
+        website: '',
+        contactType: 'prospect', 
+        status: 'lead', 
+        tags: [], 
+        linkedDealIds: [], 
+        interactions: [],
+        address: { street: '', city: '', state: '', zip: '' }
       });
     }
     setIsEditModalOpen(true);
+  };
+
+  const handleAddTag = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && tagInput.trim()) {
+      e.preventDefault();
+      if (editingContact && !editingContact.tags?.includes(tagInput.trim())) {
+        setEditingContact({
+          ...editingContact,
+          tags: [...(editingContact.tags || []), tagInput.trim()]
+        });
+      }
+      setTagInput('');
+    }
+  };
+
+  const removeTag = (tag: string) => {
+    if (editingContact) {
+      setEditingContact({
+        ...editingContact,
+        tags: editingContact.tags?.filter(t => t !== tag) || []
+      });
+    }
   };
 
   const handleSaveForm = async (e: React.FormEvent) => {
@@ -143,23 +176,14 @@ const ContactsPage: React.FC<ContactsPageProps> = ({
     }
   };
 
-  const handleInteractionSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!selectedContact || !newInteraction.subject) return;
-
-    const interaction: ContactInteraction = {
-        id: Math.random().toString(36).substr(2, 9),
-        date: newInteraction.date || new Date().toISOString(),
-        type: newInteraction.type as any,
-        subject: newInteraction.subject || '',
-        notes: newInteraction.notes || ''
-    };
-
-    await onAddInteraction(selectedContact.id, interaction);
-    const updatedContact = { ...selectedContact, interactions: [...selectedContact.interactions, interaction] };
-    setSelectedContact(updatedContact);
-    setIsAddingInteraction(false);
-    setNewInteraction({ type: 'call', date: new Date().toISOString().split('T')[0], subject: '', notes: '' });
+  const handleDeleteConfirm = async () => {
+    if (deleteId) {
+      await onDeleteContact(deleteId);
+      if (selectedContact?.id === deleteId) {
+        setSelectedContact(null);
+      }
+      setDeleteId(null);
+    }
   };
 
   const handleParseCsv = () => {
@@ -285,15 +309,16 @@ const ContactsPage: React.FC<ContactsPageProps> = ({
 
       {/* Toolbar */}
       <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-4 flex flex-col md:flex-row gap-4 items-center justify-between flex-shrink-0">
-         <div className="relative w-full md:w-96">
-            <Search size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+         <div className="w-full md:w-80 relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
             <input 
               type="text" 
-              placeholder="Search by name, company, email..." 
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent"
+              placeholder={searchTerm ? `Global filter active: "${searchTerm}"` : "Search contacts by name, company..."}
+              value={localSearch}
+              onChange={(e) => setLocalSearch(e.target.value)}
+              className={`w-full pl-9 pr-4 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-summit-accent outline-none transition-all ${searchTerm ? 'bg-blue-50 border-blue-200 text-blue-800 placeholder-blue-400' : 'bg-white border-slate-300'}`}
             />
+            {searchTerm && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] uppercase font-bold text-blue-400">Global Filter On</span>}
          </div>
          <div className="flex gap-2 w-full md:w-auto overflow-x-auto">
             <select 
@@ -365,7 +390,8 @@ const ContactsPage: React.FC<ContactsPageProps> = ({
                            </div>
                         </td>
                         <td className="p-4 text-right">
-                           <button onClick={(e) => { e.stopPropagation(); handleEditClick(contact); }} className="p-2 text-slate-400 hover:text-summit-900 rounded-full hover:bg-slate-200"><Edit size={16} /></button>
+                           <button onClick={(e) => { e.stopPropagation(); handleEditClick(contact); }} className="p-2 text-slate-300 hover:text-summit-900 rounded-full hover:bg-slate-200"><Edit size={16} /></button>
+                           <button onClick={(e) => { e.stopPropagation(); setDeleteId(contact.id); }} className="p-2 text-slate-300 hover:text-red-500 rounded-full hover:bg-slate-200 ml-1"><Trash2 size={16} /></button>
                         </td>
                      </tr>
                   )) : (
@@ -402,10 +428,10 @@ const ContactsPage: React.FC<ContactsPageProps> = ({
                      </div>
                   </div>
                   <div className="flex gap-2">
-                     <button onClick={() => { handleEditClick(selectedContact); setSelectedContact(null); }} className="p-2 text-slate-500 hover:text-summit-900 hover:bg-white rounded-lg border border-transparent hover:border-slate-200 transition-all">
+                     <button onClick={() => { handleEditClick(selectedContact); }} className="p-2 text-slate-500 hover:text-summit-900 hover:bg-white rounded-lg border border-transparent hover:border-slate-200 transition-all">
                         <Edit size={20} />
                      </button>
-                     <button onClick={() => { if(confirm("Delete contact?")) { onDeleteContact(selectedContact.id); setSelectedContact(null); }}} className="p-2 text-slate-500 hover:text-red-600 hover:bg-white rounded-lg border border-transparent hover:border-red-100 transition-all">
+                     <button onClick={() => setDeleteId(selectedContact.id)} className="p-2 text-slate-500 hover:text-red-600 hover:bg-white rounded-lg border border-transparent hover:border-red-100 transition-all">
                         <Trash2 size={20} />
                      </button>
                      <button onClick={() => setSelectedContact(null)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-white rounded-lg">
@@ -420,10 +446,22 @@ const ContactsPage: React.FC<ContactsPageProps> = ({
                      <div className="space-y-4">
                         <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wide border-b border-slate-100 pb-2">Contact Details</h3>
                         <div className="space-y-3 text-sm">
-                           {selectedContact.email && <div className="flex items-center gap-3 text-slate-600"><Mail size={16} className="text-slate-400"/> {selectedContact.email}</div>}
-                           {selectedContact.phone && <div className="flex items-center gap-3 text-slate-600"><Phone size={16} className="text-slate-400"/> {selectedContact.phone} (Office)</div>}
-                           {selectedContact.mobile && <div className="flex items-center gap-3 text-slate-600"><Phone size={16} className="text-slate-400"/> {selectedContact.mobile} (Mobile)</div>}
+                           {selectedContact.email && <div className="flex items-center gap-3 text-slate-600"><Mail size={16} className="text-slate-400"/> <a href={`mailto:${selectedContact.email}`} className="hover:text-summit-accent">{selectedContact.email}</a></div>}
+                           {selectedContact.phone && <div className="flex items-center gap-3 text-slate-600"><Phone size={16} className="text-slate-400"/> <a href={`tel:${selectedContact.phone}`} className="hover:text-summit-accent">{selectedContact.phone} (Office)</a></div>}
+                           {selectedContact.mobile && <div className="flex items-center gap-3 text-slate-600"><Phone size={16} className="text-slate-400"/> <a href={`tel:${selectedContact.mobile}`} className="hover:text-summit-accent">{selectedContact.mobile} (Mobile)</a></div>}
+                           {selectedContact.linkedin && <div className="flex items-center gap-3 text-slate-600"><Linkedin size={16} className="text-slate-400"/> <a href={selectedContact.linkedin} target="_blank" rel="noreferrer" className="hover:text-summit-accent">LinkedIn Profile</a></div>}
+                           {selectedContact.website && <div className="flex items-center gap-3 text-slate-600"><Globe size={16} className="text-slate-400"/> <a href={selectedContact.website} target="_blank" rel="noreferrer" className="hover:text-summit-accent">Website</a></div>}
                         </div>
+                        
+                        {selectedContact.address && (selectedContact.address.street || selectedContact.address.city) && (
+                           <div className="pt-2">
+                              <h4 className="font-bold text-xs text-slate-500 uppercase mb-1">Mailing Address</h4>
+                              <p className="text-sm text-slate-600">
+                                {selectedContact.address.street}<br/>
+                                {selectedContact.address.city}, {selectedContact.address.state} {selectedContact.address.zip}
+                              </p>
+                           </div>
+                        )}
                      </div>
                      <div className="space-y-6">
                         <div>
@@ -450,40 +488,142 @@ const ContactsPage: React.FC<ContactsPageProps> = ({
       {/* --- ADD/EDIT MODAL --- */}
       {isEditModalOpen && editingContact && (
          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white w-full max-w-3xl rounded-xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
+            <div className="bg-white w-full max-w-4xl rounded-xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
                <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
                   <h2 className="font-bold text-lg text-slate-800">{editingContact.id ? 'Edit Contact' : 'New Contact'}</h2>
                   <button onClick={() => setIsEditModalOpen(false)}><X size={20} className="text-slate-400 hover:text-slate-600"/></button>
                </div>
-               <form onSubmit={handleSaveForm} className="p-6 overflow-y-auto flex-1 space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                     <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase">First Name *</label>
-                        <input type="text" className="w-full p-2 border border-slate-300 rounded outline-none focus:border-summit-accent" value={editingContact.firstName} onChange={e => setEditingContact({...editingContact, firstName: e.target.value})} required />
+               <form onSubmit={handleSaveForm} className="p-8 overflow-y-auto flex-1">
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                     
+                     {/* LEFT COLUMN: IDENTITY & WORK */}
+                     <div className="space-y-6">
+                        <div>
+                           <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><Building size={14}/> Professional Identity</h3>
+                           <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                 <label className="text-xs font-bold text-slate-700 block mb-1">First Name *</label>
+                                 <input type="text" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent" value={editingContact.firstName} onChange={e => setEditingContact({...editingContact!, firstName: e.target.value})} required />
+                              </div>
+                              <div>
+                                 <label className="text-xs font-bold text-slate-700 block mb-1">Last Name *</label>
+                                 <input type="text" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent" value={editingContact.lastName} onChange={e => setEditingContact({...editingContact!, lastName: e.target.value})} required />
+                              </div>
+                              <div className="col-span-2">
+                                 <label className="text-xs font-bold text-slate-700 block mb-1">Company</label>
+                                 <input type="text" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent" value={editingContact.company || ''} onChange={e => setEditingContact({...editingContact!, company: e.target.value})} placeholder="Entity Name" />
+                              </div>
+                              <div className="col-span-2">
+                                 <label className="text-xs font-bold text-slate-700 block mb-1">Job Title</label>
+                                 <input type="text" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent" value={editingContact.jobTitle || ''} onChange={e => setEditingContact({...editingContact!, jobTitle: e.target.value})} />
+                              </div>
+                           </div>
+                        </div>
+
+                        <div>
+                           <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><Tag size={14}/> Classification</h3>
+                           <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                 <label className="text-xs font-bold text-slate-700 block mb-1">Relationship Type</label>
+                                 <select 
+                                    className="w-full p-2.5 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent"
+                                    value={editingContact.contactType}
+                                    onChange={e => setEditingContact({...editingContact!, contactType: e.target.value as ContactType})}
+                                 >
+                                    {CONTACT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                                 </select>
+                              </div>
+                              <div>
+                                 <label className="text-xs font-bold text-slate-700 block mb-1">Status</label>
+                                 <select 
+                                    className="w-full p-2.5 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent"
+                                    value={editingContact.status}
+                                    onChange={e => setEditingContact({...editingContact!, status: e.target.value as ContactStatus})}
+                                 >
+                                    {CONTACT_STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                                 </select>
+                              </div>
+                           </div>
+                        </div>
+
+                        <div>
+                           <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><Tag size={14}/> Segmentation Tags</h3>
+                           <div className="space-y-3">
+                              <div className="flex flex-wrap gap-2 min-h-[30px]">
+                                {editingContact.tags && editingContact.tags.length > 0 ? editingContact.tags.map(tag => (
+                                  <span key={tag} className="bg-slate-100 text-slate-700 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 border border-slate-200">
+                                    {tag}
+                                    <button type="button" onClick={() => removeTag(tag)} className="text-slate-400 hover:text-red-500 rounded-full hover:bg-slate-200 p-0.5 transition-colors"><X size={12}/></button>
+                                  </span>
+                                )) : <span className="text-xs text-slate-400 italic py-1">No tags added yet.</span>}
+                              </div>
+                              <input 
+                                type="text" 
+                                className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent text-sm" 
+                                placeholder="Type tag and press Enter..." 
+                                value={tagInput}
+                                onChange={e => setTagInput(e.target.value)}
+                                onKeyDown={handleAddTag}
+                              />
+                              <p className="text-[10px] text-slate-400">Press Enter to add a tag.</p>
+                           </div>
+                        </div>
                      </div>
-                     <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase">Last Name *</label>
-                        <input type="text" className="w-full p-2 border border-slate-300 rounded outline-none focus:border-summit-accent" value={editingContact.lastName} onChange={e => setEditingContact({...editingContact, lastName: e.target.value})} required />
-                     </div>
-                     <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase">Company</label>
-                        <input type="text" className="w-full p-2 border border-slate-300 rounded outline-none focus:border-summit-accent" value={editingContact.company || ''} onChange={e => setEditingContact({...editingContact, company: e.target.value})} />
-                     </div>
-                     <div>
-                        <label className="text-xs font-bold text-slate-500 uppercase">Job Title</label>
-                        <input type="text" className="w-full p-2 border border-slate-300 rounded outline-none focus:border-summit-accent" value={editingContact.jobTitle || ''} onChange={e => setEditingContact({...editingContact, jobTitle: e.target.value})} />
+
+                     {/* RIGHT COLUMN: CONTACT & ADDRESS */}
+                     <div className="space-y-6">
+                        <div>
+                           <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><Phone size={14}/> Contact Details</h3>
+                           <div className="space-y-3">
+                              <div>
+                                 <label className="text-xs font-bold text-slate-700 block mb-1">Email Address</label>
+                                 <input type="email" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent" value={editingContact.email || ''} onChange={e => setEditingContact({...editingContact!, email: e.target.value})} placeholder="name@company.com" />
+                              </div>
+                              <div className="grid grid-cols-2 gap-4">
+                                 <div>
+                                    <label className="text-xs font-bold text-slate-700 block mb-1">Work Phone</label>
+                                    <input type="tel" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent" value={editingContact.phone || ''} onChange={e => setEditingContact({...editingContact!, phone: e.target.value})} />
+                                 </div>
+                                 <div>
+                                    <label className="text-xs font-bold text-slate-700 block mb-1">Mobile Phone</label>
+                                    <input type="tel" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent" value={editingContact.mobile || ''} onChange={e => setEditingContact({...editingContact!, mobile: e.target.value})} />
+                                 </div>
+                              </div>
+                              <div>
+                                 <label className="text-xs font-bold text-slate-700 block mb-1">LinkedIn URL</label>
+                                 <input type="url" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent" value={editingContact.linkedin || ''} onChange={e => setEditingContact({...editingContact!, linkedin: e.target.value})} placeholder="https://linkedin.com/in/..." />
+                              </div>
+                              <div>
+                                 <label className="text-xs font-bold text-slate-700 block mb-1">Website</label>
+                                 <input type="url" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent" value={editingContact.website || ''} onChange={e => setEditingContact({...editingContact!, website: e.target.value})} placeholder="https://..." />
+                              </div>
+                           </div>
+                        </div>
+
+                        <div>
+                           <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><MapPin size={14}/> Mailing Address</h3>
+                           <div className="space-y-3">
+                              <input type="text" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent mb-2" value={editingContact.address?.street || ''} onChange={e => setEditingContact({...editingContact!, address: {...editingContact?.address, street: e.target.value}})} placeholder="Street Address" />
+                              <div className="grid grid-cols-3 gap-3">
+                                 <input type="text" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent" value={editingContact.address?.city || ''} onChange={e => setEditingContact({...editingContact!, address: {...editingContact?.address, city: e.target.value}})} placeholder="City" />
+                                 <input type="text" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent" value={editingContact.address?.state || ''} onChange={e => setEditingContact({...editingContact!, address: {...editingContact?.address, state: e.target.value}})} placeholder="State" />
+                                 <input type="text" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent" value={editingContact.address?.zip || ''} onChange={e => setEditingContact({...editingContact!, address: {...editingContact?.address, zip: e.target.value}})} placeholder="Zip" />
+                              </div>
+                           </div>
+                        </div>
                      </div>
                   </div>
-                  <div className="flex justify-end gap-3 pt-4">
-                     <button type="button" onClick={() => setIsEditModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-100 rounded-lg">Cancel</button>
-                     <button type="submit" className="px-6 py-2 bg-summit-900 text-white rounded-lg hover:bg-summit-800 font-medium">Save Contact</button>
+
+                  <div className="mt-8 pt-6 border-t border-slate-100 flex justify-end gap-3">
+                     <button type="button" onClick={() => setIsEditModalOpen(false)} className="px-5 py-2.5 text-slate-600 hover:bg-slate-100 rounded-lg font-medium">Cancel</button>
+                     <button type="submit" className="px-8 py-2.5 bg-summit-900 text-white rounded-lg hover:bg-summit-800 font-bold shadow-lg">Save Contact Profile</button>
                   </div>
                </form>
             </div>
          </div>
       )}
 
-      {/* --- ENHANCED IMPORT MODAL --- */}
+      {/* --- IMPORT MODAL --- */}
       {isImportModalOpen && (
          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-white w-full max-w-2xl rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -575,7 +715,7 @@ const ContactsPage: React.FC<ContactsPageProps> = ({
          </div>
       )}
 
-      {/* Link Deal Modal */}
+      {/* --- LINK DEAL MODAL --- */}
       {isLinkingDeal && selectedContact && (
          <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
             <div className="bg-white w-full max-w-md rounded-xl shadow-2xl overflow-hidden">
@@ -607,6 +747,16 @@ const ContactsPage: React.FC<ContactsPageProps> = ({
             </div>
          </div>
       )}
+
+      {/* --- CONFIRM DELETE MODAL --- */}
+      <ConfirmModal 
+        isOpen={!!deleteId}
+        onClose={() => setDeleteId(null)}
+        onConfirm={handleDeleteConfirm}
+        title="Delete Contact"
+        message="Are you sure you want to delete this contact? This action will remove all associated interaction history and cannot be undone."
+        confirmText="Delete Contact"
+      />
     </div>
   );
 };

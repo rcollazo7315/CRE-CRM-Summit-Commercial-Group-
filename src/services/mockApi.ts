@@ -1,4 +1,5 @@
-import { UserAccount, Deal, Task, LeadGenLog, DealStatus, PropertyType, MortgageCalculation } from '../types.ts';
+
+import { UserAccount, Deal, Task, LeadGenLog, DealStatus, PropertyType, MortgageCalculation, Contact, ContactInteraction, DocumentFile } from '../types.ts';
 
 // Storage Keys
 const USERS_KEY = 'summit_users';
@@ -6,12 +7,13 @@ const DEALS_KEY = 'summit_deals';
 const TASKS_KEY = 'summit_tasks';
 const LOGS_KEY = 'summit_lead_logs';
 const CALCULATIONS_KEY = 'summit_mortgage_calculations';
+const CONTACTS_KEY = 'summit_contacts';
+const SESSION_KEY = 'summit_session_uid';
 
 // Helper to simulate delay
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 // --- Seed Data ---
-// Raphael's Admin Account
 const SEED_ADMIN: UserAccount = {
   id: 'admin-1',
   username: 'raphael',
@@ -36,16 +38,14 @@ const initStorage = () => {
   if (!localStorage.getItem(USERS_KEY)) {
     localStorage.setItem(USERS_KEY, JSON.stringify([SEED_ADMIN]));
   }
-  // Initialize other collections if not present
   if (!localStorage.getItem(DEALS_KEY)) localStorage.setItem(DEALS_KEY, JSON.stringify([]));
   if (!localStorage.getItem(TASKS_KEY)) localStorage.setItem(TASKS_KEY, JSON.stringify([]));
   if (!localStorage.getItem(LOGS_KEY)) localStorage.setItem(LOGS_KEY, JSON.stringify([]));
   if (!localStorage.getItem(CALCULATIONS_KEY)) localStorage.setItem(CALCULATIONS_KEY, JSON.stringify([]));
+  if (!localStorage.getItem(CONTACTS_KEY)) localStorage.setItem(CONTACTS_KEY, JSON.stringify([]));
 };
 
 initStorage();
-
-// --- API Service ---
 
 export const mockApi = {
   // Auth & User Management
@@ -53,7 +53,6 @@ export const mockApi = {
     await delay(800);
     const users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
     
-    // Check duplication
     if (users.find((u: UserAccount) => u.email.toLowerCase() === userData.email.toLowerCase())) {
       throw new Error('Email already registered');
     }
@@ -61,8 +60,8 @@ export const mockApi = {
     const newUser: UserAccount = {
       id: Math.random().toString(36).substr(2, 9),
       ...userData,
-      role: 'agent', // Default role for registration
-      status: 'pending', // Pending approval required
+      role: 'agent',
+      status: 'active', // Auto-approve in mock mode for ease of use
       avatar: `https://ui-avatars.com/api/?name=${userData.firstName}+${userData.lastName}&background=random`,
       company: 'Summit Commercial Group',
       notifications: {
@@ -76,6 +75,7 @@ export const mockApi = {
 
     users.push(newUser);
     localStorage.setItem(USERS_KEY, JSON.stringify(users));
+    localStorage.setItem(SESSION_KEY, newUser.id);
     return newUser;
   },
 
@@ -84,22 +84,55 @@ export const mockApi = {
     const users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
     const user = users.find((u: UserAccount) => u.email.toLowerCase() === email.toLowerCase() && u.passwordHash === password);
     
-    if (!user) throw new Error('Invalid credentials');
+    if (!user) throw new Error('Invalid credentials. (Try raphael@sumcg.com / sumcg123!!)');
     
-    // Update last login
     user.lastLogin = new Date().toISOString();
-    // Persist last login update
     const updatedUsers = users.map((u: UserAccount) => u.id === user.id ? user : u);
     localStorage.setItem(USERS_KEY, JSON.stringify(updatedUsers));
+    localStorage.setItem(SESSION_KEY, user.id);
 
-    if (user.status === 'pending') throw new Error('Account pending admin approval.');
     if (user.status === 'denied') throw new Error('Account request denied.');
 
     return user;
   },
 
+  logout: async () => { 
+    localStorage.removeItem(SESSION_KEY);
+  },
+
+  getCurrentUser: async (uid: string) => {
+    const users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
+    return users.find((u: UserAccount) => u.id === uid) || null;
+  },
+
+  getSession: async () => {
+    const uid = localStorage.getItem(SESSION_KEY);
+    if(uid) return mockApi.getCurrentUser(uid);
+    return null;
+  },
+
+  updateUserProfile: async (userId: string, updates: Partial<UserAccount>) => {
+    const users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
+    const idx = users.findIndex((u: UserAccount) => u.id === userId);
+    if (idx !== -1) {
+      users[idx] = { ...users[idx], ...updates };
+      localStorage.setItem(USERS_KEY, JSON.stringify(users));
+      return users[idx];
+    }
+    throw new Error('User not found');
+  },
+
+  updateUserPassword: async (newPassword: string) => {
+    const uid = localStorage.getItem(SESSION_KEY);
+    const users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
+    const idx = users.findIndex((u: UserAccount) => u.id === uid);
+    if (idx !== -1) {
+        users[idx].passwordHash = newPassword;
+        localStorage.setItem(USERS_KEY, JSON.stringify(users));
+    }
+  },
+
   getUsers: async () => {
-    // Admin only function typically
     return JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
   },
 
@@ -116,15 +149,10 @@ export const mockApi = {
     }
   },
 
-  updateUserProfile: async (userId: string, updates: Partial<UserAccount>) => {
-    const users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
-    const idx = users.findIndex((u: UserAccount) => u.id === userId);
-    if (idx !== -1) {
-      users[idx] = { ...users[idx], ...updates };
-      localStorage.setItem(USERS_KEY, JSON.stringify(users));
-      return users[idx];
-    }
-    throw new Error('User not found');
+  deleteUser: async (userId: string) => {
+    let users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
+    users = users.filter((u: UserAccount) => u.id !== userId);
+    localStorage.setItem(USERS_KEY, JSON.stringify(users));
   },
 
   // Deals
@@ -137,14 +165,14 @@ export const mockApi = {
   saveDeal: async (deal: Deal) => {
     const deals = JSON.parse(localStorage.getItem(DEALS_KEY) || '[]');
     const idx = deals.findIndex((d: Deal) => d.id === deal.id);
+    const dealWithMeta = { ...deal, lastUpdated: new Date().toISOString(), createdAt: deal.createdAt || new Date().toISOString() };
+    
     if (idx >= 0) {
-      deals[idx] = deal;
+      deals[idx] = dealWithMeta;
     } else {
-      deals.unshift(deal);
+      deals.unshift(dealWithMeta);
     }
     localStorage.setItem(DEALS_KEY, JSON.stringify(deals));
-    
-    // Update User Stats
     await mockApi.recalcUserStats(deal.userId);
   },
 
@@ -177,7 +205,105 @@ export const mockApi = {
     let tasks = JSON.parse(localStorage.getItem(TASKS_KEY) || '[]');
     tasks = tasks.filter((t: Task) => t.id !== taskId);
     localStorage.setItem(TASKS_KEY, JSON.stringify(tasks));
-    await mockApi.recalcUserStats(userId);
+    // Assuming tasks have userId, if not, we can't recalc easily
+  },
+
+  // Contacts
+  getContacts: async (userId: string, isAdmin = false) => {
+    const contacts = JSON.parse(localStorage.getItem(CONTACTS_KEY) || '[]');
+    if (isAdmin) return contacts;
+    return contacts.filter((c: Contact) => c.userId === userId);
+  },
+
+  saveContact: async (contact: Contact) => {
+    const contacts = JSON.parse(localStorage.getItem(CONTACTS_KEY) || '[]');
+    const idx = contacts.findIndex((c: Contact) => c.id === contact.id);
+    if (idx >= 0) contacts[idx] = contact;
+    else contacts.push(contact);
+    localStorage.setItem(CONTACTS_KEY, JSON.stringify(contacts));
+  },
+
+  deleteContact: async (contactId: string) => {
+    let contacts = JSON.parse(localStorage.getItem(CONTACTS_KEY) || '[]');
+    contacts = contacts.filter((c: Contact) => c.id !== contactId);
+    localStorage.setItem(CONTACTS_KEY, JSON.stringify(contacts));
+  },
+
+  addContactInteraction: async (contactId: string, interaction: ContactInteraction) => {
+    const contacts = JSON.parse(localStorage.getItem(CONTACTS_KEY) || '[]');
+    const idx = contacts.findIndex((c: Contact) => c.id === contactId);
+    if (idx >= 0) {
+      if(!contacts[idx].interactions) contacts[idx].interactions = [];
+      contacts[idx].interactions.push(interaction);
+      contacts[idx].lastContactedAt = new Date().toISOString();
+      localStorage.setItem(CONTACTS_KEY, JSON.stringify(contacts));
+    }
+  },
+
+  linkContactToDeal: async (contactId: string, dealId: string) => {
+    const contacts = JSON.parse(localStorage.getItem(CONTACTS_KEY) || '[]');
+    const idx = contacts.findIndex((c: Contact) => c.id === contactId);
+    if (idx >= 0) {
+      if(!contacts[idx].linkedDealIds) contacts[idx].linkedDealIds = [];
+      if(!contacts[idx].linkedDealIds.includes(dealId)) {
+        contacts[idx].linkedDealIds.push(dealId);
+        localStorage.setItem(CONTACTS_KEY, JSON.stringify(contacts));
+      }
+    }
+  },
+
+  unlinkContactFromDeal: async (contactId: string, dealId: string) => {
+    const contacts = JSON.parse(localStorage.getItem(CONTACTS_KEY) || '[]');
+    const idx = contacts.findIndex((c: Contact) => c.id === contactId);
+    if (idx >= 0 && contacts[idx].linkedDealIds) {
+      contacts[idx].linkedDealIds = contacts[idx].linkedDealIds.filter((id: string) => id !== dealId);
+      localStorage.setItem(CONTACTS_KEY, JSON.stringify(contacts));
+    }
+  },
+
+  // Documents (Mock)
+  saveDocument: async (dealId: string, document: DocumentFile, fileData?: Blob | File) => {
+    await delay(500);
+    const deals = JSON.parse(localStorage.getItem(DEALS_KEY) || '[]');
+    const idx = deals.findIndex((d: Deal) => d.id === dealId);
+    if (idx >= 0) {
+      if(!deals[idx].documents) deals[idx].documents = [];
+      const docWithUrl = {
+        ...document,
+        url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf' // Fake URL
+      };
+      deals[idx].documents.push(docWithUrl);
+      localStorage.setItem(DEALS_KEY, JSON.stringify(deals));
+    }
+  },
+
+  deleteDocument: async (dealId: string, documentId: string) => {
+    const deals = JSON.parse(localStorage.getItem(DEALS_KEY) || '[]');
+    const idx = deals.findIndex((d: Deal) => d.id === dealId);
+    if (idx >= 0 && deals[idx].documents) {
+      deals[idx].documents = deals[idx].documents.filter((d: DocumentFile) => d.id !== documentId);
+      localStorage.setItem(DEALS_KEY, JSON.stringify(deals));
+    }
+  },
+
+  // Lead Gen Logs
+  getLeadLogs: async (userId: string) => {
+    const logs = JSON.parse(localStorage.getItem(LOGS_KEY) || '[]');
+    return logs.filter((l: LeadGenLog) => l.userId === userId);
+  },
+
+  saveLeadLog: async (log: LeadGenLog) => {
+    const logs = JSON.parse(localStorage.getItem(LOGS_KEY) || '[]');
+    const idx = logs.findIndex((l: LeadGenLog) => l.id === log.id);
+    if (idx >= 0) logs[idx] = log;
+    else logs.push(log);
+    localStorage.setItem(LOGS_KEY, JSON.stringify(logs));
+  },
+
+  deleteLeadLog: async (logId: string) => {
+    let logs = JSON.parse(localStorage.getItem(LOGS_KEY) || '[]');
+    logs = logs.filter((l: LeadGenLog) => l.id !== logId);
+    localStorage.setItem(LOGS_KEY, JSON.stringify(logs));
   },
 
   // Mortgage Calculator
@@ -192,23 +318,42 @@ export const mockApi = {
   getCalculations: async (userId: string) => {
     await delay(300);
     const calcs = JSON.parse(localStorage.getItem(CALCULATIONS_KEY) || '[]');
-    // Filter for this user
     return calcs.filter((c: MortgageCalculation) => c.userId === userId).sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   },
 
-  // Internal Logic
+  adminHardReset: async () => {
+    localStorage.removeItem(DEALS_KEY);
+    localStorage.removeItem(TASKS_KEY);
+    localStorage.removeItem(LOGS_KEY);
+    localStorage.removeItem(CALCULATIONS_KEY);
+    localStorage.removeItem(CONTACTS_KEY);
+    initStorage();
+  },
+
   recalcUserStats: async (userId: string) => {
     const deals = await mockApi.getDeals(userId);
     const tasks = await mockApi.getTasks(userId);
     
+    // Calculate deals by source
+    const closedDeals = deals.filter(d => d.status === DealStatus.COMPLETED);
+    const dealsBySource: Record<string, number> = {};
+    const revenueBySource: Record<string, number> = {};
+    
+    closedDeals.forEach(deal => {
+      const source = deal.leadSource || 'other';
+      dealsBySource[source] = (dealsBySource[source] || 0) + 1;
+      revenueBySource[source] = (revenueBySource[source] || 0) + (deal.closingPrice || deal.askingPrice);
+    });
+
     const stats = {
       totalDeals: deals.length,
-      // Simple logic: 3% comm on closed deals
-      totalCommissions: deals.filter((d: Deal) => d.status === DealStatus.COMPLETED).reduce((acc: number, d: Deal) => acc + (d.askingPrice * 0.03), 0),
-      activeDeals: deals.filter((d: Deal) => d.status !== DealStatus.COMPLETED && d.status !== DealStatus.ARCHIVED).length,
-      closedDeals: deals.filter((d: Deal) => d.status === DealStatus.COMPLETED).length,
-      pendingTasks: tasks.filter((t: Task) => t.status === 'pending').length,
-      totalVolume: deals.filter((d: Deal) => d.status === DealStatus.COMPLETED).reduce((acc: number, d: Deal) => acc + d.askingPrice, 0),
+      totalCommissions: closedDeals.reduce((acc, d) => acc + (d.commission || (d.askingPrice * 0.03)), 0),
+      activeDeals: deals.filter(d => d.status !== 'Completed' && d.status !== 'Archived').length,
+      closedDeals: closedDeals.length,
+      pendingTasks: tasks.filter(t => t.status === 'pending').length,
+      totalVolume: closedDeals.reduce((acc, d) => acc + d.askingPrice, 0),
+      dealsBySource,
+      revenueBySource
     };
 
     const users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');

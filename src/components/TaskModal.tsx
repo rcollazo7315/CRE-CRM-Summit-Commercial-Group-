@@ -1,5 +1,6 @@
+
 import React, { useState } from 'react';
-import { X, Calendar, Clock, AlertCircle } from 'lucide-react';
+import { X, Calendar, Clock, AlertCircle, Bell } from 'lucide-react';
 import { Task, TaskType, TaskPriority } from '../types.ts';
 
 interface TaskModalProps {
@@ -34,7 +35,7 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialD
 
   return (
     <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg animate-in fade-in zoom-in duration-200">
         <div className="flex justify-between items-center p-5 border-b border-slate-100">
           <h3 className="font-bold text-lg text-slate-800">{initialData?.id ? 'Edit Task' : 'New Task'}</h3>
           <button onClick={onClose}><X size={20} className="text-slate-400 hover:text-slate-600" /></button>
@@ -109,6 +110,24 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialD
           </div>
 
           <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Set Reminder</label>
+            <div className="relative">
+              <Bell size={16} className="absolute left-3 top-3 text-slate-400" />
+              <select 
+                value={formData.reminderTime || 0}
+                onChange={e => setFormData({...formData, reminderTime: Number(e.target.value)})}
+                className="w-full pl-10 p-2 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent"
+              >
+                <option value="0">No reminder</option>
+                <option value="15">15 minutes before</option>
+                <option value="30">30 minutes before</option>
+                <option value="60">1 hour before</option>
+                <option value="1440">1 day before</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
              <label className="block text-sm font-medium text-slate-700 mb-1">Notes</label>
              <textarea 
                rows={3}
@@ -119,9 +138,9 @@ const TaskModal: React.FC<TaskModalProps> = ({ isOpen, onClose, onSave, initialD
              />
           </div>
 
-          <div className="flex justify-end gap-3 pt-4">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-slate-600 hover:bg-slate-50 rounded-lg font-medium">Cancel</button>
-            <button type="submit" className="px-4 py-2 bg-summit-900 text-white rounded-lg font-medium hover:bg-summit-800">Save Task</button>
+          <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+            <button type="button" onClick={onClose} className="px-4 py-2 text-slate-600 hover:bg-slate-50 rounded-lg font-medium transition-colors">Cancel</button>
+            <button type="submit" className="px-6 py-2 bg-summit-900 text-white rounded-lg font-bold hover:bg-summit-800 shadow-lg shadow-summit-900/10 transition-all">Save Task</button>
           </div>
         </form>
       </div>

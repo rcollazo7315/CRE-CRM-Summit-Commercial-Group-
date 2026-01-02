@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { Plus, ArrowUpRight, DollarSign, Clock, ChevronDown, MessageSquare, Briefcase, FileText, CheckCircle, Trash2, MapPin, Undo2, Loader2, Building2, LayoutGrid, Columns } from 'lucide-react';
-import { Deal, DealStatus, Task } from '../types.ts';
+
+import React, { useState, useEffect, useMemo } from 'react';
+import { Plus, ArrowUpRight, DollarSign, Clock, ChevronDown, MessageSquare, Briefcase, FileText, CheckCircle, Trash2, MapPin, Undo2, Loader2, Building2, LayoutGrid, Columns, Building } from 'lucide-react';
+import { Deal, DealStatus, Task, REPRESENTATION_LABELS } from '../types.ts';
 import { api } from '../services/firestore.ts';
 import TaskModal from '../components/TaskModal.tsx';
 import { useAuth } from '../context/AuthContext.tsx';
@@ -14,9 +15,10 @@ interface DashboardPageProps {
   onRouteChange: (route: string) => void;
   onOpenAi: () => void;
   onSaveDeal: (deal: Deal) => void;
+  searchTerm?: string;
 }
 
-const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDeal, onDealClick, onDeleteDeal, onRouteChange, onOpenAi, onSaveDeal }) => {
+const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDeal, onDealClick, onDeleteDeal, onRouteChange, onOpenAi, onSaveDeal, searchTerm = '' }) => {
   const { currentUser } = useAuth();
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'grid' | 'pipeline'>('grid');
@@ -81,21 +83,36 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
   // -- Computed Stats --
   const activeDealsCount = deals.filter(d => d.status !== DealStatus.COMPLETED && d.status !== DealStatus.ARCHIVED).length;
   const pipelineValue = deals.reduce((acc, curr) => acc + (curr.status !== DealStatus.ARCHIVED && curr.status !== DealStatus.COMPLETED ? curr.askingPrice : 0), 0);
-  const totalOffers = deals.reduce((acc, curr) => acc + curr.offersReceived, 0);
   
-  // Filtering Logic based on Tabs
-  let displayedDeals = deals;
-  
-  if (activeTab === 'closed-deals') {
-    displayedDeals = deals.filter(d => d.status === DealStatus.COMPLETED);
-  } else if (activeTab === 'deals' || activeTab === 'dashboard') {
-    displayedDeals = deals.filter(d => d.status !== DealStatus.COMPLETED && d.status !== DealStatus.ARCHIVED);
-  }
+  // Filtering Logic
+  const displayedDeals = useMemo(() => {
+    let filtered = deals;
 
-  // Then apply local filter if set (only relevant for grid view mostly)
-  if (filterStatus !== 'all' && viewMode === 'grid') {
-    displayedDeals = displayedDeals.filter(d => d.status === filterStatus);
-  }
+    // 1. Tab Filter
+    if (activeTab === 'closed-deals') {
+      filtered = filtered.filter(d => d.status === DealStatus.COMPLETED);
+    } else {
+      // dashboard or deals
+      filtered = filtered.filter(d => d.status !== DealStatus.COMPLETED && d.status !== DealStatus.ARCHIVED);
+    }
+
+    // 2. Search Filter (Prop)
+    if (searchTerm.trim()) {
+      const lowerSearch = searchTerm.toLowerCase();
+      filtered = filtered.filter(d => 
+        d.propertyAddress.toLowerCase().includes(lowerSearch) || 
+        d.owner.name.toLowerCase().includes(lowerSearch) ||
+        d.propertyType.toLowerCase().includes(lowerSearch)
+      );
+    }
+
+    // 3. Local Status Filter (Grid View Only mostly, but applies to list)
+    if (filterStatus !== 'all' && viewMode === 'grid') {
+      filtered = filtered.filter(d => d.status === filterStatus);
+    }
+
+    return filtered;
+  }, [deals, activeTab, searchTerm, filterStatus, viewMode]);
 
   // -- Task Filtering --
   const pendingTasks = tasks.filter(t => t.status !== 'completed').sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
@@ -148,7 +165,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
         </div>
       </div>
 
-      {activeTab === 'dashboard' && (
+      {activeTab === 'dashboard' && !searchTerm && (
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 flex-shrink-0">
           <div className="bg-gradient-to-br from-white to-slate-50 p-6 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between group hover:border-blue-200 transition-colors">
              <div>
@@ -186,7 +203,9 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
       {/* VIEW CONTENT */}
       {viewMode === 'grid' || activeTab === 'closed-deals' ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-4">
-          {displayedDeals.length > 0 ? displayedDeals.map(deal => (
+          {displayedDeals.length > 0 ? displayedDeals.map(deal => {
+            const isDemandSide = deal.representation === 'buyer' || deal.representation === 'tenant';
+            return (
             <div key={deal.id} onClick={() => onDealClick(deal.id)} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-lg hover:border-summit-accent/30 transition-all cursor-pointer group flex flex-col h-full">
               <div className="h-48 overflow-hidden relative">
                 <img src={deal.imageUrl} alt={deal.propertyAddress} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
@@ -204,11 +223,23 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
                    </div>
                    <div className="text-xs text-slate-400">{new Date(deal.lastUpdated).toLocaleDateString()}</div>
                 </div>
-                <h3 className="font-bold text-lg text-slate-900 mb-1 leading-tight group-hover:text-summit-accent transition-colors">{deal.propertyAddress}</h3>
+                <h3 className="font-bold text-lg text-slate-900 mb-1 leading-tight group-hover:text-summit-accent transition-colors truncate" title={deal.propertyAddress}>{deal.propertyAddress}</h3>
+                
+                {/* Representation Badge */}
+                <div className="mb-3">
+                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${isDemandSide ? 'bg-blue-50 text-blue-700' : 'bg-green-50 text-green-700'}`}>
+                        {isDemandSide ? <Briefcase size={10} /> : <Building size={10} />}
+                        {REPRESENTATION_LABELS[deal.representation || 'seller']}
+                    </span>
+                </div>
+
                 <p className="text-slate-500 text-sm mb-4 line-clamp-2">{deal.description || 'No description provided.'}</p>
                 
                 <div className="mt-auto pt-4 border-t border-slate-100 flex items-center justify-between">
-                   <div className="font-bold text-slate-900 text-lg">${deal.askingPrice.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}</div>
+                   <div className="flex flex-col">
+                       <span className="text-[10px] text-slate-400 uppercase font-bold">{isDemandSide ? 'Target Budget' : 'Asking Price'}</span>
+                       <span className="font-bold text-slate-900 text-lg">${deal.askingPrice.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}</span>
+                   </div>
                    <div className="flex gap-2">
                       {deal.status === 'Archived' ? (
                          <button onClick={(e) => handleReopenDeal(deal, e)} className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-full transition-colors" title="Reopen Deal">
@@ -227,13 +258,13 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
                 </div>
               </div>
             </div>
-          )) : (
+          );}) : (
             <div className="col-span-full py-20 text-center border-2 border-dashed border-slate-200 rounded-xl">
               <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-300">
                 <Building2 size={40} />
               </div>
               <h3 className="text-lg font-bold text-slate-700">No deals found</h3>
-              <p className="text-slate-500">Get started by creating a new deal or adjusting filters.</p>
+              <p className="text-slate-500">Try adjusting your search or create a new deal.</p>
             </div>
           )}
         </div>
@@ -241,7 +272,8 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
         /* KANBAN PIPELINE VIEW */
         <div className="flex overflow-x-auto pb-6 gap-6 h-full items-start">
           {pipelineStatuses.map(status => {
-            const statusDeals = deals.filter(d => d.status === status);
+            // If in pipeline view, displayedDeals is already filtered by search term
+            const statusDeals = displayedDeals.filter(d => d.status === status);
             return (
               <div key={status} className="min-w-[320px] w-80 flex-shrink-0 flex flex-col h-full max-h-[calc(100vh-220px)] bg-slate-100/50 rounded-xl border border-slate-200/60">
                 <div className="p-4 flex items-center justify-between sticky top-0 bg-slate-100/50 backdrop-blur-sm rounded-t-xl z-10 border-b border-slate-200/50">
@@ -257,7 +289,9 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
                 </div>
                 
                 <div className="p-3 space-y-3 overflow-y-auto flex-1">
-                  {statusDeals.length > 0 ? statusDeals.map(deal => (
+                  {statusDeals.length > 0 ? statusDeals.map(deal => {
+                    const isDemandSide = deal.representation === 'buyer' || deal.representation === 'tenant';
+                    return (
                     <div 
                       key={deal.id} 
                       onClick={() => onDealClick(deal.id)}
@@ -277,7 +311,11 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
                           <h4 className="font-bold text-sm text-slate-800 leading-tight truncate group-hover:text-summit-accent transition-colors" title={deal.propertyAddress}>
                             {deal.propertyAddress}
                           </h4>
-                          <p className="text-xs text-slate-500 truncate mt-0.5">{deal.owner.name}</p>
+                          <div className="flex gap-1 mt-1">
+                             <span className={`text-[9px] px-1.5 py-0.5 rounded uppercase font-bold ${isDemandSide ? 'bg-blue-50 text-blue-600' : 'bg-green-50 text-green-600'}`}>
+                                {REPRESENTATION_LABELS[deal.representation || 'seller'].split(' ')[0]}
+                             </span>
+                          </div>
                         </div>
                       </div>
                       <div className="flex items-center justify-between pt-2 border-t border-slate-50 mt-2">
@@ -285,7 +323,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
                         <span className="text-[10px] text-slate-400">{new Date(deal.lastUpdated).toLocaleDateString()}</span>
                       </div>
                     </div>
-                  )) : (
+                  );}) : (
                     <div className="h-24 border-2 border-dashed border-slate-200 rounded-lg flex items-center justify-center text-slate-400 text-sm italic">
                       Empty
                     </div>

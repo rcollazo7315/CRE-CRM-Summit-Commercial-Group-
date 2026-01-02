@@ -2,6 +2,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { auth, isFirebaseInitialized } from '../firebase/config.ts';
 import { api } from '../services/firestore.ts';
+import { mockApi } from '../services/mockApi.ts';
 import { UserAccount } from '../types.ts';
 import { onAuthStateChanged } from 'firebase/auth';
 
@@ -26,6 +27,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   const refreshUser = async () => {
+    // Check if we are using Firebase or Mock
     if (auth?.currentUser) {
       try {
         const userData = await api.getCurrentUser(auth.currentUser.uid);
@@ -33,29 +35,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch (error) {
         console.error("Auth Refresh Failed:", error);
       }
+    } else {
+        // Try mock session refresh
+        const mockUser = await mockApi.getSession();
+        if(mockUser) setCurrentUser(mockUser);
     }
   };
 
   useEffect(() => {
-    console.log("[AuthProvider] Starting initialization...");
-    
-    // If Firebase is not ready, we can't authenticate. 
-    // We stop loading so App can decide to show SetupPage.
+    // If Firebase is unavailable, try to load from Mock API immediately
     if (!isFirebaseInitialized() || !auth) {
-      console.warn("[AuthProvider] Firebase not initialized - waiting for configuration.");
-      setLoading(false);
+      console.warn("Database connection offline. Switching to Mock Mode.");
+      mockApi.getSession().then(user => {
+          if (user) {
+              console.log("Restored Mock Session for:", user.email);
+              setCurrentUser(user);
+          }
+          setLoading(false);
+      });
       return;
     }
 
-    console.log("[AuthProvider] Setting up onAuthStateChanged listener");
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      console.log("[AuthProvider] Auth state changed. User:", firebaseUser?.uid);
       if (firebaseUser) {
         try {
           const userData = await api.getCurrentUser(firebaseUser.uid);
           setCurrentUser(userData);
         } catch (err) {
-          console.error("[AuthProvider] Profile Load Failed:", err);
+          console.error("Profile Load Failed:", err);
           setCurrentUser(null);
         }
       } else {
@@ -63,24 +70,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       setLoading(false);
     }, (error) => {
-      console.error("[AuthProvider] Auth State Listener Error:", error);
+      console.error("Auth State Listener Error:", error);
       setLoading(false);
     });
 
-    // Fallback safety timer in case onAuthStateChanged hangs (e.g. network issues)
-    const safetyTimer = setTimeout(() => {
-      setLoading((prev) => {
+    const timer = setTimeout(() => {
+      setLoading(prev => {
         if (prev) {
-          console.warn("[AuthProvider] Auth initialization timed out - forcing load completion.");
+          console.warn("Auth check timed out, proceeding.");
           return false;
         }
         return prev;
       });
-    }, 3000);
+    }, 5000);
 
     return () => {
       unsubscribe();
-      clearTimeout(safetyTimer);
+      clearTimeout(timer);
     };
   }, []);
 
@@ -91,11 +97,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isAdmin: currentUser?.role === 'admin',
   };
 
-  // Logic Change: Always render children. The consumer (App.tsx) decides what to display based on `loading`.
-  // This prevents the "infinite spinner" if a child component crashes or if loading logic gets stuck.
   return (
     <AuthContext.Provider value={value}>
-      {children}
+      {!loading && children}
+      {loading && (
+        <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#0f172a', color: 'white', fontFamily: 'Inter, sans-serif' }}>
+          <div style={{ width: '40px', height: '40px', border: '3px solid rgba(255,255,255,0.1)', borderTopColor: '#10b981', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
+          <style dangerouslySetInnerHTML={{ __html: '@keyframes spin{to{transform:rotate(360deg)}}' }} />
+          <p style={{ marginTop: '16px', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8' }}>Verifying Credentials...</p>
+        </div>
+      )}
     </AuthContext.Provider>
   );
 };

@@ -33,6 +33,10 @@ export interface UserAccount {
     closedDeals: number;
     pendingTasks: number;
     totalVolume: number;
+    conversionRate?: number;
+    avgDaysToClose?: number;
+    dealsBySource?: Record<string, number>;
+    revenueBySource?: Record<string, number>;
   };
   gmailIntegration?: { connected: boolean; connectedAt?: string };
 }
@@ -49,6 +53,7 @@ export enum DealStatus {
 
 export type DealStage = 'prospecting' | 'initial_contact' | 'qualification' | 'proposal' | 'negotiation' | 'due_diligence' | 'closing' | 'closed_won' | 'closed_lost';
 export type DealType = 'acquisition' | 'disposition' | 'lease' | 'development' | 'refinance' | 'other';
+export type RepresentationType = 'seller' | 'buyer' | 'landlord' | 'tenant';
 
 export enum PropertyType {
   OFFICE = 'Office',
@@ -62,9 +67,46 @@ export enum PropertyType {
   OTHER = 'Other'
 }
 
+export type LeadSource = 
+  | 'cold_call'
+  | 'email_campaign'
+  | 'social_media'
+  | 'direct_mail'
+  | 'client_meeting'
+  | 'networking_event'
+  | 'referral'
+  | 'property_tour'
+  | 'bov_submission'
+  | 'inbound_inquiry'
+  | 'existing_relationship'
+  | 'other';
+
+export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = {
+  cold_call: 'Cold Call',
+  email_campaign: 'Email Campaign',
+  social_media: 'Social Media',
+  direct_mail: 'Direct Mail',
+  client_meeting: 'Client Meeting',
+  networking_event: 'Networking Event',
+  referral: 'Referral',
+  property_tour: 'Property Tour',
+  bov_submission: 'BOV Submission',
+  inbound_inquiry: 'Inbound Inquiry',
+  existing_relationship: 'Existing Relationship',
+  other: 'Other'
+};
+
+export const REPRESENTATION_LABELS: Record<RepresentationType, string> = {
+  seller: 'Seller Rep (Disposition)',
+  buyer: 'Buyer Rep (Acquisition)',
+  landlord: 'Landlord Rep (Leasing)',
+  tenant: 'Tenant Rep (Leasing)'
+};
+
 export interface Deal {
   id: string;
   userId: string;
+  representation: RepresentationType;
   propertyAddress: string;
   city?: string;
   state?: string;
@@ -73,16 +115,37 @@ export interface Deal {
   dealType: DealType;
   stage: DealStage;
   status: DealStatus | string;
-  askingPrice: number;
+  
+  // Initial / Target Numbers
+  askingPrice: number; // Target Budget (Buyer) or Asking Price (Seller)
+  minSqFt?: number;
+  maxSqFt?: number;
+  
+  // Final / Executed Numbers
+  closingPrice?: number; // Final Sale Price
+  closingDate?: string;
+  finalLeaseRate?: number; // Final $/sf/yr
+  finalLeaseTerm?: number; // Final Term in Years/Months
+  finalLeaseType?: string; // NNN, Gross, etc.
+  leaseStartDate?: string;
+  leaseExecutionDate?: string;
+  totalContractValue?: number; // Total value of lease over term
+  actualCommission?: number; // Final commission amount
+
+  // Estimates (Legacy/Planning)
   offerPrice?: number;
-  closingPrice?: number;
   squareFootage?: number;
+  leaseTerm?: number; 
+  leaseType?: string; 
   units?: number;
   capRate?: number;
   noi?: number;
+  
   clientName?: string;
   clientEmail?: string;
   clientPhone?: string;
+  contactId?: string; // Linked Contact ID
+  
   notes?: string;
   description?: string;
   imageUrl?: string;
@@ -91,8 +154,9 @@ export interface Deal {
   updatedAt?: string;
   lastUpdated: string;
   closedAt?: string;
-  closedDate?: string;
+  closedDate?: string; // Duplicate of closingDate, kept for compatibility
   expectedCloseDate?: string;
+  
   documents?: DocumentFile[];
   tasks?: Task[];
   probability?: number;
@@ -102,6 +166,9 @@ export interface Deal {
   offersReceived: number;
   highestOffer: number;
   daysOnMarket: number;
+  leadSource?: LeadSource;
+  leadSourceNotes?: string;
+  leadSourceDate?: string;
 }
 
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
@@ -235,9 +302,17 @@ export interface Contact {
   notes?: string;
   linkedDealIds: string[];
   interactions: ContactInteraction[];
+  tier?: string;
+  submarkets?: string[];
+  propertyInterests?: PropertyType[];
   createdAt?: string;
   updatedAt?: string;
   lastContactedAt?: string;
+  investorCriteria?: {
+    is1031Active: boolean;
+    targetCapRate?: number;
+    capitalAvailable?: number;
+  };
 }
 
 export interface EmailMessage {
