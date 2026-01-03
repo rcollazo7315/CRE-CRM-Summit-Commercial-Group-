@@ -32,62 +32,31 @@ const convertTimestamps = (data: any): any => {
   return data;
 };
 
-const checkDbConnection = () => {
-  if (!db || !auth) throw new Error("Database offline.");
+// Remove undefined fields to prevent Firestore errors
+const cleanPayload = (data: any): any => {
+  if (typeof data !== 'object' || data === null) return data;
+  if (Array.isArray(data)) return data.map(cleanPayload);
+  
+  const cleaned: any = {};
+  Object.keys(data).forEach(key => {
+    const value = data[key];
+    if (value !== undefined) {
+      cleaned[key] = cleanPayload(value);
+    }
+  });
+  return cleaned;
 };
 
-// Helper for delays
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-// Moderate Retry Wrapper
-const retryOperation = async <T>(
-  operation: () => Promise<T>, 
-  maxRetries = 3, 
-  baseDelay = 1000
-): Promise<T> => {
-  let lastError: any;
-  
-  for (let i = 0; i < maxRetries; i++) {
-    try {
-      return await operation();
-    } catch (error: any) {
-      lastError = error;
-      const errorCode = error.code || '';
-      
-      // Fail fast on permission or precondition errors
-      if (errorCode === 'permission-denied' || errorCode === 'failed-precondition') {
-        throw error;
-      }
-
-      // Retry mostly on network/server errors
-      const isRetryable = 
-        errorCode === 'auth/network-request-failed' || 
-        errorCode === 'unavailable' ||
-        errorCode === 'auth/internal-error'; 
-        
-      if (isRetryable) {
-        const waitTime = baseDelay * Math.pow(1.5, i);
-        await delay(waitTime);
-        continue;
-      }
-      
-      throw error;
-    }
-  }
-  throw lastError;
+const checkDbConnection = () => {
+  if (!db || !auth) throw new Error("Database offline.");
 };
 
 export const api = {
   register: async (userData: any) => {
     checkDbConnection();
-    const userCredential = await retryOperation(() => 
-      createUserWithEmailAndPassword(auth!, userData.email, userData.passwordHash)
-    ) as any;
-    
+    const userCredential = await createUserWithEmailAndPassword(auth!, userData.email, userData.passwordHash);
     const uid = userCredential.user.uid;
-    await retryOperation(() => 
-      updateProfile(userCredential.user, { displayName: `${userData.firstName} ${userData.lastName}` })
-    );
+    await updateProfile(userCredential.user, { displayName: `${userData.firstName} ${userData.lastName}` });
 
     const newUser: UserAccount = {
       id: uid,
@@ -109,56 +78,28 @@ export const api = {
       createdAt: new Date().toISOString()
     };
 
-    await retryOperation(() => 
-      setDoc(doc(db!, 'users', uid), { ...newUser, createdAt: serverTimestamp(), updatedAt: serverTimestamp() })
-    );
+    await setDoc(doc(db!, 'users', uid), { ...cleanPayload(newUser), createdAt: serverTimestamp(), updatedAt: serverTimestamp() }, { merge: true });
     return newUser;
   },
 
   login: async (email: string, password: string) => {
     checkDbConnection();
-    await retryOperation(() => signInWithEmailAndPassword(auth!, email, password));
+    const userCredential = await signInWithEmailAndPassword(auth!, email, password);
+    const uid = userCredential.user.uid;
     
-    const uid = auth!.currentUser!.uid;
-    let userData = await api.getCurrentUser(uid);
+    // Attempt to get user doc, if it fails due to permissions, it might mean the user is not in the 'users' collection yet or rules block it.
+    // For login, we really need the user doc.
+    const userDoc = await getDoc(doc(db!, 'users', uid));
+    if (!userDoc.exists()) throw new Error('Profile not found in database.');
     
-    // Self-healing
-    if (!userData) {
-      console.warn(`[Firestore] Profile missing for UID: ${uid}. Healing...`);
-      const user = auth!.currentUser;
-      const nameParts = user?.displayName?.split(' ') || ['User'];
-      const healingProfile: UserAccount = {
-        id: uid,
-        email: email,
-        firstName: nameParts[0] || 'User',
-        lastName: nameParts.slice(1).join(' ') || '',
-        username: email.split('@')[0],
-        passwordHash: 'PROTECTED',
-        role: 'agent',
-        status: 'pending',
-        avatar: `https://ui-avatars.com/api/?name=${nameParts[0]}+${nameParts.slice(1).join(' ')}&background=random`,
-        notifications: { email: { dealUpdates: true, taskReminders: true, newMessages: true, systemAlerts: true }, sms: { dealUpdates: false, taskReminders: true, newMessages: false, systemAlerts: false } },
-        stats: { totalDeals: 0, totalCommissions: 0, activeDeals: 0, closedDeals: 0, pendingTasks: 0, totalVolume: 0 },
-        gmailIntegration: { connected: false },
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
-      
-      try {
-         await setDoc(doc(db!, 'users', uid), { ...healingProfile, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
-         userData = healingProfile;
-      } catch (e) {
-         await signOut(auth!);
-         throw new Error('Profile recovery failed.');
-      }
-    }
-    
+    const userData = convertTimestamps({ id: userDoc.id, ...userDoc.data() }) as UserAccount;
     if (userData.status === 'denied') {
       await signOut(auth!);
       throw new Error('Access denied.');
     }
     
-    updateDoc(doc(db!, 'users', uid), { lastLogin: serverTimestamp() }).catch(() => {});
+    // Safe update for lastLogin
+    await setDoc(doc(db!, 'users', uid), { lastLogin: serverTimestamp() }, { merge: true });
     return userData;
   },
 
@@ -166,177 +107,180 @@ export const api = {
 
   getCurrentUser: async (uid: string) => {
     checkDbConnection();
-    let attempts = 0;
-    while (attempts < 5) {
-      try {
-        const userDoc = await getDoc(doc(db!, 'users', uid));
-        if (userDoc.exists()) {
-          return convertTimestamps({ id: userDoc.id, ...userDoc.data() }) as UserAccount;
-        }
-      } catch (e) { console.warn("Fetch profile failed", e); }
-      await delay(500 * (attempts + 1));
-      attempts++;
-    }
-    return null;
+    const userDoc = await getDoc(doc(db!, 'users', uid));
+    if (!userDoc.exists()) return null;
+    return convertTimestamps({ id: userDoc.id, ...userDoc.data() }) as UserAccount;
   },
 
   updateUserProfile: async (userId: string, updates: Partial<UserAccount>) => {
     checkDbConnection();
     const userRef = doc(db!, 'users', userId);
-    await retryOperation(() => updateDoc(userRef, { ...updates, updatedAt: serverTimestamp() }));
+    // Use setDoc merge to avoid precondition errors
+    await setDoc(userRef, { ...cleanPayload(updates), updatedAt: serverTimestamp() }, { merge: true });
     const updated = await getDoc(userRef);
     return convertTimestamps({ id: updated.id, ...updated.data() }) as UserAccount;
   },
 
   updateUserPassword: async (newPassword: string) => {
     checkDbConnection();
-    if (!auth!.currentUser) throw new Error("Unauthorized");
-    await retryOperation(() => updatePassword(auth!.currentUser!, newPassword));
+    const user = auth!.currentUser;
+    if (!user) throw new Error("Unauthorized");
+    await updatePassword(user, newPassword);
   },
 
   getUsers: async () => {
     checkDbConnection();
     try {
-      const q = query(collection(db!, 'users'), orderBy('createdAt', 'desc'));
-      const snapshot = await retryOperation(() => getDocs(q)) as QuerySnapshot;
-      return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as UserAccount[];
-    } catch (e: any) {
-      console.warn("[Firestore] Failed to list users.", e.code);
-      return [];
+        const q = query(collection(db!, 'users'), orderBy('createdAt', 'desc'));
+        const snapshot = await getDocs(q);
+        return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as UserAccount[];
+    } catch (e) {
+        console.warn("List users failed", e);
+        return [];
     }
   },
 
   updateUserStatus: async (userId: string, status: 'active' | 'denied') => {
     checkDbConnection();
     const ref = doc(db!, 'users', userId);
-    await retryOperation(() => updateDoc(ref, { status, approvedAt: status === 'active' ? serverTimestamp() : null }));
+    await setDoc(ref, { status, approvedAt: status === 'active' ? serverTimestamp() : null }, { merge: true });
   },
 
   deleteUser: async (userId: string) => {
     checkDbConnection();
-    await retryOperation(() => deleteDoc(doc(db!, 'users', userId)));
+    await deleteDoc(doc(db!, 'users', userId));
   },
 
   getDeals: async (userId: string, isAdmin = false) => {
     checkDbConnection();
-    
-    const runQuery = async (asAdmin: boolean) => {
-      const q = asAdmin 
-        ? query(collection(db!, 'deals'), orderBy('lastUpdated', 'desc'))
-        : query(collection(db!, 'deals'), where('userId', '==', userId));
-      
-      const snapshot = await retryOperation(() => getDocs(q)) as QuerySnapshot;
-      return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Deal[];
-    };
-
     try {
-      if (isAdmin) {
-        try {
-          return await runQuery(true);
-        } catch (e) {
-          console.warn("[Firestore] Admin deals query failed, falling back to personal.", e);
-          return await runQuery(false);
+        let q;
+        if (isAdmin) {
+          q = query(collection(db!, 'deals'), orderBy('lastUpdated', 'desc'));
+        } else {
+          q = query(collection(db!, 'deals'), where('userId', '==', userId));
         }
-      }
-      return await runQuery(false);
-    } catch (error: any) {
-      console.warn("[Firestore] getDeals failed gracefully:", error.code);
-      return [];
+        const snapshot = await getDocs(q);
+        return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Deal[];
+    } catch (e) {
+        console.warn("Get deals failed", e);
+        return [];
     }
   },
 
   saveDeal: async (deal: Deal) => {
     checkDbConnection();
-    const dealData = { ...deal, lastUpdated: serverTimestamp() };
-    await retryOperation(async () => {
-        if (deal.id && deal.id.length >= 9) { 
-          const ref = doc(db!, 'deals', deal.id);
-          const snap = await getDoc(ref);
-          if (snap.exists()) await updateDoc(ref, dealData);
-          else await setDoc(ref, { ...dealData, createdAt: serverTimestamp() });
-        } else {
-          const { id, ...rest } = dealData;
-          await addDoc(collection(db!, 'deals'), { ...rest, createdAt: serverTimestamp() });
-        }
-    });
-    // Fire & Forget stats update
-    api.recalcUserStats(deal.userId).catch(console.warn);
+    const { id, userId, createdAt, ...dealRest } = deal;
+    const cleanedRest = cleanPayload(dealRest);
+    // Prevent ID collision in data
+    delete (cleanedRest as any).id;
+
+    let ref;
+    if (id && id.length >= 5) {
+        ref = doc(db!, 'deals', id);
+    } else {
+        ref = doc(collection(db!, 'deals'));
+    }
+
+    const dataToSave: any = {
+        ...cleanedRest,
+        userId,
+        lastUpdated: serverTimestamp()
+    };
+
+    // Preserve createdAt if exists, else set it for new docs
+    if (createdAt) {
+        dataToSave.createdAt = createdAt;
+    } else if (!id || id.length < 5) {
+        dataToSave.createdAt = serverTimestamp();
+    }
+
+    await setDoc(ref, dataToSave, { merge: true });
+    
+    // Async stat calc
+    setTimeout(() => {
+        api.recalcUserStats(userId).catch(e => console.warn("Stats recalc failed", e));
+    }, 500);
   },
 
   deleteDeal: async (dealId: string, userId: string) => {
     checkDbConnection();
-    await retryOperation(() => deleteDoc(doc(db!, 'deals', dealId)));
+    await deleteDoc(doc(db!, 'deals', dealId));
     api.recalcUserStats(userId).catch(console.warn);
   },
 
   getContacts: async (userId: string, isAdmin = false) => {
     checkDbConnection();
-    const runQuery = async (asAdmin: boolean) => {
-      const q = asAdmin 
-        ? query(collection(db!, 'contacts'), orderBy('updatedAt', 'desc'))
-        : query(collection(db!, 'contacts'), where('userId', '==', userId));
-      const snapshot = await retryOperation(() => getDocs(q)) as QuerySnapshot;
-      return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Contact[];
-    };
-
     try {
-      if (isAdmin) {
-        try {
-          return await runQuery(true);
-        } catch (e) {
-          console.warn("[Firestore] Admin contacts query failed, falling back.", e);
-          return await runQuery(false);
-        }
-      }
-      return await runQuery(false);
-    } catch (error: any) {
-      console.warn("[Firestore] getContacts failed gracefully:", error.code);
-      return [];
+        let q;
+        if (isAdmin) q = query(collection(db!, 'contacts'), orderBy('updatedAt', 'desc'));
+        else q = query(collection(db!, 'contacts'), where('userId', '==', userId));
+        const snapshot = await getDocs(q);
+        return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Contact[];
+    } catch (e) {
+        console.warn("Get contacts failed", e);
+        return [];
     }
   },
 
   saveContact: async (contact: Contact) => {
     checkDbConnection();
-    const contactData = { ...contact, updatedAt: serverTimestamp() };
-    await retryOperation(async () => {
-        if (contact.id && contact.id.length >= 9) {
-          const ref = doc(db!, 'contacts', contact.id);
-          const snap = await getDoc(ref);
-          if (snap.exists()) await updateDoc(ref, contactData);
-          else await setDoc(ref, { ...contactData, createdAt: serverTimestamp() });
-        } else {
-          const { id, ...rest } = contactData;
-          await addDoc(collection(db!, 'contacts'), { ...rest, createdAt: serverTimestamp() });
-        }
-    });
+    const { id, createdAt, userId, ...contactRest } = contact;
+    const cleanedRest = cleanPayload(contactRest);
+    delete (cleanedRest as any).id;
+
+    let ref;
+    if (id && id.length >= 5) {
+        ref = doc(db!, 'contacts', id);
+    } else {
+        ref = doc(collection(db!, 'contacts'));
+    }
+
+    const dataToSave: any = {
+        ...cleanedRest,
+        userId,
+        updatedAt: serverTimestamp()
+    };
+
+    if (createdAt) {
+        dataToSave.createdAt = createdAt;
+    } else if (!id || id.length < 5) {
+        dataToSave.createdAt = serverTimestamp();
+    }
+
+    await setDoc(ref, dataToSave, { merge: true });
   },
 
   deleteContact: async (contactId: string) => {
     checkDbConnection();
-    await retryOperation(() => deleteDoc(doc(db!, 'contacts', contactId)));
+    await deleteDoc(doc(db!, 'contacts', contactId));
   },
 
   addContactInteraction: async (contactId: string, interaction: ContactInteraction) => {
     checkDbConnection();
     const ref = doc(db!, 'contacts', contactId);
-    await retryOperation(() => updateDoc(ref, { interactions: arrayUnion(interaction), lastContactedAt: serverTimestamp(), updatedAt: serverTimestamp() }));
+    // updateDoc is fine here as contact MUST exist to add interaction, but setDoc merge is safer
+    await setDoc(ref, { 
+        interactions: arrayUnion(cleanPayload(interaction)), 
+        lastContactedAt: serverTimestamp(), 
+        updatedAt: serverTimestamp() 
+    }, { merge: true });
   },
 
   linkContactToDeal: async (contactId: string, dealId: string) => {
     checkDbConnection();
     const ref = doc(db!, 'contacts', contactId);
-    await retryOperation(() => updateDoc(ref, { linkedDealIds: arrayUnion(dealId), updatedAt: serverTimestamp() }));
+    await setDoc(ref, { linkedDealIds: arrayUnion(dealId), updatedAt: serverTimestamp() }, { merge: true });
   },
 
   unlinkContactFromDeal: async (contactId: string, dealId: string) => {
     checkDbConnection();
     const ref = doc(db!, 'contacts', contactId);
-    await retryOperation(() => updateDoc(ref, { linkedDealIds: arrayRemove(dealId), updatedAt: serverTimestamp() }));
+    await setDoc(ref, { linkedDealIds: arrayRemove(dealId), updatedAt: serverTimestamp() }, { merge: true });
   },
 
   adminHardReset: async () => {
     checkDbConnection();
-    // Use with caution
     const collections = ['deals', 'contacts', 'tasks', 'leadLogs', 'mortgageCalculations'];
     for (const col of collections) {
       try {
@@ -355,7 +299,10 @@ export const api = {
     const storageRef = ref(storage, storagePath);
     await uploadBytes(storageRef, fileData);
     const downloadURL = await getDownloadURL(storageRef);
-    const docMetadata = { ...document, url: downloadURL, storagePath, uploadDate: new Date().toISOString() };
+    const docMetadata = { ...cleanPayload(document), url: downloadURL, storagePath, uploadDate: new Date().toISOString() };
+    
+    // Using updateDoc because the deal MUST exist to attach a document.
+    // If deal doesn't exist, we probably shouldn't be uploading files to it.
     await updateDoc(doc(db!, 'deals', dealId), { documents: arrayUnion(docMetadata), lastUpdated: serverTimestamp() });
   },
 
@@ -375,73 +322,74 @@ export const api = {
   getTasks: async (userId: string) => {
     checkDbConnection();
     try {
-      const q = query(collection(db!, 'tasks'), where('userId', '==', userId));
-      const snapshot = await retryOperation(() => getDocs(q)) as QuerySnapshot;
-      return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Task[];
-    } catch (e: any) {
-      console.warn("[Firestore] getTasks failed gracefully:", e.code);
-      return [];
-    }
+        const q = query(collection(db!, 'tasks'), where('userId', '==', userId));
+        const snapshot = await getDocs(q);
+        return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Task[];
+    } catch (e) { return []; }
   },
 
   saveTask: async (task: Task) => {
     checkDbConnection();
-    await retryOperation(async () => {
-        if (task.id) await setDoc(doc(db!, 'tasks', task.id), task, { merge: true });
-        else await addDoc(collection(db!, 'tasks'), task);
-    });
-    api.recalcUserStats(task.userId).catch(console.warn);
+    const { id, userId, ...taskRest } = task;
+    const cleaned = cleanPayload(taskRest);
+    delete (cleaned as any).id;
+
+    let ref;
+    if (id && id.length >= 5) ref = doc(db!, 'tasks', id);
+    else ref = doc(collection(db!, 'tasks'));
+
+    await setDoc(ref, { ...cleaned, userId }, { merge: true });
+    
+    setTimeout(() => api.recalcUserStats(userId).catch(console.warn), 500);
   },
 
   saveLeadLog: async (log: LeadGenLog) => {
     checkDbConnection();
-    const { id, ...rest } = log;
-    await retryOperation(async () => {
-        if (id) await setDoc(doc(db!, 'leadLogs', id), rest, { merge: true });
-        else await addDoc(collection(db!, 'leadLogs'), rest);
-    });
+    const { id, userId, ...rest } = log;
+    const cleaned = cleanPayload(rest);
+    delete (cleaned as any).id;
+
+    let ref;
+    if (id && id.length >= 5) ref = doc(db!, 'leadLogs', id);
+    else ref = doc(collection(db!, 'leadLogs'));
+
+    await setDoc(ref, { ...cleaned, userId }, { merge: true });
   },
 
   deleteLeadLog: async (logId: string) => {
     checkDbConnection();
-    await retryOperation(() => deleteDoc(doc(db!, 'leadLogs', logId)));
+    await deleteDoc(doc(db!, 'leadLogs', logId));
   },
 
   getLeadLogs: async (userId: string) => {
     checkDbConnection();
     try {
-      const q = query(collection(db!, 'leadLogs'), where('userId', '==', userId));
-      const snapshot = await retryOperation(() => getDocs(q)) as QuerySnapshot;
-      return snapshot.docs.map(d => ({ id: d.id, ...d.data() })) as LeadGenLog[];
-    } catch (e: any) {
-      console.warn("[Firestore] getLeadLogs failed gracefully:", e.code);
-      return [];
-    }
+        const q = query(collection(db!, 'leadLogs'), where('userId', '==', userId));
+        const snapshot = await getDocs(q);
+        return snapshot.docs.map(d => ({ id: d.id, ...d.data() })) as LeadGenLog[];
+    } catch (e) { return []; }
   },
 
   saveCalculation: async (calc: MortgageCalculation) => {
     checkDbConnection();
     const { id, ...rest } = calc;
-    await retryOperation(() => addDoc(collection(db!, 'mortgageCalculations'), { ...rest, timestamp: serverTimestamp() }));
+    await addDoc(collection(db!, 'mortgageCalculations'), { ...cleanPayload(rest), timestamp: serverTimestamp() });
   },
 
   getCalculations: async (userId: string) => {
     checkDbConnection();
     try {
-      const q = query(collection(db!, 'mortgageCalculations'), where('userId', '==', userId));
-      const snapshot = await retryOperation(() => getDocs(q)) as QuerySnapshot;
-      return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as MortgageCalculation[];
-    } catch (e: any) {
-      console.warn("[Firestore] getCalculations failed gracefully:", e.code);
-      return [];
-    }
+        const q = query(collection(db!, 'mortgageCalculations'), where('userId', '==', userId));
+        const snapshot = await getDocs(q);
+        return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as MortgageCalculation[];
+    } catch (e) { return []; }
   },
 
   recalcUserStats: async (userId: string) => {
     checkDbConnection();
     try {
-        const deals = await api.getDeals(userId); // Will return [] on failure
-        const tasks = await api.getTasks(userId); // Will return [] on failure
+        const deals = await api.getDeals(userId);
+        const tasks = await api.getTasks(userId);
         const stats = {
           totalDeals: deals.length,
           totalCommissions: deals.filter(d => d.status === 'Completed').reduce((acc, d) => acc + (d.commission || (d.askingPrice * 0.03)), 0),
@@ -450,9 +398,9 @@ export const api = {
           pendingTasks: tasks.filter(t => t.status === 'pending').length,
           totalVolume: deals.filter(d => d.status === 'Completed').reduce((acc, d) => acc + d.askingPrice, 0),
         };
-        await updateDoc(doc(db!, 'users', userId), { stats });
+        await setDoc(doc(db!, 'users', userId), { stats }, { merge: true });
     } catch (e) {
-        console.warn("Stats recalc skipped due to network/permission", e);
+        console.warn("Stats recalc skipped", e);
     }
   }
 };

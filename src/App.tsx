@@ -74,7 +74,6 @@ const AppContent: React.FC = () => {
 
   const loadUserData = async (userId: string, isAdmin: boolean) => {
     try {
-      // Data fetching is now guaranteed to return array, avoiding crashes
       const userDeals = await api.getDeals(userId, isAdmin);
       setDeals(userDeals);
       const userContacts = await api.getContacts(userId, isAdmin);
@@ -105,12 +104,18 @@ const AppContent: React.FC = () => {
   const handleSaveDeal = async (dealData: Deal) => { 
     if (!currentUser) return; 
     try {
-      await api.saveDeal({ ...dealData, userId: currentUser.id }); 
+      // Ensure we associate it with current user if not already set (e.g. new deal)
+      const payload = { 
+        ...dealData, 
+        userId: dealData.userId || currentUser.id 
+      };
+      
+      await api.saveDeal(payload); 
       await loadUserData(currentUser.id, currentUser.role === 'admin'); 
       refreshUser(); 
     } catch (e: any) {
       console.error("Save Deal Failed:", e);
-      alert("Failed to save deal. Please check your permissions.");
+      alert("Failed to save deal. " + (e.message || ""));
     }
   };
 
@@ -124,8 +129,13 @@ const AppContent: React.FC = () => {
   const executeDeleteDeal = async () => {
     if (!currentUser || !deleteConfirmModal.dealId) return;
     setDeleteConfirmModal(prev => ({ ...prev, isDeleting: true }));
+    
+    // Determine the owner of the deal to correctly update stats
+    const dealToDelete = deals.find(d => d.id === deleteConfirmModal.dealId);
+    const ownerId = dealToDelete?.userId || currentUser.id;
+
     try {
-      await api.deleteDeal(deleteConfirmModal.dealId, currentUser.id);
+      await api.deleteDeal(deleteConfirmModal.dealId, ownerId);
       await loadUserData(currentUser.id, currentUser.role === 'admin');
       if (selectedDealId === deleteConfirmModal.dealId) { setSelectedDealId(null); setActiveTab('deals'); }
       setDeleteConfirmModal(prev => ({ ...prev, isOpen: false }));
@@ -152,11 +162,15 @@ const AppContent: React.FC = () => {
   const handleSaveContact = async (contact: Contact) => { 
     if (!currentUser) return; 
     try {
-      await api.saveContact({ ...contact, userId: currentUser.id }); 
+      const payload = { 
+        ...contact, 
+        userId: contact.userId || currentUser.id 
+      };
+      await api.saveContact(payload); 
       await loadUserData(currentUser.id, currentUser.role === 'admin');
-    } catch(e) {
+    } catch(e: any) {
       console.error("Save Contact Failed:", e);
-      alert("Failed to save contact.");
+      alert("Failed to save contact. " + (e.message || ""));
     }
   };
 
@@ -198,7 +212,9 @@ const AppContent: React.FC = () => {
   const handleImportContacts = async (newContacts: Contact[]) => { 
     if (!currentUser) return; 
     try {
-      for (const c of newContacts) { await api.saveContact({ ...c, userId: currentUser.id }); } 
+      for (const c of newContacts) { 
+        await api.saveContact({ ...c, userId: currentUser.id }); 
+      } 
       await loadUserData(currentUser.id, currentUser.role === 'admin');
     } catch (e) {
       console.error("Import Failed:", e);
@@ -213,7 +229,7 @@ const AppContent: React.FC = () => {
       await loadUserData(currentUser.id, currentUser.role === 'admin');
     } catch (e) {
       console.error("Upload Failed:", e);
-      throw e; // Rethrow so component can show error state
+      throw e; 
     }
   };
 
@@ -231,8 +247,17 @@ const AppContent: React.FC = () => {
   const handleSaveLog = async (l: LeadGenLog) => {
     if(!currentUser) return;
     try {
-      await api.saveLeadLog({ ...l, userId: currentUser.id });
-      setLeadGenLogs(prev => [l, ...prev]);
+      const payload = { ...l, userId: l.userId || currentUser.id };
+      await api.saveLeadLog(payload);
+      setLeadGenLogs(prev => {
+        const exists = prev.findIndex(item => item.id === payload.id);
+        if (exists >= 0) {
+            const updated = [...prev];
+            updated[exists] = payload;
+            return updated;
+        }
+        return [payload, ...prev];
+      });
     } catch (e) {
       console.error("Save Log Failed:", e);
       alert("Failed to save activity log.");
