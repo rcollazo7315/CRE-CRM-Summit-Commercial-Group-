@@ -62,8 +62,13 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
         }
       }
     } catch (err: any) {
-      setError(err.message || 'An error occurred');
-      if (err.message && err.message.includes('pending')) {
+      console.error(err);
+      let msg = err.message || 'An error occurred';
+      if (msg.includes('network-request-failed')) {
+        msg = "Unable to connect to server after multiple attempts. Please check your internet connection.";
+      }
+      setError(msg);
+      if (msg.includes('pending')) {
         setViewState('pending');
       }
     } finally {
@@ -138,7 +143,7 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
             </p>
 
             {error && (
-              <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm mb-6 flex items-center gap-2 border border-red-100">
+              <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm mb-6 flex items-center gap-2 border border-red-100 animate-in slide-in-from-top-2">
                 <AlertCircle size={16} /> {error}
               </div>
             )}

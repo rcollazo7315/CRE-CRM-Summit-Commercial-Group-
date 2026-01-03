@@ -74,12 +74,14 @@ const AppContent: React.FC = () => {
 
   const loadUserData = async (userId: string, isAdmin: boolean) => {
     try {
+      // Data fetching is now guaranteed to return array, avoiding crashes
       const userDeals = await api.getDeals(userId, isAdmin);
       setDeals(userDeals);
       const userContacts = await api.getContacts(userId, isAdmin);
       setContacts(userContacts);
       const userLogs = await api.getLeadLogs(userId);
       setLeadGenLogs(userLogs);
+      
       if (isAdmin) {
         const users = await api.getUsers();
         setAllUsers(users);
@@ -87,7 +89,9 @@ const AppContent: React.FC = () => {
         const self = await api.getCurrentUser(userId);
         if(self) setAllUsers([self]);
       }
-    } catch (e) { console.error("Failed to load user data", e); }
+    } catch (e) { 
+      console.error("Critical: Failed to load user data", e); 
+    }
   };
 
   const handleTabChange = (tab: string) => {
@@ -96,13 +100,27 @@ const AppContent: React.FC = () => {
   };
 
   const handleLogout = async () => { await api.logout(); setActiveTab('dashboard'); };
-  const handleSaveDeal = async (dealData: Deal) => { if (!currentUser) return; await api.saveDeal({ ...dealData, userId: currentUser.id }); await loadUserData(currentUser.id, currentUser.role === 'admin'); refreshUser(); };
+
+  // --- SAFE HANDLERS (Try/Catch Wrapped) ---
+  const handleSaveDeal = async (dealData: Deal) => { 
+    if (!currentUser) return; 
+    try {
+      await api.saveDeal({ ...dealData, userId: currentUser.id }); 
+      await loadUserData(currentUser.id, currentUser.role === 'admin'); 
+      refreshUser(); 
+    } catch (e: any) {
+      console.error("Save Deal Failed:", e);
+      alert("Failed to save deal. Please check your permissions.");
+    }
+  };
+
   const handleDeleteDeal = async (dealId: string) => { 
     if (!currentUser) return; 
     const deal = deals.find(d => d.id === dealId); 
     if (!deal) return; 
     setDeleteConfirmModal({ isOpen: true, dealId: dealId, dealAddress: deal.propertyAddress, hasDocuments: (deal.documents && deal.documents.length > 0) || false, documentCount: deal.documents?.length || 0, isDeleting: false }); 
   };
+
   const executeDeleteDeal = async () => {
     if (!currentUser || !deleteConfirmModal.dealId) return;
     setDeleteConfirmModal(prev => ({ ...prev, isDeleting: true }));
@@ -111,18 +129,125 @@ const AppContent: React.FC = () => {
       await loadUserData(currentUser.id, currentUser.role === 'admin');
       if (selectedDealId === deleteConfirmModal.dealId) { setSelectedDealId(null); setActiveTab('deals'); }
       setDeleteConfirmModal(prev => ({ ...prev, isOpen: false }));
-    } catch (error: any) { console.error(error); alert("Delete failed"); setDeleteConfirmModal(prev => ({ ...prev, isDeleting: false })); }
+    } catch (error: any) { 
+      console.error("Delete Failed:", error); 
+      alert("Failed to delete deal. You may not have permission."); 
+      setDeleteConfirmModal(prev => ({ ...prev, isDeleting: false })); 
+    }
   };
+
   const closeDeleteModal = () => { if (!deleteConfirmModal.isDeleting) setDeleteConfirmModal(prev => ({ ...prev, isOpen: false })); };
-  const handleUpdateProfile = async (updatedData: Partial<UserAccount>) => { if (!currentUser) return; await api.updateUserProfile(currentUser.id, updatedData); refreshUser(); };
-  const handleSaveContact = async (contact: Contact) => { if (!currentUser) return; await api.saveContact({ ...contact, userId: currentUser.id }); await loadUserData(currentUser.id, currentUser.role === 'admin'); };
-  const handleDeleteContact = async (contactId: string) => { if (!currentUser) return; await api.deleteContact(contactId); await loadUserData(currentUser.id, currentUser.role === 'admin'); };
-  const handleAddInteraction = async (contactId: string, interaction: ContactInteraction) => { if (!currentUser) return; await api.addContactInteraction(contactId, interaction); await loadUserData(currentUser.id, currentUser.role === 'admin'); };
-  const handleLinkDeal = async (contactId: string, dealId: string) => { if (!currentUser) return; await api.linkContactToDeal(contactId, dealId); await loadUserData(currentUser.id, currentUser.role === 'admin'); };
-  const handleUnlinkDeal = async (contactId: string, dealId: string) => { if (!currentUser) return; await api.unlinkContactFromDeal(contactId, dealId); await loadUserData(currentUser.id, currentUser.role === 'admin'); };
-  const handleImportContacts = async (newContacts: Contact[]) => { if (!currentUser) return; for (const c of newContacts) { await api.saveContact({ ...c, userId: currentUser.id }); } await loadUserData(currentUser.id, currentUser.role === 'admin'); };
-  const handleAddDocument = async (dealId: string, doc: DocumentFile, file: File) => { if (!currentUser) return; await api.saveDocument(dealId, doc, file); await loadUserData(currentUser.id, currentUser.role === 'admin'); };
-  const handleDeleteDocument = async (dealId: string, docId: string) => { if (!currentUser) return; await api.deleteDocument(dealId, docId); await loadUserData(currentUser.id, currentUser.role === 'admin'); };
+
+  const handleUpdateProfile = async (updatedData: Partial<UserAccount>) => { 
+    if (!currentUser) return; 
+    try {
+      await api.updateUserProfile(currentUser.id, updatedData); 
+      refreshUser(); 
+    } catch (e) {
+      console.error("Update Profile Failed:", e);
+      alert("Failed to update profile.");
+    }
+  };
+
+  const handleSaveContact = async (contact: Contact) => { 
+    if (!currentUser) return; 
+    try {
+      await api.saveContact({ ...contact, userId: currentUser.id }); 
+      await loadUserData(currentUser.id, currentUser.role === 'admin');
+    } catch(e) {
+      console.error("Save Contact Failed:", e);
+      alert("Failed to save contact.");
+    }
+  };
+
+  const handleDeleteContact = async (contactId: string) => { 
+    if (!currentUser) return; 
+    try {
+      await api.deleteContact(contactId); 
+      await loadUserData(currentUser.id, currentUser.role === 'admin');
+    } catch (e) {
+      console.error("Delete Contact Failed:", e);
+      alert("Failed to delete contact.");
+    }
+  };
+
+  const handleAddInteraction = async (contactId: string, interaction: ContactInteraction) => { 
+    if (!currentUser) return; 
+    try {
+      await api.addContactInteraction(contactId, interaction); 
+      await loadUserData(currentUser.id, currentUser.role === 'admin');
+    } catch (e) { console.error("Interaction Failed:", e); }
+  };
+
+  const handleLinkDeal = async (contactId: string, dealId: string) => { 
+    if (!currentUser) return; 
+    try {
+      await api.linkContactToDeal(contactId, dealId); 
+      await loadUserData(currentUser.id, currentUser.role === 'admin');
+    } catch (e) { console.error("Link Failed:", e); }
+  };
+
+  const handleUnlinkDeal = async (contactId: string, dealId: string) => { 
+    if (!currentUser) return; 
+    try {
+      await api.unlinkContactFromDeal(contactId, dealId); 
+      await loadUserData(currentUser.id, currentUser.role === 'admin');
+    } catch (e) { console.error("Unlink Failed:", e); }
+  };
+
+  const handleImportContacts = async (newContacts: Contact[]) => { 
+    if (!currentUser) return; 
+    try {
+      for (const c of newContacts) { await api.saveContact({ ...c, userId: currentUser.id }); } 
+      await loadUserData(currentUser.id, currentUser.role === 'admin');
+    } catch (e) {
+      console.error("Import Failed:", e);
+      alert("Failed to import contacts.");
+    }
+  };
+
+  const handleAddDocument = async (dealId: string, doc: DocumentFile, file: File) => { 
+    if (!currentUser) return; 
+    try {
+      await api.saveDocument(dealId, doc, file); 
+      await loadUserData(currentUser.id, currentUser.role === 'admin');
+    } catch (e) {
+      console.error("Upload Failed:", e);
+      throw e; // Rethrow so component can show error state
+    }
+  };
+
+  const handleDeleteDocument = async (dealId: string, docId: string) => { 
+    if (!currentUser) return; 
+    try {
+      await api.deleteDocument(dealId, docId); 
+      await loadUserData(currentUser.id, currentUser.role === 'admin');
+    } catch (e) {
+      console.error("Delete Document Failed:", e);
+      alert("Failed to delete document.");
+    }
+  };
+
+  const handleSaveLog = async (l: LeadGenLog) => {
+    if(!currentUser) return;
+    try {
+      await api.saveLeadLog({ ...l, userId: currentUser.id });
+      setLeadGenLogs(prev => [l, ...prev]);
+    } catch (e) {
+      console.error("Save Log Failed:", e);
+      alert("Failed to save activity log.");
+    }
+  };
+
+  const handleDeleteLog = async (id: string) => {
+    try {
+      await api.deleteLeadLog(id);
+      setLeadGenLogs(prev => prev.filter(l => l.id !== id));
+    } catch (e) {
+      console.error("Delete Log Failed:", e);
+      alert("Failed to delete activity log.");
+    }
+  };
 
   if (loading) {
     return (
@@ -150,7 +275,7 @@ const AppContent: React.FC = () => {
         return <ReportsPage deals={deals} users={allUsers} currentUser={currentUser} logs={leadGenLogs} />;
       case 'documents': return <DocumentsPage deals={deals} initialFilterDealId={documentFilterId} onAddDocument={handleAddDocument} onDeleteDocument={handleDeleteDocument} />;
       case 'communications': return <CommunicationsPage user={currentUser} onUpdateUser={handleUpdateProfile} />;
-      case 'lead-gen': return <LeadGenPage logs={leadGenLogs} onSaveLog={(l) => { if(currentUser) { api.saveLeadLog({ ...l, userId: currentUser.id }); setLeadGenLogs(prev => [l, ...prev]); } }} onDeleteLog={(id) => api.deleteLeadLog(id).then(() => setLeadGenLogs(prev => prev.filter(l => l.id !== id)))} />;
+      case 'lead-gen': return <LeadGenPage logs={leadGenLogs} onSaveLog={handleSaveLog} onDeleteLog={handleDeleteLog} />;
       default: return <DashboardPage activeTab="dashboard" deals={deals} onAddDeal={() => { setDealModalInitialData(null); setIsDealModalOpen(true); }} onDealClick={(id) => { setSelectedDealId(id); setActiveTab('deal-details'); }} onDeleteDeal={handleDeleteDeal} onRouteChange={setActiveTab} onOpenAi={() => setIsChatOpen(true)} onSaveDeal={handleSaveDeal} searchTerm={searchTerm} />;
     }
   };

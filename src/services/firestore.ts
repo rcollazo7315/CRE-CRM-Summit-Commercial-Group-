@@ -1,7 +1,8 @@
 
 import { 
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, 
-  query, where, orderBy, serverTimestamp, Timestamp, writeBatch, arrayUnion, arrayRemove
+  query, where, orderBy, serverTimestamp, Timestamp, writeBatch, arrayUnion, arrayRemove,
+  DocumentSnapshot, QuerySnapshot
 } from 'firebase/firestore';
 import { 
   createUserWithEmailAndPassword, 
@@ -17,7 +18,6 @@ import {
   deleteObject 
 } from 'firebase/storage';
 import { db, auth, storage } from '../firebase/config.ts';
-import { mockApi } from './mockApi.ts';
 import { UserAccount, Deal, Task, LeadGenLog, MortgageCalculation, DocumentFile, Contact, ContactInteraction } from '../types.ts';
 
 const convertTimestamps = (data: any): any => {
@@ -32,16 +32,62 @@ const convertTimestamps = (data: any): any => {
   return data;
 };
 
-// Check if we should fallback to mock
-const isMock = !db || !auth;
+const checkDbConnection = () => {
+  if (!db || !auth) throw new Error("Database offline.");
+};
+
+// Helper for delays
+const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Moderate Retry Wrapper
+const retryOperation = async <T>(
+  operation: () => Promise<T>, 
+  maxRetries = 3, 
+  baseDelay = 1000
+): Promise<T> => {
+  let lastError: any;
+  
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await operation();
+    } catch (error: any) {
+      lastError = error;
+      const errorCode = error.code || '';
+      
+      // Fail fast on permission or precondition errors
+      if (errorCode === 'permission-denied' || errorCode === 'failed-precondition') {
+        throw error;
+      }
+
+      // Retry mostly on network/server errors
+      const isRetryable = 
+        errorCode === 'auth/network-request-failed' || 
+        errorCode === 'unavailable' ||
+        errorCode === 'auth/internal-error'; 
+        
+      if (isRetryable) {
+        const waitTime = baseDelay * Math.pow(1.5, i);
+        await delay(waitTime);
+        continue;
+      }
+      
+      throw error;
+    }
+  }
+  throw lastError;
+};
 
 export const api = {
   register: async (userData: any) => {
-    if (isMock) return mockApi.register(userData);
+    checkDbConnection();
+    const userCredential = await retryOperation(() => 
+      createUserWithEmailAndPassword(auth!, userData.email, userData.passwordHash)
+    ) as any;
     
-    const userCredential = await createUserWithEmailAndPassword(auth!, userData.email, userData.passwordHash);
     const uid = userCredential.user.uid;
-    await updateProfile(userCredential.user, { displayName: `${userData.firstName} ${userData.lastName}` });
+    await retryOperation(() => 
+      updateProfile(userCredential.user, { displayName: `${userData.firstName} ${userData.lastName}` })
+    );
 
     const newUser: UserAccount = {
       id: uid,
@@ -63,178 +109,247 @@ export const api = {
       createdAt: new Date().toISOString()
     };
 
-    await setDoc(doc(db!, 'users', uid), { ...newUser, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    await retryOperation(() => 
+      setDoc(doc(db!, 'users', uid), { ...newUser, createdAt: serverTimestamp(), updatedAt: serverTimestamp() })
+    );
     return newUser;
   },
 
   login: async (email: string, password: string) => {
-    if (isMock) return mockApi.login(email, password);
-
-    const userCredential = await signInWithEmailAndPassword(auth!, email, password);
-    const uid = userCredential.user.uid;
-    const userDoc = await getDoc(doc(db!, 'users', uid));
-    if (!userDoc.exists()) throw new Error('Profile not found.');
+    checkDbConnection();
+    await retryOperation(() => signInWithEmailAndPassword(auth!, email, password));
     
-    const userData = convertTimestamps(userDoc.data()) as UserAccount;
+    const uid = auth!.currentUser!.uid;
+    let userData = await api.getCurrentUser(uid);
+    
+    // Self-healing
+    if (!userData) {
+      console.warn(`[Firestore] Profile missing for UID: ${uid}. Healing...`);
+      const user = auth!.currentUser;
+      const nameParts = user?.displayName?.split(' ') || ['User'];
+      const healingProfile: UserAccount = {
+        id: uid,
+        email: email,
+        firstName: nameParts[0] || 'User',
+        lastName: nameParts.slice(1).join(' ') || '',
+        username: email.split('@')[0],
+        passwordHash: 'PROTECTED',
+        role: 'agent',
+        status: 'pending',
+        avatar: `https://ui-avatars.com/api/?name=${nameParts[0]}+${nameParts.slice(1).join(' ')}&background=random`,
+        notifications: { email: { dealUpdates: true, taskReminders: true, newMessages: true, systemAlerts: true }, sms: { dealUpdates: false, taskReminders: true, newMessages: false, systemAlerts: false } },
+        stats: { totalDeals: 0, totalCommissions: 0, activeDeals: 0, closedDeals: 0, pendingTasks: 0, totalVolume: 0 },
+        gmailIntegration: { connected: false },
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      
+      try {
+         await setDoc(doc(db!, 'users', uid), { ...healingProfile, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+         userData = healingProfile;
+      } catch (e) {
+         await signOut(auth!);
+         throw new Error('Profile recovery failed.');
+      }
+    }
+    
     if (userData.status === 'denied') {
       await signOut(auth!);
       throw new Error('Access denied.');
     }
-    await updateDoc(doc(db!, 'users', uid), { lastLogin: serverTimestamp() });
+    
+    updateDoc(doc(db!, 'users', uid), { lastLogin: serverTimestamp() }).catch(() => {});
     return userData;
   },
 
-  logout: async () => { 
-    if (isMock) return mockApi.logout();
-    if (auth) await signOut(auth); 
-  },
+  logout: async () => { if (auth) await signOut(auth); },
 
   getCurrentUser: async (uid: string) => {
-    if (isMock) return mockApi.getCurrentUser(uid);
-    
-    const userDoc = await getDoc(doc(db!, 'users', uid));
-    if (!userDoc.exists()) return null;
-    return convertTimestamps({ id: userDoc.id, ...userDoc.data() }) as UserAccount;
+    checkDbConnection();
+    let attempts = 0;
+    while (attempts < 5) {
+      try {
+        const userDoc = await getDoc(doc(db!, 'users', uid));
+        if (userDoc.exists()) {
+          return convertTimestamps({ id: userDoc.id, ...userDoc.data() }) as UserAccount;
+        }
+      } catch (e) { console.warn("Fetch profile failed", e); }
+      await delay(500 * (attempts + 1));
+      attempts++;
+    }
+    return null;
   },
 
   updateUserProfile: async (userId: string, updates: Partial<UserAccount>) => {
-    if (isMock) return mockApi.updateUserProfile(userId, updates);
-
+    checkDbConnection();
     const userRef = doc(db!, 'users', userId);
-    await updateDoc(userRef, { ...updates, updatedAt: serverTimestamp() });
+    await retryOperation(() => updateDoc(userRef, { ...updates, updatedAt: serverTimestamp() }));
     const updated = await getDoc(userRef);
     return convertTimestamps({ id: updated.id, ...updated.data() }) as UserAccount;
   },
 
   updateUserPassword: async (newPassword: string) => {
-    if (isMock) return mockApi.updateUserPassword(newPassword);
-
-    const user = auth!.currentUser;
-    if (!user) throw new Error("Unauthorized");
-    await updatePassword(user, newPassword);
+    checkDbConnection();
+    if (!auth!.currentUser) throw new Error("Unauthorized");
+    await retryOperation(() => updatePassword(auth!.currentUser!, newPassword));
   },
 
   getUsers: async () => {
-    if (isMock) return mockApi.getUsers();
-
-    const q = query(collection(db!, 'users'), orderBy('createdAt', 'desc'));
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as UserAccount[];
+    checkDbConnection();
+    try {
+      const q = query(collection(db!, 'users'), orderBy('createdAt', 'desc'));
+      const snapshot = await retryOperation(() => getDocs(q)) as QuerySnapshot;
+      return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as UserAccount[];
+    } catch (e: any) {
+      console.warn("[Firestore] Failed to list users.", e.code);
+      return [];
+    }
   },
 
   updateUserStatus: async (userId: string, status: 'active' | 'denied') => {
-    if (isMock) return mockApi.updateUserStatus(userId, status);
-
+    checkDbConnection();
     const ref = doc(db!, 'users', userId);
-    await updateDoc(ref, { status, approvedAt: status === 'active' ? serverTimestamp() : null });
+    await retryOperation(() => updateDoc(ref, { status, approvedAt: status === 'active' ? serverTimestamp() : null }));
   },
 
   deleteUser: async (userId: string) => {
-    if (isMock) return mockApi.deleteUser(userId);
-    await deleteDoc(doc(db!, 'users', userId));
+    checkDbConnection();
+    await retryOperation(() => deleteDoc(doc(db!, 'users', userId)));
   },
 
   getDeals: async (userId: string, isAdmin = false) => {
-    if (isMock) return mockApi.getDeals(userId, isAdmin);
+    checkDbConnection();
+    
+    const runQuery = async (asAdmin: boolean) => {
+      const q = asAdmin 
+        ? query(collection(db!, 'deals'), orderBy('lastUpdated', 'desc'))
+        : query(collection(db!, 'deals'), where('userId', '==', userId));
+      
+      const snapshot = await retryOperation(() => getDocs(q)) as QuerySnapshot;
+      return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Deal[];
+    };
 
-    let q;
-    if (isAdmin) {
-      q = query(collection(db!, 'deals'), orderBy('lastUpdated', 'desc'));
-    } else {
-      q = query(collection(db!, 'deals'), where('userId', '==', userId));
+    try {
+      if (isAdmin) {
+        try {
+          return await runQuery(true);
+        } catch (e) {
+          console.warn("[Firestore] Admin deals query failed, falling back to personal.", e);
+          return await runQuery(false);
+        }
+      }
+      return await runQuery(false);
+    } catch (error: any) {
+      console.warn("[Firestore] getDeals failed gracefully:", error.code);
+      return [];
     }
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Deal[];
   },
 
   saveDeal: async (deal: Deal) => {
-    if (isMock) return mockApi.saveDeal(deal);
-
+    checkDbConnection();
     const dealData = { ...deal, lastUpdated: serverTimestamp() };
-    if (deal.id && deal.id.length >= 9) { 
-      const ref = doc(db!, 'deals', deal.id);
-      const snap = await getDoc(ref);
-      if (snap.exists()) await updateDoc(ref, dealData);
-      else await setDoc(ref, { ...dealData, createdAt: serverTimestamp() });
-    } else {
-      const { id, ...rest } = dealData;
-      await addDoc(collection(db!, 'deals'), { ...rest, createdAt: serverTimestamp() });
-    }
-    await api.recalcUserStats(deal.userId);
+    await retryOperation(async () => {
+        if (deal.id && deal.id.length >= 9) { 
+          const ref = doc(db!, 'deals', deal.id);
+          const snap = await getDoc(ref);
+          if (snap.exists()) await updateDoc(ref, dealData);
+          else await setDoc(ref, { ...dealData, createdAt: serverTimestamp() });
+        } else {
+          const { id, ...rest } = dealData;
+          await addDoc(collection(db!, 'deals'), { ...rest, createdAt: serverTimestamp() });
+        }
+    });
+    // Fire & Forget stats update
+    api.recalcUserStats(deal.userId).catch(console.warn);
   },
 
   deleteDeal: async (dealId: string, userId: string) => {
-    if (isMock) return mockApi.deleteDeal(dealId, userId);
-    await deleteDoc(doc(db!, 'deals', dealId));
-    await api.recalcUserStats(userId);
+    checkDbConnection();
+    await retryOperation(() => deleteDoc(doc(db!, 'deals', dealId)));
+    api.recalcUserStats(userId).catch(console.warn);
   },
 
   getContacts: async (userId: string, isAdmin = false) => {
-    if (isMock) return mockApi.getContacts(userId, isAdmin);
+    checkDbConnection();
+    const runQuery = async (asAdmin: boolean) => {
+      const q = asAdmin 
+        ? query(collection(db!, 'contacts'), orderBy('updatedAt', 'desc'))
+        : query(collection(db!, 'contacts'), where('userId', '==', userId));
+      const snapshot = await retryOperation(() => getDocs(q)) as QuerySnapshot;
+      return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Contact[];
+    };
 
-    let q;
-    if (isAdmin) q = query(collection(db!, 'contacts'), orderBy('updatedAt', 'desc'));
-    else q = query(collection(db!, 'contacts'), where('userId', '==', userId));
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Contact[];
-  },
-
-  saveContact: async (contact: Contact) => {
-    if (isMock) return mockApi.saveContact(contact);
-
-    const contactData = { ...contact, updatedAt: serverTimestamp() };
-    if (contact.id && contact.id.length >= 9) {
-      const ref = doc(db!, 'contacts', contact.id);
-      const snap = await getDoc(ref);
-      if (snap.exists()) await updateDoc(ref, contactData);
-      else await setDoc(ref, { ...contactData, createdAt: serverTimestamp() });
-    } else {
-      const { id, ...rest } = contactData;
-      await addDoc(collection(db!, 'contacts'), { ...rest, createdAt: serverTimestamp() });
+    try {
+      if (isAdmin) {
+        try {
+          return await runQuery(true);
+        } catch (e) {
+          console.warn("[Firestore] Admin contacts query failed, falling back.", e);
+          return await runQuery(false);
+        }
+      }
+      return await runQuery(false);
+    } catch (error: any) {
+      console.warn("[Firestore] getContacts failed gracefully:", error.code);
+      return [];
     }
   },
 
+  saveContact: async (contact: Contact) => {
+    checkDbConnection();
+    const contactData = { ...contact, updatedAt: serverTimestamp() };
+    await retryOperation(async () => {
+        if (contact.id && contact.id.length >= 9) {
+          const ref = doc(db!, 'contacts', contact.id);
+          const snap = await getDoc(ref);
+          if (snap.exists()) await updateDoc(ref, contactData);
+          else await setDoc(ref, { ...contactData, createdAt: serverTimestamp() });
+        } else {
+          const { id, ...rest } = contactData;
+          await addDoc(collection(db!, 'contacts'), { ...rest, createdAt: serverTimestamp() });
+        }
+    });
+  },
+
   deleteContact: async (contactId: string) => {
-    if (isMock) return mockApi.deleteContact(contactId);
-    await deleteDoc(doc(db!, 'contacts', contactId));
+    checkDbConnection();
+    await retryOperation(() => deleteDoc(doc(db!, 'contacts', contactId)));
   },
 
   addContactInteraction: async (contactId: string, interaction: ContactInteraction) => {
-    if (isMock) return mockApi.addContactInteraction(contactId, interaction);
-
+    checkDbConnection();
     const ref = doc(db!, 'contacts', contactId);
-    await updateDoc(ref, { interactions: arrayUnion(interaction), lastContactedAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    await retryOperation(() => updateDoc(ref, { interactions: arrayUnion(interaction), lastContactedAt: serverTimestamp(), updatedAt: serverTimestamp() }));
   },
 
   linkContactToDeal: async (contactId: string, dealId: string) => {
-    if (isMock) return mockApi.linkContactToDeal(contactId, dealId);
-
+    checkDbConnection();
     const ref = doc(db!, 'contacts', contactId);
-    await updateDoc(ref, { linkedDealIds: arrayUnion(dealId), updatedAt: serverTimestamp() });
+    await retryOperation(() => updateDoc(ref, { linkedDealIds: arrayUnion(dealId), updatedAt: serverTimestamp() }));
   },
 
   unlinkContactFromDeal: async (contactId: string, dealId: string) => {
-    if (isMock) return mockApi.unlinkContactFromDeal(contactId, dealId);
-
+    checkDbConnection();
     const ref = doc(db!, 'contacts', contactId);
-    await updateDoc(ref, { linkedDealIds: arrayRemove(dealId), updatedAt: serverTimestamp() });
+    await retryOperation(() => updateDoc(ref, { linkedDealIds: arrayRemove(dealId), updatedAt: serverTimestamp() }));
   },
 
   adminHardReset: async () => {
-    if (isMock) return mockApi.adminHardReset();
-
+    checkDbConnection();
+    // Use with caution
     const collections = ['deals', 'contacts', 'tasks', 'leadLogs', 'mortgageCalculations'];
     for (const col of collections) {
-      const snap = await getDocs(collection(db!, col));
-      const batch = writeBatch(db!);
-      snap.docs.forEach(d => batch.delete(d.ref));
-      await batch.commit();
+      try {
+        const snap = await getDocs(collection(db!, col));
+        const batch = writeBatch(db!);
+        snap.docs.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+      } catch (e) { console.error(`Reset failed for ${col}`, e); }
     }
   },
 
   saveDocument: async (dealId: string, document: DocumentFile, fileData?: Blob | File) => {
-    if (isMock) return mockApi.saveDocument(dealId, document, fileData);
-
+    checkDbConnection();
     if (!storage || !fileData) return;
     const storagePath = `deals/${dealId}/${Date.now()}_${document.name}`;
     const storageRef = ref(storage, storagePath);
@@ -245,8 +360,7 @@ export const api = {
   },
 
   deleteDocument: async (dealId: string, documentId: string) => {
-    if (isMock) return mockApi.deleteDocument(dealId, documentId);
-
+    checkDbConnection();
     const dealRef = doc(db!, 'deals', dealId);
     const dealSnap = await getDoc(dealRef);
     if (!dealSnap.exists()) return;
@@ -259,86 +373,86 @@ export const api = {
   },
 
   getTasks: async (userId: string) => {
-    if (isMock) return mockApi.getTasks(userId);
-
-    const q = query(collection(db!, 'tasks'), where('userId', '==', userId));
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Task[];
+    checkDbConnection();
+    try {
+      const q = query(collection(db!, 'tasks'), where('userId', '==', userId));
+      const snapshot = await retryOperation(() => getDocs(q)) as QuerySnapshot;
+      return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Task[];
+    } catch (e: any) {
+      console.warn("[Firestore] getTasks failed gracefully:", e.code);
+      return [];
+    }
   },
 
   saveTask: async (task: Task) => {
-    if (isMock) return mockApi.saveTask(task);
-
-    if (task.id) await setDoc(doc(db!, 'tasks', task.id), task, { merge: true });
-    else await addDoc(collection(db!, 'tasks'), task);
-    await api.recalcUserStats(task.userId);
+    checkDbConnection();
+    await retryOperation(async () => {
+        if (task.id) await setDoc(doc(db!, 'tasks', task.id), task, { merge: true });
+        else await addDoc(collection(db!, 'tasks'), task);
+    });
+    api.recalcUserStats(task.userId).catch(console.warn);
   },
 
   saveLeadLog: async (log: LeadGenLog) => {
-    if (isMock) return mockApi.saveLeadLog(log);
-
+    checkDbConnection();
     const { id, ...rest } = log;
-    if (id) await setDoc(doc(db!, 'leadLogs', id), rest, { merge: true });
-    else await addDoc(collection(db!, 'leadLogs'), rest);
+    await retryOperation(async () => {
+        if (id) await setDoc(doc(db!, 'leadLogs', id), rest, { merge: true });
+        else await addDoc(collection(db!, 'leadLogs'), rest);
+    });
   },
 
   deleteLeadLog: async (logId: string) => {
-    if (isMock) return mockApi.deleteLeadLog(logId);
-    await deleteDoc(doc(db!, 'leadLogs', logId));
+    checkDbConnection();
+    await retryOperation(() => deleteDoc(doc(db!, 'leadLogs', logId)));
   },
 
   getLeadLogs: async (userId: string) => {
-    if (isMock) return mockApi.getLeadLogs(userId);
-
-    const q = query(collection(db!, 'leadLogs'), where('userId', '==', userId));
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(d => ({ id: d.id, ...d.data() })) as LeadGenLog[];
+    checkDbConnection();
+    try {
+      const q = query(collection(db!, 'leadLogs'), where('userId', '==', userId));
+      const snapshot = await retryOperation(() => getDocs(q)) as QuerySnapshot;
+      return snapshot.docs.map(d => ({ id: d.id, ...d.data() })) as LeadGenLog[];
+    } catch (e: any) {
+      console.warn("[Firestore] getLeadLogs failed gracefully:", e.code);
+      return [];
+    }
   },
 
   saveCalculation: async (calc: MortgageCalculation) => {
-    if (isMock) return mockApi.saveCalculation(calc);
-
+    checkDbConnection();
     const { id, ...rest } = calc;
-    await addDoc(collection(db!, 'mortgageCalculations'), { ...rest, timestamp: serverTimestamp() });
+    await retryOperation(() => addDoc(collection(db!, 'mortgageCalculations'), { ...rest, timestamp: serverTimestamp() }));
   },
 
   getCalculations: async (userId: string) => {
-    if (isMock) return mockApi.getCalculations(userId);
-
-    const q = query(collection(db!, 'mortgageCalculations'), where('userId', '==', userId));
-    const snapshot = await getDocs(q);
-    return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as MortgageCalculation[];
+    checkDbConnection();
+    try {
+      const q = query(collection(db!, 'mortgageCalculations'), where('userId', '==', userId));
+      const snapshot = await retryOperation(() => getDocs(q)) as QuerySnapshot;
+      return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as MortgageCalculation[];
+    } catch (e: any) {
+      console.warn("[Firestore] getCalculations failed gracefully:", e.code);
+      return [];
+    }
   },
 
   recalcUserStats: async (userId: string) => {
-    if (isMock) return mockApi.recalcUserStats(userId);
-
-    const deals = await api.getDeals(userId);
-    const tasks = await api.getTasks(userId);
-    
-    // Calculate deals by source
-    const closedDeals = deals.filter(d => d.status === 'Completed');
-    const dealsBySource: Record<string, number> = {};
-    const revenueBySource: Record<string, number> = {};
-    
-    closedDeals.forEach(deal => {
-      const source = deal.leadSource || 'other';
-      dealsBySource[source] = (dealsBySource[source] || 0) + 1;
-      revenueBySource[source] = (revenueBySource[source] || 0) + (deal.closingPrice || deal.askingPrice);
-    });
-
-    const stats = {
-      totalDeals: deals.length,
-      totalCommissions: closedDeals.reduce((acc, d) => acc + (d.commission || (d.askingPrice * 0.03)), 0),
-      activeDeals: deals.filter(d => d.status !== 'Completed' && d.status !== 'Archived').length,
-      closedDeals: closedDeals.length,
-      pendingTasks: tasks.filter(t => t.status === 'pending').length,
-      totalVolume: closedDeals.reduce((acc, d) => acc + d.askingPrice, 0),
-      // New KPI metrics
-      dealsBySource,
-      revenueBySource
-    };
-    
-    await updateDoc(doc(db!, 'users', userId), { stats });
+    checkDbConnection();
+    try {
+        const deals = await api.getDeals(userId); // Will return [] on failure
+        const tasks = await api.getTasks(userId); // Will return [] on failure
+        const stats = {
+          totalDeals: deals.length,
+          totalCommissions: deals.filter(d => d.status === 'Completed').reduce((acc, d) => acc + (d.commission || (d.askingPrice * 0.03)), 0),
+          activeDeals: deals.filter(d => d.status !== 'Completed' && d.status !== 'Archived').length,
+          closedDeals: deals.filter(d => d.status === 'Completed').length,
+          pendingTasks: tasks.filter(t => t.status === 'pending').length,
+          totalVolume: deals.filter(d => d.status === 'Completed').reduce((acc, d) => acc + d.askingPrice, 0),
+        };
+        await updateDoc(doc(db!, 'users', userId), { stats });
+    } catch (e) {
+        console.warn("Stats recalc skipped due to network/permission", e);
+    }
   }
 };

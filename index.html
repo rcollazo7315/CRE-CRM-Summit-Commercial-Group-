@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <html lang="en">
   <head>
@@ -6,13 +7,19 @@
     <title>Summit Commercial Group | Deal Hub</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    
+    <!-- Firebase Compat SDKs from Google CDN - guaranteed to work together -->
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.0/firebase-storage-compat.js"></script>
+    
     <script>
       window.process = { env: { NODE_ENV: 'production' } };
       
       function showGlobalError(title, details) {
         const root = document.getElementById('root');
         if (root) {
-           // Only take over if we are still initializing
            if (root.innerText.includes('Initialising') || root.innerHTML.includes('spin') || root.innerHTML === '') {
              root.innerHTML = `
               <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0f172a;color:white;font-family:Inter,sans-serif;padding:24px;">
@@ -69,15 +76,11 @@
     "react-dom": "https://esm.sh/react-dom@18.2.0",
     "react-dom/": "https://esm.sh/react-dom@18.2.0/",
     "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-    "react-router-dom": "https://esm.sh/react-router-dom@6.22.3?deps=react@18.2.0,react-dom@18.2.0",
-    "lucide-react": "https://esm.sh/lucide-react@0.344.0?deps=react@18.2.0",
+    "react-router-dom": "https://esm.sh/react-router-dom@6.22.3?external=react,react-dom",
+    "lucide-react": "https://esm.sh/lucide-react@0.344.0?external=react",
     "@google/genai": "https://esm.sh/@google/genai@0.1.1",
-    "firebase/app": "https://esm.sh/firebase@10.13.1/app",
-    "firebase/auth": "https://esm.sh/firebase@10.13.1/auth",
-    "firebase/firestore": "https://esm.sh/firebase@10.13.1/firestore",
-    "firebase/storage": "https://esm.sh/firebase@10.13.1/storage",
     "jspdf": "https://esm.sh/jspdf@2.5.1",
-    "jspdf-autotable": "https://esm.sh/jspdf-autotable@3.8.2?deps=jspdf@2.5.1",
+    "jspdf-autotable": "https://esm.sh/jspdf-autotable@3.8.2",
     "firebase/": "https://esm.sh/firebase@^12.7.0/"
   }
 }

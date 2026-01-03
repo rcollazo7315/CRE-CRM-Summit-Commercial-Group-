@@ -2,7 +2,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { auth, isFirebaseInitialized } from '../firebase/config.ts';
 import { api } from '../services/firestore.ts';
-import { mockApi } from '../services/mockApi.ts';
 import { UserAccount } from '../types.ts';
 import { onAuthStateChanged } from 'firebase/auth';
 
@@ -27,7 +26,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [loading, setLoading] = useState(true);
 
   const refreshUser = async () => {
-    // Check if we are using Firebase or Mock
     if (auth?.currentUser) {
       try {
         const userData = await api.getCurrentUser(auth.currentUser.uid);
@@ -35,30 +33,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       } catch (error) {
         console.error("Auth Refresh Failed:", error);
       }
-    } else {
-        // Try mock session refresh
-        const mockUser = await mockApi.getSession();
-        if(mockUser) setCurrentUser(mockUser);
     }
   };
 
   useEffect(() => {
-    // If Firebase is unavailable, try to load from Mock API immediately
     if (!isFirebaseInitialized() || !auth) {
-      console.warn("Database connection offline. Switching to Mock Mode.");
-      mockApi.getSession().then(user => {
-          if (user) {
-              console.log("Restored Mock Session for:", user.email);
-              setCurrentUser(user);
-          }
-          setLoading(false);
-      });
+      console.warn("Database connection pending or offline.");
+      setLoading(false);
       return;
     }
 
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
         try {
+          // getCurrentUser now includes aggressive retry logic (approx 30s max duration)
           const userData = await api.getCurrentUser(firebaseUser.uid);
           setCurrentUser(userData);
         } catch (err) {
@@ -74,15 +62,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(false);
     });
 
+    // Timeout extended to 25s to allow for full backoff retry cycle
     const timer = setTimeout(() => {
       setLoading(prev => {
         if (prev) {
-          console.warn("Auth check timed out, proceeding.");
+          console.warn("Auth check timed out (25s), proceeding as guest/offline.");
           return false;
         }
         return prev;
       });
-    }, 5000);
+    }, 25000);
 
     return () => {
       unsubscribe();
@@ -104,7 +93,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         <div style={{ height: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#0f172a', color: 'white', fontFamily: 'Inter, sans-serif' }}>
           <div style={{ width: '40px', height: '40px', border: '3px solid rgba(255,255,255,0.1)', borderTopColor: '#10b981', borderRadius: '50%', animation: 'spin 1s linear infinite' }}></div>
           <style dangerouslySetInnerHTML={{ __html: '@keyframes spin{to{transform:rotate(360deg)}}' }} />
-          <p style={{ marginTop: '16px', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8' }}>Verifying Credentials...</p>
+          <p style={{ marginTop: '16px', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.1em', color: '#94a3b8' }}>Establishing Secure Connection...</p>
         </div>
       )}
     </AuthContext.Provider>

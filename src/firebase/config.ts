@@ -1,15 +1,16 @@
 
-import { initializeApp, getApps, FirebaseApp } from 'firebase/app';
+import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import { getFirestore, Firestore } from 'firebase/firestore';
 import { getAuth, Auth } from 'firebase/auth';
 import { getStorage, FirebaseStorage } from 'firebase/storage';
 
-console.log("[Firebase Config] Module loading...");
+console.log("[Firebase Config] Initializing (modular mode)...");
 
 const getConfiguration = () => {
   try {
     const localKey = localStorage.getItem('VITE_FIREBASE_API_KEY');
-    if (localKey) {
+    if (localKey && localKey.trim()) {
+      console.log("[Firebase Config] Using localStorage config");
       return {
         apiKey: localStorage.getItem('VITE_FIREBASE_API_KEY')?.trim(),
         authDomain: localStorage.getItem('VITE_FIREBASE_AUTH_DOMAIN')?.trim(),
@@ -17,14 +18,13 @@ const getConfiguration = () => {
         storageBucket: localStorage.getItem('VITE_FIREBASE_STORAGE_BUCKET')?.trim(),
         messagingSenderId: localStorage.getItem('VITE_FIREBASE_MESSAGING_SENDER_ID')?.trim(),
         appId: localStorage.getItem('VITE_FIREBASE_APP_ID')?.trim(),
-        measurementId: localStorage.getItem('VITE_FIREBASE_MEASUREMENT_ID')?.trim()
       };
     }
   } catch (e) {
-    console.warn("Local storage access blocked:", e);
+    console.warn("[Firebase Config] localStorage error:", e);
   }
 
-  // Fallback defaults - will likely fail if domain restricted, triggering fallback to mock
+  console.log("[Firebase Config] Using default config");
   return {
     apiKey: "AIzaSyD00EHnA1iFfB20ybdcAXBgZBp4JqaT5gg",
     authDomain: "summit-crm-3c378.firebaseapp.com",
@@ -32,57 +32,46 @@ const getConfiguration = () => {
     storageBucket: "summit-crm-3c378.firebasestorage.app",
     messagingSenderId: "622709880120",
     appId: "1:622709880120:web:57786312b02d59dccffdcd",
-    measurementId: "G-HEM5G77CGH"
   };
 };
 
 const firebaseConfig = getConfiguration();
 
-let app: FirebaseApp | undefined;
-let db: Firestore | undefined;
-let auth: Auth | undefined;
-let storage: FirebaseStorage | undefined;
+let app: FirebaseApp;
+let db: Firestore;
+let auth: Auth;
+let storage: FirebaseStorage;
 let initializationError: Error | null = null;
 
 try {
-  // Only initialize if we have an API key
-  if (firebaseConfig.apiKey) {
-    if (!getApps().length) {
-      app = initializeApp(firebaseConfig as any);
-    } else {
-      app = getApps()[0];
-    }
-
-    if (app) {
-      // Initialize Firestore - Catch errors to allow fallback
-      try {
-        db = getFirestore(app);
-      } catch (e: any) {
-        console.warn("Firestore Init Error (Using Mock Mode):", e.message);
-      }
-      
-      // Initialize Auth - Catch errors to allow fallback
-      try {
-        auth = getAuth(app);
-      } catch (e: any) {
-        console.warn("Auth Init Error (Using Mock Mode):", e.message);
-      }
-      
-      // Initialize Storage - Optional
-      try {
-        storage = getStorage(app);
-      } catch (e) {
-        console.warn("Storage init failed (optional):", e);
-      }
-      
-      console.log("[Firebase Config] Initialization attempts complete.");
-    }
-  } else {
-    console.warn("[Firebase Config] No configuration found. Using mock mode.");
+  if (!firebaseConfig.apiKey) {
+    throw new Error("Missing Firebase API key");
   }
+
+  // Initialize using modular API
+  if (!getApps().length) {
+    app = initializeApp(firebaseConfig);
+    console.log("[Firebase Config] New app created");
+  } else {
+    app = getApp();
+    console.log("[Firebase Config] Using existing app");
+  }
+
+  auth = getAuth(app);
+  console.log("[Firebase Config] Auth ready");
+
+  db = getFirestore(app);
+  console.log("[Firebase Config] Firestore ready");
+
+  storage = getStorage(app);
+  console.log("[Firebase Config] Storage ready");
+
+  console.log("[Firebase Config] ✅ All services initialized (modular mode)");
+
 } catch (error: any) {
-  console.error("[Firebase Config] Critical Init Error:", error);
+  console.error("[Firebase Config] ❌ Error:", error.message);
+  initializationError = error;
 }
 
 export { app, db, auth, storage, initializationError };
-export const isFirebaseInitialized = () => !!(app && db && auth);
+export const isFirebaseInitialized = () => !!(app && db && auth && !initializationError);
