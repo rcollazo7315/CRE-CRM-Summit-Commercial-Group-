@@ -1,4 +1,3 @@
-
 import { 
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, 
   query, where, orderBy, serverTimestamp, Timestamp, writeBatch, arrayUnion, arrayRemove,
@@ -32,9 +31,10 @@ const convertTimestamps = (data: any): any => {
   return data;
 };
 
-// Remove undefined fields to prevent Firestore errors
+// Helper: Clean undefined values to prevent Firestore errors
 const cleanPayload = (data: any): any => {
   if (typeof data !== 'object' || data === null) return data;
+  if (data instanceof Date) return data.toISOString();
   if (Array.isArray(data)) return data.map(cleanPayload);
   
   const cleaned: any = {};
@@ -51,12 +51,21 @@ const checkDbConnection = () => {
   if (!db || !auth) throw new Error("Database offline.");
 };
 
+// Helper to ensure userId exists
+const ensureUserId = (providedId?: string): string => {
+  if (providedId && providedId.length > 0) return providedId;
+  if (auth?.currentUser?.uid) return auth.currentUser.uid;
+  throw new Error("Operation failed: User not authenticated.");
+};
+
 export const api = {
   register: async (userData: any) => {
     checkDbConnection();
     const userCredential = await createUserWithEmailAndPassword(auth!, userData.email, userData.passwordHash);
     const uid = userCredential.user.uid;
     await updateProfile(userCredential.user, { displayName: `${userData.firstName} ${userData.lastName}` });
+
+    const isAdminEmail = userData.email.toLowerCase() === 'raphael@sumcg.com';
 
     const newUser: UserAccount = {
       id: uid,
@@ -66,8 +75,8 @@ export const api = {
       firstName: userData.firstName,
       lastName: userData.lastName,
       phone: userData.phone,
-      role: 'agent',
-      status: 'pending',
+      role: isAdminEmail ? 'admin' : 'agent',
+      status: isAdminEmail ? 'active' : 'pending',
       avatar: `https://ui-avatars.com/api/?name=${userData.firstName}+${userData.lastName}&background=random`,
       notifications: {
         email: { dealUpdates: true, taskReminders: true, newMessages: true, systemAlerts: true },
@@ -87,18 +96,26 @@ export const api = {
     const userCredential = await signInWithEmailAndPassword(auth!, email, password);
     const uid = userCredential.user.uid;
     
-    // Attempt to get user doc, if it fails due to permissions, it might mean the user is not in the 'users' collection yet or rules block it.
-    // For login, we really need the user doc.
     const userDoc = await getDoc(doc(db!, 'users', uid));
     if (!userDoc.exists()) throw new Error('Profile not found in database.');
     
     const userData = convertTimestamps({ id: userDoc.id, ...userDoc.data() }) as UserAccount;
+
+    // SECURITY OVERRIDE: Ensure specific email is always admin/active if it exists
+    if (email.toLowerCase() === 'raphael@sumcg.com') {
+      if (userData.role !== 'admin' || userData.status !== 'active') {
+        console.log("Restoring admin privileges for system owner...");
+        await setDoc(doc(db!, 'users', uid), { role: 'admin', status: 'active' }, { merge: true });
+        userData.role = 'admin';
+        userData.status = 'active';
+      }
+    }
+
     if (userData.status === 'denied') {
       await signOut(auth!);
       throw new Error('Access denied.');
     }
     
-    // Safe update for lastLogin
     await setDoc(doc(db!, 'users', uid), { lastLogin: serverTimestamp() }, { merge: true });
     return userData;
   },
@@ -115,7 +132,6 @@ export const api = {
   updateUserProfile: async (userId: string, updates: Partial<UserAccount>) => {
     checkDbConnection();
     const userRef = doc(db!, 'users', userId);
-    // Use setDoc merge to avoid precondition errors
     await setDoc(userRef, { ...cleanPayload(updates), updatedAt: serverTimestamp() }, { merge: true });
     const updated = await getDoc(userRef);
     return convertTimestamps({ id: updated.id, ...updated.data() }) as UserAccount;
@@ -162,7 +178,15 @@ export const api = {
         }
         const snapshot = await getDocs(q);
         return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Deal[];
-    } catch (e) {
+    } catch (e: any) {
+        // PERMISSION DENIED FALLBACK
+        // If admin query is denied (e.g. Firestore rules think user is not admin), fallback to fetching user's own data
+        if (isAdmin && e.code === 'permission-denied') {
+            console.warn("Admin query denied for Deals. Falling back to user scope.");
+            const q = query(collection(db!, 'deals'), where('userId', '==', userId));
+            const snapshot = await getDocs(q);
+            return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Deal[];
+        }
         console.warn("Get deals failed", e);
         return [];
     }
@@ -170,13 +194,13 @@ export const api = {
 
   saveDeal: async (deal: Deal) => {
     checkDbConnection();
+    const validUserId = ensureUserId(deal.userId);
     const { id, userId, createdAt, ...dealRest } = deal;
     const cleanedRest = cleanPayload(dealRest);
-    // Prevent ID collision in data
     delete (cleanedRest as any).id;
 
     let ref;
-    if (id && id.length >= 5) {
+    if (id && id.length > 5) {
         ref = doc(db!, 'deals', id);
     } else {
         ref = doc(collection(db!, 'deals'));
@@ -184,22 +208,20 @@ export const api = {
 
     const dataToSave: any = {
         ...cleanedRest,
-        userId,
+        userId: validUserId,
         lastUpdated: serverTimestamp()
     };
 
-    // Preserve createdAt if exists, else set it for new docs
     if (createdAt) {
         dataToSave.createdAt = createdAt;
-    } else if (!id || id.length < 5) {
+    } else if (!id || id.length <= 5) {
         dataToSave.createdAt = serverTimestamp();
     }
 
     await setDoc(ref, dataToSave, { merge: true });
     
-    // Async stat calc
     setTimeout(() => {
-        api.recalcUserStats(userId).catch(e => console.warn("Stats recalc failed", e));
+        api.recalcUserStats(validUserId).catch(e => console.warn("Stats recalc failed", e));
     }, 500);
   },
 
@@ -213,11 +235,21 @@ export const api = {
     checkDbConnection();
     try {
         let q;
-        if (isAdmin) q = query(collection(db!, 'contacts'), orderBy('updatedAt', 'desc'));
-        else q = query(collection(db!, 'contacts'), where('userId', '==', userId));
+        if (isAdmin) {
+            q = query(collection(db!, 'contacts'), orderBy('updatedAt', 'desc'));
+        } else {
+            q = query(collection(db!, 'contacts'), where('userId', '==', userId));
+        }
         const snapshot = await getDocs(q);
         return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Contact[];
-    } catch (e) {
+    } catch (e: any) {
+        // PERMISSION DENIED FALLBACK
+        if (isAdmin && e.code === 'permission-denied') {
+            console.warn("Admin query denied for Contacts. Falling back to user scope.");
+            const q = query(collection(db!, 'contacts'), where('userId', '==', userId));
+            const snapshot = await getDocs(q);
+            return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Contact[];
+        }
         console.warn("Get contacts failed", e);
         return [];
     }
@@ -225,12 +257,26 @@ export const api = {
 
   saveContact: async (contact: Contact) => {
     checkDbConnection();
+    
+    const currentUser = auth?.currentUser;
+    if (!currentUser) throw new Error("User must be authenticated to save contacts.");
+    
+    // Determine Owner. If it's a new contact, assign to current user.
+    let ownerId = contact.userId;
+    const isNew = !contact.id || contact.id.length <= 5;
+
+    // Force ownerId to current user if new, or if missing.
+    // This ensures the "create" rule passes (request.resource.data.userId == auth.uid).
+    if (isNew || !ownerId || ownerId === '') {
+        ownerId = currentUser.uid;
+    }
+
     const { id, createdAt, userId, ...contactRest } = contact;
     const cleanedRest = cleanPayload(contactRest);
-    delete (cleanedRest as any).id;
+    delete (cleanedRest as any).id; 
 
     let ref;
-    if (id && id.length >= 5) {
+    if (id && id.length > 5) { 
         ref = doc(db!, 'contacts', id);
     } else {
         ref = doc(collection(db!, 'contacts'));
@@ -238,17 +284,25 @@ export const api = {
 
     const dataToSave: any = {
         ...cleanedRest,
-        userId,
+        userId: ownerId, 
         updatedAt: serverTimestamp()
     };
 
     if (createdAt) {
         dataToSave.createdAt = createdAt;
-    } else if (!id || id.length < 5) {
+    } else if (isNew) {
         dataToSave.createdAt = serverTimestamp();
     }
 
-    await setDoc(ref, dataToSave, { merge: true });
+    try {
+      await setDoc(ref, dataToSave, { merge: true });
+    } catch (error: any) {
+      console.error("[Firestore] ❌ saveContact error details:", error);
+      if (error.code === 'permission-denied') {
+        throw new Error("Permission denied. Ensure you are logged in and this contact belongs to you.");
+      }
+      throw error;
+    }
   },
 
   deleteContact: async (contactId: string) => {
@@ -259,7 +313,6 @@ export const api = {
   addContactInteraction: async (contactId: string, interaction: ContactInteraction) => {
     checkDbConnection();
     const ref = doc(db!, 'contacts', contactId);
-    // updateDoc is fine here as contact MUST exist to add interaction, but setDoc merge is safer
     await setDoc(ref, { 
         interactions: arrayUnion(cleanPayload(interaction)), 
         lastContactedAt: serverTimestamp(), 
@@ -301,9 +354,9 @@ export const api = {
     const downloadURL = await getDownloadURL(storageRef);
     const docMetadata = { ...cleanPayload(document), url: downloadURL, storagePath, uploadDate: new Date().toISOString() };
     
-    // Using updateDoc because the deal MUST exist to attach a document.
-    // If deal doesn't exist, we probably shouldn't be uploading files to it.
-    await updateDoc(doc(db!, 'deals', dealId), { documents: arrayUnion(docMetadata), lastUpdated: serverTimestamp() });
+    // We update the deal document.
+    const dealRef = doc(db!, 'deals', dealId);
+    await updateDoc(dealRef, { documents: arrayUnion(docMetadata), lastUpdated: serverTimestamp() });
   },
 
   deleteDocument: async (dealId: string, documentId: string) => {
@@ -330,30 +383,32 @@ export const api = {
 
   saveTask: async (task: Task) => {
     checkDbConnection();
+    const validUserId = ensureUserId(task.userId);
     const { id, userId, ...taskRest } = task;
     const cleaned = cleanPayload(taskRest);
     delete (cleaned as any).id;
 
     let ref;
-    if (id && id.length >= 5) ref = doc(db!, 'tasks', id);
+    if (id && id.length > 5) ref = doc(db!, 'tasks', id);
     else ref = doc(collection(db!, 'tasks'));
 
-    await setDoc(ref, { ...cleaned, userId }, { merge: true });
+    await setDoc(ref, { ...cleaned, userId: validUserId }, { merge: true });
     
-    setTimeout(() => api.recalcUserStats(userId).catch(console.warn), 500);
+    setTimeout(() => api.recalcUserStats(validUserId).catch(console.warn), 500);
   },
 
   saveLeadLog: async (log: LeadGenLog) => {
     checkDbConnection();
+    const validUserId = ensureUserId(log.userId);
     const { id, userId, ...rest } = log;
     const cleaned = cleanPayload(rest);
     delete (cleaned as any).id;
 
     let ref;
-    if (id && id.length >= 5) ref = doc(db!, 'leadLogs', id);
+    if (id && id.length > 5) ref = doc(db!, 'leadLogs', id);
     else ref = doc(collection(db!, 'leadLogs'));
 
-    await setDoc(ref, { ...cleaned, userId }, { merge: true });
+    await setDoc(ref, { ...cleaned, userId: validUserId }, { merge: true });
   },
 
   deleteLeadLog: async (logId: string) => {
@@ -372,8 +427,9 @@ export const api = {
 
   saveCalculation: async (calc: MortgageCalculation) => {
     checkDbConnection();
+    const validUserId = ensureUserId(calc.userId);
     const { id, ...rest } = calc;
-    await addDoc(collection(db!, 'mortgageCalculations'), { ...cleanPayload(rest), timestamp: serverTimestamp() });
+    await addDoc(collection(db!, 'mortgageCalculations'), { ...cleanPayload(rest), userId: validUserId, timestamp: serverTimestamp() });
   },
 
   getCalculations: async (userId: string) => {

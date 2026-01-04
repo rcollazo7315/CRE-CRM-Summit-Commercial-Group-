@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Building2, AlertCircle, User, Phone, Mail, Lock, Loader2, ShieldCheck, ArrowRight } from 'lucide-react';
 import { api } from '../services/firestore.ts';
@@ -62,12 +61,53 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
         }
       }
     } catch (err: any) {
-      console.error(err);
       let msg = err.message || 'An error occurred';
-      if (msg.includes('network-request-failed')) {
-        msg = "Unable to connect to server after multiple attempts. Please check your internet connection.";
+      const errorCode = err.code;
+
+      // Translate Firebase error codes to user-friendly messages
+      const expectedAuthErrors = [
+        'auth/invalid-credential',
+        'auth/user-not-found',
+        'auth/wrong-password',
+        'auth/invalid-login-credentials',
+        'auth/email-already-in-use',
+        'auth/weak-password',
+        'auth/too-many-requests'
+      ];
+
+      if (
+        errorCode === 'auth/invalid-credential' || 
+        errorCode === 'auth/user-not-found' || 
+        errorCode === 'auth/wrong-password' ||
+        errorCode === 'auth/invalid-login-credentials'
+      ) {
+        msg = "Invalid email or password. Please check your credentials.";
+        
+        // Helpful hint for users trying to use mock data on live firebase
+        if (formData.email === 'raphael@sumcg.com') {
+          msg += " (Note: The mock admin account 'raphael@sumcg.com' does not exist in the live database. Please register a new account.)";
+        }
+      } else if (errorCode === 'auth/email-already-in-use') {
+        msg = "This email address is already registered. Please sign in.";
+      } else if (errorCode === 'auth/weak-password') {
+        msg = "Password should be at least 6 characters.";
+      } else if (errorCode === 'auth/too-many-requests') {
+        msg = "Too many failed attempts. Please try again later or reset your password.";
+      } else if (errorCode === 'auth/network-request-failed') {
+        msg = "Unable to connect to the server. Please check your internet connection.";
+      } else if (msg.includes('network-request-failed')) {
+        msg = "Network error. Please check your connection.";
       }
+
+      // Only log unexpected system errors to console
+      if (!expectedAuthErrors.includes(errorCode) && !msg.includes('mock admin')) {
+        console.error("Auth Error:", err);
+      } else {
+        console.log("Auth Validation Error:", msg);
+      }
+
       setError(msg);
+      
       if (msg.includes('pending')) {
         setViewState('pending');
       }
@@ -144,7 +184,8 @@ const AuthPage: React.FC<AuthPageProps> = ({ onLogin }) => {
 
             {error && (
               <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm mb-6 flex items-center gap-2 border border-red-100 animate-in slide-in-from-top-2">
-                <AlertCircle size={16} /> {error}
+                <AlertCircle size={16} className="shrink-0" /> 
+                <span>{error}</span>
               </div>
             )}
 

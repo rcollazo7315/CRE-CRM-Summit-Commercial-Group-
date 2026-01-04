@@ -3,7 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { 
   Users, UserPlus, Search, Download, Upload, X, 
   MapPin, Phone, Mail, Globe, Linkedin, Tag, 
-  Edit, Trash2, Building, MoreVertical, StickyNote,
+  Edit, Trash2, Building, User as UserIcon, MoreVertical, StickyNote,
   ArrowRight, Check
 } from 'lucide-react';
 import { Contact, ContactInteraction, Deal, ContactType, ContactStatus } from '../types.ts';
@@ -107,7 +107,15 @@ const ContactsPage: React.FC<ContactsPageProps> = ({
   const handleEditClick = (contact?: Contact) => {
     setTagInput('');
     if (contact) {
-      setEditingContact(JSON.parse(JSON.stringify(contact))); // Deep copy
+      // Use spread instead of JSON parse/stringify for safer shallow copying (properties are mostly primitives or simple arrays)
+      // For deep copying complex objects, structuredClone is better if available, but manual copy is safest in TS/React
+      setEditingContact({
+        ...contact,
+        tags: [...(contact.tags || [])],
+        linkedDealIds: [...(contact.linkedDealIds || [])],
+        interactions: [...(contact.interactions || [])],
+        address: contact.address ? {...contact.address} : undefined
+      });
     } else {
       setEditingContact({
         firstName: '', 
