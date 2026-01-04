@@ -16,7 +16,7 @@ import ContactsPage from './pages/ContactsPage.tsx';
 import DealModal from './components/DealModal.tsx';
 import AiChatModal from './components/AiChatModal.tsx';
 import ConfirmModal from './components/ConfirmModal.tsx';
-import { Deal, LeadGenLog, UserAccount, DocumentFile, Contact, ContactInteraction } from './types.ts';
+import { Deal, LeadGenLog, UserAccount, DocumentFile, Contact, ContactInteraction, Task } from './types.ts';
 import { api } from './services/firestore.ts';
 import { AuthProvider, useAuth } from './context/AuthContext.tsx';
 import { isFirebaseInitialized } from './firebase/config.ts';
@@ -162,6 +162,7 @@ const AppContent: React.FC = () => {
   const handleSaveContact = async (contact: Contact) => { 
     if (!currentUser) return; 
     try {
+      // Pass the contact directly; api.saveContact handles userId assignment robustly now
       const payload = { 
         ...contact, 
         userId: contact.userId || currentUser.id 
@@ -169,8 +170,9 @@ const AppContent: React.FC = () => {
       await api.saveContact(payload); 
       await loadUserData(currentUser.id, currentUser.role === 'admin');
     } catch(e: any) {
-      console.error("Save Contact Failed:", e);
-      alert("Failed to save contact. " + (e.message || ""));
+      console.error("Save Contact Failed:", e.message);
+      // Re-throw so child components know it failed
+      throw e; 
     }
   };
 
@@ -249,6 +251,7 @@ const AppContent: React.FC = () => {
     try {
       const payload = { ...l, userId: l.userId || currentUser.id };
       await api.saveLeadLog(payload);
+      // Optimistic update
       setLeadGenLogs(prev => {
         const exists = prev.findIndex(item => item.id === payload.id);
         if (exists >= 0) {
@@ -258,6 +261,8 @@ const AppContent: React.FC = () => {
         }
         return [payload, ...prev];
       });
+      // Background sync
+      loadUserData(currentUser.id, currentUser.role === 'admin');
     } catch (e) {
       console.error("Save Log Failed:", e);
       alert("Failed to save activity log.");
@@ -274,6 +279,62 @@ const AppContent: React.FC = () => {
     }
   };
 
+  const handleTaskComplete = async (task: Task) => {
+    if (!currentUser) return;
+    
+    // Toggle Status
+    const newStatus = task.status === 'completed' ? 'pending' : 'completed';
+    const updatedTask = { ...task, status: newStatus } as Task;
+
+    try {
+      // 1. Update Task Status
+      await api.saveTask(updatedTask);
+
+      // 2. If COMPLETED, Update Activity Log automatically
+      if (newStatus === 'completed') {
+        const today = new Date().toISOString().split('T')[0];
+        // Check if log exists for today
+        const existingLog = leadGenLogs.find(l => l.date === today);
+        
+        const logPayload: LeadGenLog = existingLog ? { ...existingLog } : {
+          id: Math.random().toString(36).substr(2, 9),
+          userId: currentUser.id,
+          date: today,
+          callsMade: 0, lettersSent: 0, socialPosts: 0, targetedEmails: 0,
+          networkingEvents: 0, clientMeetings: 0, referralsGenerated: 0,
+          propertyTours: 0, bovsSubmitted: 0, listingsSigned: 0,
+          offersMade: 0, underContract: 0, closedDeals: 0, closedAmount: 0
+        };
+
+        // Increment logic based on task type
+        let activityLogged = false;
+        if (task.type === 'call') { logPayload.callsMade++; activityLogged = true; }
+        else if (task.type === 'email') { logPayload.targetedEmails++; activityLogged = true; }
+        else if (task.type === 'meeting') { logPayload.clientMeetings++; activityLogged = true; }
+        else if (task.type === 'site-visit') { logPayload.propertyTours++; activityLogged = true; }
+        else if (task.type === 'proposal') { logPayload.offersMade++; activityLogged = true; }
+
+        if (activityLogged) {
+          await api.saveLeadLog(logPayload);
+          // Refresh logs locally
+          setLeadGenLogs(prev => {
+            const idx = prev.findIndex(l => l.id === logPayload.id);
+            if (idx >= 0) {
+              const updated = [...prev];
+              updated[idx] = logPayload;
+              return updated;
+            }
+            return [logPayload, ...prev];
+          });
+        }
+      }
+      // Re-fetch to ensure sync
+      loadUserData(currentUser.id, currentUser.role === 'admin');
+    } catch (e) {
+      console.error("Task completion error:", e);
+    }
+  };
+
   if (loading) {
     return (
       <div className="h-screen flex flex-col items-center justify-center bg-slate-50">
@@ -287,21 +348,21 @@ const AppContent: React.FC = () => {
     if (activeTab === 'admin-dashboard' && currentUser?.role === 'admin') return <AdminDashboardPage />;
     switch (activeTab) {
       case 'dashboard': case 'deals': case 'closed-deals':
-        return <DashboardPage activeTab={activeTab} deals={deals} onAddDeal={() => { setDealModalInitialData(null); setIsDealModalOpen(true); }} onDealClick={(id) => { setSelectedDealId(id); setActiveTab('deal-details'); }} onDeleteDeal={handleDeleteDeal} onRouteChange={setActiveTab} onOpenAi={() => setIsChatOpen(true)} onSaveDeal={handleSaveDeal} searchTerm={searchTerm} />;
+        return <DashboardPage activeTab={activeTab} deals={deals} onAddDeal={() => { setDealModalInitialData(null); setIsDealModalOpen(true); }} onDealClick={(id) => { setSelectedDealId(id); setActiveTab('deal-details'); }} onDeleteDeal={handleDeleteDeal} onRouteChange={setActiveTab} onOpenAi={() => setIsChatOpen(true)} onSaveDeal={handleSaveDeal} searchTerm={searchTerm} onTaskComplete={handleTaskComplete} />;
       case 'deal-details':
         const deal = deals.find(d => d.id === selectedDealId);
         if (!deal) return <div className="p-8 text-center">Deal not found. <button onClick={() => setActiveTab('deals')} className="text-blue-600 hover:underline">Return to list</button></div>;
-        return <DealDetailsPage deal={deal} onBack={() => setActiveTab('deals')} onUpdateDeal={handleSaveDeal} onEditDeal={() => { setDealModalInitialData(deal); setIsDealModalOpen(true); }} onDeleteDeal={() => handleDeleteDeal(deal.id)} onViewDocuments={() => { setDocumentFilterId(deal.id); setActiveTab('documents'); }} onAddDocument={handleAddDocument} onDeleteDocument={handleDeleteDocument} />;
-      case 'contacts': return <ContactsPage contacts={contacts} deals={deals} onSaveContact={handleSaveContact} onDeleteContact={handleDeleteContact} onAddInteraction={handleAddInteraction} onLinkDeal={handleLinkDeal} onUnlinkDeal={handleUnlinkDeal} onImportContacts={handleImportContacts} searchTerm={searchTerm} />;
+        return <DealDetailsPage deal={deal} onBack={() => setActiveTab('deals')} onUpdateDeal={handleSaveDeal} onEditDeal={() => { setDealModalInitialData(deal); setIsDealModalOpen(true); }} onDeleteDeal={() => handleDeleteDeal(deal.id)} onViewDocuments={() => { setDocumentFilterId(deal.id); setActiveTab('documents'); }} onAddDocument={handleAddDocument} onDeleteDocument={handleDeleteDocument} onTaskComplete={handleTaskComplete} />;
+      case 'contacts': return <ContactsPage contacts={contacts} deals={deals} onSaveContact={handleSaveContact} onDeleteContact={handleDeleteContact} onAddInteraction={handleAddInteraction} onLinkDeal={handleLinkDeal} onUnlinkDeal={handleUnlinkDeal} onImportContacts={handleImportContacts} />;
       case 'calculator': return <MortgageCalculatorPage />;
       case 'settings': return <SettingsPage user={currentUser!} onUpdateProfile={handleUpdateProfile} />;
       case 'reports': 
-        if (currentUser?.role !== 'admin') return <DashboardPage activeTab="dashboard" deals={deals} onAddDeal={() => setIsDealModalOpen(true)} onDealClick={() => {}} onDeleteDeal={async () => {}} onRouteChange={setActiveTab} onOpenAi={() => setIsChatOpen(true)} onSaveDeal={() => {}} />;
+        if (currentUser?.role !== 'admin') return <DashboardPage activeTab="dashboard" deals={deals} onAddDeal={() => setIsDealModalOpen(true)} onDealClick={() => {}} onDeleteDeal={async () => {}} onRouteChange={setActiveTab} onOpenAi={() => setIsChatOpen(true)} onSaveDeal={() => {}} onTaskComplete={handleTaskComplete} />;
         return <ReportsPage deals={deals} users={allUsers} currentUser={currentUser} logs={leadGenLogs} />;
       case 'documents': return <DocumentsPage deals={deals} initialFilterDealId={documentFilterId} onAddDocument={handleAddDocument} onDeleteDocument={handleDeleteDocument} />;
       case 'communications': return <CommunicationsPage user={currentUser} onUpdateUser={handleUpdateProfile} />;
       case 'lead-gen': return <LeadGenPage logs={leadGenLogs} onSaveLog={handleSaveLog} onDeleteLog={handleDeleteLog} />;
-      default: return <DashboardPage activeTab="dashboard" deals={deals} onAddDeal={() => { setDealModalInitialData(null); setIsDealModalOpen(true); }} onDealClick={(id) => { setSelectedDealId(id); setActiveTab('deal-details'); }} onDeleteDeal={handleDeleteDeal} onRouteChange={setActiveTab} onOpenAi={() => setIsChatOpen(true)} onSaveDeal={handleSaveDeal} searchTerm={searchTerm} />;
+      default: return <DashboardPage activeTab="dashboard" deals={deals} onAddDeal={() => { setDealModalInitialData(null); setIsDealModalOpen(true); }} onDealClick={(id) => { setSelectedDealId(id); setActiveTab('deal-details'); }} onDeleteDeal={handleDeleteDeal} onRouteChange={setActiveTab} onOpenAi={() => setIsChatOpen(true)} onSaveDeal={handleSaveDeal} searchTerm={searchTerm} onTaskComplete={handleTaskComplete} />;
     }
   };
 

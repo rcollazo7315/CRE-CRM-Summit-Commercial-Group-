@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { X, Sparkles, Upload, Loader2, Save, Image as ImageIcon, Briefcase, Building, CheckCircle2, DollarSign, Calendar, UserPlus, Users, Search } from 'lucide-react';
-import { PropertyType, DealStatus, Deal, LeadSource, LEAD_SOURCE_LABELS, RepresentationType, REPRESENTATION_LABELS, Contact } from '../types.ts';
+import { X, Sparkles, Upload, Loader2, Save, Image as ImageIcon, Briefcase, Building, CheckCircle2, DollarSign, Calendar, UserPlus, Users, Search, Clock } from 'lucide-react';
+import { PropertyType, DealStatus, Deal, LeadSource, LEAD_SOURCE_LABELS, RepresentationType, REPRESENTATION_LABELS, Contact, ContractDates } from '../types.ts';
 import { generateListingDescription } from '../services/geminiService.ts';
+import ContractDatesForm from './ContractDatesForm.tsx';
 
 interface DealModalProps {
   isOpen: boolean;
@@ -26,6 +27,8 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
   const [loadingAi, setLoadingAi] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
+  const [activeTab, setActiveTab] = useState<'basics' | 'timeline'>('basics');
+
   // Contact Linking State
   const [contactMode, setContactMode] = useState<'existing' | 'new'>('new');
   const [contactSearch, setContactSearch] = useState('');
@@ -40,6 +43,7 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
     maxSqFt: '' as string | number,
     leaseTerm: '' as string | number,
     leaseType: 'NNN',
+    projectedCommission: '' as string | number, // New Field
     
     // Final Deal Points
     closingPrice: '' as string | number,
@@ -62,6 +66,9 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
     imageUrl: '',
     leadSource: '' as LeadSource | '',
     leadSourceNotes: '',
+    
+    // Contract Dates
+    contractDates: undefined as ContractDates | undefined,
   });
 
   // Filter contacts based on search
@@ -86,6 +93,7 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
         maxSqFt: initialData.maxSqFt || '',
         leaseTerm: initialData.leaseTerm || '',
         leaseType: initialData.leaseType || 'NNN',
+        projectedCommission: initialData.projectedCommission ? initialData.projectedCommission.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '',
         
         // Load Final Points
         closingPrice: initialData.closingPrice ? initialData.closingPrice.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '',
@@ -107,6 +115,8 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
         imageUrl: initialData.imageUrl || '',
         leadSource: initialData.leadSource || '',
         leadSourceNotes: initialData.leadSourceNotes || '',
+        
+        contractDates: initialData.contractDates,
       });
       
       if (initialData.contactId) {
@@ -125,6 +135,7 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
         maxSqFt: '',
         leaseTerm: '',
         leaseType: 'NNN',
+        projectedCommission: '',
         closingPrice: '',
         closingDate: '',
         finalLeaseRate: '',
@@ -142,8 +153,10 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
         imageUrl: `https://picsum.photos/400/300?random=${Math.floor(Math.random() * 100)}`,
         leadSource: '',
         leadSourceNotes: '',
+        contractDates: undefined,
       });
       setContactMode('new');
+      setActiveTab('basics');
     }
   }, [initialData, isOpen]);
 
@@ -168,7 +181,7 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
   const handleCurrencyBlur = (field: string) => {
     const val = (formData as any)[field];
     if (!val) return;
-    const num = parseFloat(val.toString());
+    const num = parseFloat(val.toString().replace(/,/g, ''));
     if (!isNaN(num)) {
       setFormData(prev => ({
         ...prev,
@@ -182,16 +195,8 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const base64String = reader.result as string;
-        setFormData(prev => ({ ...prev, imageUrl: base64String }));
-      };
-      reader.readAsDataURL(file);
-    }
+  const handleContractDatesChange = (updatedDates: ContractDates) => {
+    setFormData(prev => ({ ...prev, contractDates: updatedDates }));
   };
 
   const handleSelectContact = (contact: Contact) => {
@@ -235,6 +240,7 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const numericAsking = parseFloat(formData.askingPrice.toString().replace(/,/g, ''));
+    const numericProjected = formData.projectedCommission ? parseFloat(formData.projectedCommission.toString().replace(/,/g, '')) : undefined;
     const numericClosing = formData.closingPrice ? parseFloat(formData.closingPrice.toString().replace(/,/g, '')) : undefined;
     const numericCommission = formData.actualCommission ? parseFloat(formData.actualCommission.toString().replace(/,/g, '')) : undefined;
     const numericFinalRate = formData.finalLeaseRate ? parseFloat(formData.finalLeaseRate.toString()) : undefined;
@@ -249,6 +255,7 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
       maxSqFt: formData.maxSqFt ? parseFloat(formData.maxSqFt.toString()) : undefined,
       leaseTerm: formData.leaseTerm ? parseFloat(formData.leaseTerm.toString()) : undefined,
       leaseType: formData.leaseType,
+      projectedCommission: numericProjected,
       
       // Final Points
       closingPrice: numericClosing,
@@ -280,6 +287,8 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
       documents: initialData?.documents || [],
       leadSource: formData.leadSource || null,
       leadSourceNotes: formData.leadSourceNotes || '',
+      
+      contractDates: formData.contractDates,
     };
 
     onSave(dealPayload);
@@ -308,413 +317,456 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
           </button>
         </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
+        {/* Tab Navigation */}
+        <div className="px-6 pt-2 border-b border-slate-100 flex gap-6 sticky top-[88px] bg-white z-10">
+           <button 
+             onClick={() => setActiveTab('basics')}
+             className={`pb-3 font-bold text-sm transition-all border-b-2 ${activeTab === 'basics' ? 'border-summit-900 text-summit-900' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+           >
+             Deal Basics
+           </button>
+           <button 
+             onClick={() => setActiveTab('timeline')}
+             className={`pb-3 font-bold text-sm transition-all border-b-2 flex items-center gap-2 ${activeTab === 'timeline' ? 'border-summit-900 text-summit-900' : 'border-transparent text-slate-400 hover:text-slate-600'}`}
+           >
+             <Clock size={14} /> Contract Timeline
+           </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6">
           
-          {/* Representation Selector */}
-          <div className="bg-slate-50 p-4 rounded-lg border border-slate-100">
-             <label className="block text-xs font-black text-slate-500 uppercase tracking-wide mb-2">I am representing the:</label>
-             <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-                {Object.entries(REPRESENTATION_LABELS).map(([key, label]) => (
-                    <button
-                        key={key}
-                        type="button"
-                        onClick={() => setFormData(prev => ({ ...prev, representation: key as RepresentationType }))}
-                        className={`text-sm py-2 px-3 rounded-lg border transition-all ${
-                            formData.representation === key 
-                            ? 'bg-white border-summit-accent text-summit-900 shadow-sm ring-1 ring-summit-accent' 
-                            : 'bg-slate-100 border-transparent text-slate-500 hover:bg-white hover:border-slate-300'
-                        }`}
-                    >
-                        {label.split(' ')[0]}
-                    </button>
-                ))}
-             </div>
-          </div>
-
-          <div className="space-y-4">
-            <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide border-b border-slate-100 pb-2">
-                {isDemandSide ? 'Requirement Criteria' : 'Property Details'}
-            </h3>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                    {isDemandSide ? 'Target Location / Search Area' : 'Property Address'}
-                </label>
-                <input 
-                  required
-                  name="propertyAddress"
-                  value={formData.propertyAddress}
-                  onChange={handleChange}
-                  type="text" 
-                  className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent focus:border-summit-accent outline-none"
-                  placeholder={isDemandSide ? "e.g. Downtown, Medical District" : "e.g. 123 Business Park Dr"}
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Asset Type</label>
-                <select 
-                  name="propertyType"
-                  value={formData.propertyType}
-                  onChange={handleChange}
-                  className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent focus:border-summit-accent outline-none"
-                >
-                  {Object.values(PropertyType).map(t => (
-                    <option key={t} value={t}>{t}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-
-            {/* Price & Size Row */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                    {isDemandSide ? (isLeasing ? 'Max Rent Budget / Yr' : 'Max Purchase Budget') : (isLeasing ? 'Asking Rent / Yr' : 'Asking Price')}
-                </label>
-                <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">$</span>
-                    <input 
-                    required
-                    name="askingPrice"
-                    value={formData.askingPrice}
-                    onChange={(e) => handleCurrencyChange(e, 'askingPrice')}
-                    onBlur={() => handleCurrencyBlur('askingPrice')}
-                    type="text" 
-                    className="w-full pl-7 p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none"
-                    placeholder="0.00"
-                    />
-                </div>
-              </div>
-              
-              {isDemandSide ? (
-                  <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Min SqFt</label>
-                        <input 
-                            name="minSqFt"
-                            type="number"
-                            value={formData.minSqFt}
-                            onChange={handleChange}
-                            className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none"
-                            placeholder="Min"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Max SqFt</label>
-                        <input 
-                            name="maxSqFt"
-                            type="number"
-                            value={formData.maxSqFt}
-                            onChange={handleChange}
-                            className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none"
-                            placeholder="Max"
-                        />
-                      </div>
-                  </div>
-              ) : (
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
-                    <select 
-                    name="status"
-                    value={formData.status}
-                    onChange={handleChange}
-                    className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none"
-                    >
-                    {Object.values(DealStatus).map(s => (
-                        <option key={s} value={s}>{s}</option>
+          {activeTab === 'basics' ? (
+            <div className="space-y-6">
+              {/* Representation Selector */}
+              <div className="bg-slate-50 p-4 rounded-lg border border-slate-100">
+                 <label className="block text-xs font-black text-slate-500 uppercase tracking-wide mb-2">I am representing the:</label>
+                 <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+                    {Object.entries(REPRESENTATION_LABELS).map(([key, label]) => (
+                        <button
+                            key={key}
+                            type="button"
+                            onClick={() => setFormData(prev => ({ ...prev, representation: key as RepresentationType }))}
+                            className={`text-sm py-2 px-3 rounded-lg border transition-all ${
+                                formData.representation === key 
+                                ? 'bg-white border-summit-accent text-summit-900 shadow-sm ring-1 ring-summit-accent' 
+                                : 'bg-slate-100 border-transparent text-slate-500 hover:bg-white hover:border-slate-300'
+                            }`}
+                        >
+                            {label.split(' ')[0]}
+                        </button>
                     ))}
-                    </select>
-                </div>
-              )}
-            </div>
+                 </div>
+              </div>
 
-            {/* Target Lease Parameters */}
-            {isLeasing && (
-                <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-100">
-                    <div className="col-span-2 text-xs font-black text-slate-500 uppercase tracking-wide border-b border-slate-200 pb-1 mb-1">Target Lease Parameters</div>
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Est. Term (Years)</label>
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide border-b border-slate-100 pb-2">
+                    {isDemandSide ? 'Requirement Criteria' : 'Property Details'}
+                </h3>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                        {isDemandSide ? 'Target Location / Search Area' : 'Property Address'}
+                    </label>
+                    <input 
+                      required
+                      name="propertyAddress"
+                      value={formData.propertyAddress}
+                      onChange={handleChange}
+                      type="text" 
+                      className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent focus:border-summit-accent outline-none"
+                      placeholder={isDemandSide ? "e.g. Downtown, Medical District" : "e.g. 123 Business Park Dr"}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Asset Type</label>
+                    <select 
+                      name="propertyType"
+                      value={formData.propertyType}
+                      onChange={handleChange}
+                      className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent focus:border-summit-accent outline-none"
+                    >
+                      {Object.values(PropertyType).map(t => (
+                        <option key={t} value={t}>{t}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                {/* Price & Size Row */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                        {isDemandSide ? (isLeasing ? 'Max Rent Budget / Yr' : 'Max Purchase Budget') : (isLeasing ? 'Asking Rent / Yr' : 'Asking Price')}
+                    </label>
+                    <div className="relative">
+                        <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">$</span>
                         <input 
-                            name="leaseTerm"
-                            type="number"
-                            value={formData.leaseTerm}
-                            onChange={handleChange}
-                            className="w-full p-2.5 border border-slate-300 rounded-lg outline-none"
-                            placeholder="e.g. 5"
+                        required
+                        name="askingPrice"
+                        value={formData.askingPrice}
+                        onChange={(e) => handleCurrencyChange(e, 'askingPrice')}
+                        onBlur={() => handleCurrencyBlur('askingPrice')}
+                        type="text" 
+                        className="w-full pl-7 p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none"
+                        placeholder="0.00"
                         />
                     </div>
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Lease Type</label>
+                  </div>
+                  
+                  {isDemandSide ? (
+                      <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Min SqFt</label>
+                            <input 
+                                name="minSqFt"
+                                type="number"
+                                value={formData.minSqFt}
+                                onChange={handleChange}
+                                className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none"
+                                placeholder="Min"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Max SqFt</label>
+                            <input 
+                                name="maxSqFt"
+                                type="number"
+                                value={formData.maxSqFt}
+                                onChange={handleChange}
+                                className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none"
+                                placeholder="Max"
+                            />
+                          </div>
+                      </div>
+                  ) : (
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Status</label>
                         <select 
-                            name="leaseType"
-                            value={formData.leaseType}
-                            onChange={handleChange}
-                            className="w-full p-2.5 border border-slate-300 rounded-lg outline-none"
+                        name="status"
+                        value={formData.status}
+                        onChange={handleChange}
+                        className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none"
                         >
-                            <option value="NNN">Triple Net (NNN)</option>
-                            <option value="Gross">Gross</option>
-                            <option value="MG">Modified Gross</option>
-                            <option value="FS">Full Service</option>
+                        {Object.values(DealStatus).map(s => (
+                            <option key={s} value={s}>{s}</option>
+                        ))}
                         </select>
                     </div>
+                  )}
                 </div>
-            )}
 
-            {isDemandSide && (
-                 <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Pipeline Status</label>
-                    <select 
-                    name="status"
-                    value={formData.status}
-                    onChange={handleChange}
-                    className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none"
-                    >
-                    {Object.values(DealStatus).map(s => (
-                        <option key={s} value={s}>{s}</option>
-                    ))}
-                    </select>
-                </div>
-            )}
-          </div>
-
-          {/* FINAL DEAL POINTS SECTION - Emphasized when relevant */}
-          <div className={`space-y-4 rounded-xl p-5 border-2 ${['Negotiating', 'Closing', 'Completed'].includes(formData.status) ? 'bg-green-50 border-green-200' : 'bg-slate-50 border-slate-100'}`}>
-             <h3 className={`text-sm font-black uppercase tracking-wide flex items-center gap-2 ${['Negotiating', 'Closing', 'Completed'].includes(formData.status) ? 'text-green-800' : 'text-slate-500'}`}>
-               <CheckCircle2 size={18} /> Final Agreement & Closing Details
-             </h3>
-             
-             {isLeasing ? (
-               // LEASING FINAL TERMS
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Final Lease Rate ($/sf/yr)</label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">$</span>
-                      <input name="finalLeaseRate" type="number" step="0.01" value={formData.finalLeaseRate} onChange={handleChange} className="w-full pl-7 p-2.5 bg-white border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="0.00" />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Final Term (Years/Mos)</label>
-                    <input name="finalLeaseTerm" type="text" value={formData.finalLeaseTerm} onChange={handleChange} className="w-full p-2.5 bg-white border border-slate-300 rounded-lg outline-none" placeholder="e.g. 60 Months" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Final Lease Type</label>
-                    <select name="finalLeaseType" value={formData.finalLeaseType} onChange={handleChange} className="w-full p-2.5 bg-white border border-slate-300 rounded-lg outline-none">
-                       <option value="NNN">Triple Net (NNN)</option>
-                       <option value="Gross">Gross</option>
-                       <option value="MG">Modified Gross</option>
-                       <option value="FS">Full Service</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Commencement Date</label>
-                    <input name="leaseStartDate" type="date" value={formData.leaseStartDate} onChange={handleChange} className="w-full p-2.5 bg-white border border-slate-300 rounded-lg outline-none" />
-                  </div>
-               </div>
-             ) : (
-               // SALES FINAL TERMS
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Final Contract Price</label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">$</span>
-                      <input name="closingPrice" value={formData.closingPrice} onChange={(e) => handleCurrencyChange(e, 'closingPrice')} onBlur={() => handleCurrencyBlur('closingPrice')} type="text" className="w-full pl-7 p-2.5 bg-white border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="0.00" />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Closing Date</label>
-                    <input name="closingDate" type="date" value={formData.closingDate} onChange={handleChange} className="w-full p-2.5 bg-white border border-slate-300 rounded-lg outline-none" />
-                  </div>
-               </div>
-             )}
-
-             {/* Commission - Universal */}
-             <div className="pt-2 border-t border-slate-200/50">
-               <label className="block text-sm font-medium text-slate-700 mb-1">Total Commission Amount (Gross)</label>
-               <div className="relative w-full md:w-1/2">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"><DollarSign size={14}/></span>
-                  <input name="actualCommission" value={formData.actualCommission} onChange={(e) => handleCurrencyChange(e, 'actualCommission')} onBlur={() => handleCurrencyBlur('actualCommission')} type="text" className="w-full pl-8 p-2.5 bg-white border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-green-500 font-medium text-green-700" placeholder="0.00" />
-               </div>
-             </div>
-          </div>
-
-          <div className="space-y-4">
-            <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide border-b border-slate-100 pb-2 flex justify-between items-center">
-                <span>{isDemandSide ? 'Client Information' : 'Owner Information'}</span>
-                {formData.contactId && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded flex items-center gap-1"><Users size={12}/> Linked</span>}
-            </h3>
-            
-            {/* Mode Switcher */}
-            <div className="flex gap-4 border-b border-slate-100 mb-4">
-              <button 
-                type="button" 
-                className={`pb-2 text-xs font-bold uppercase tracking-wider transition-colors ${contactMode === 'new' ? 'text-summit-900 border-b-2 border-summit-900' : 'text-slate-400 hover:text-slate-600'}`}
-                onClick={() => { setContactMode('new'); setFormData(p => ({...p, contactId: ''})); }}
-              >
-                Manual Entry
-              </button>
-              <button 
-                type="button" 
-                className={`pb-2 text-xs font-bold uppercase tracking-wider transition-colors ${contactMode === 'existing' ? 'text-summit-900 border-b-2 border-summit-900' : 'text-slate-400 hover:text-slate-600'}`}
-                onClick={() => setContactMode('existing')}
-              >
-                Link Contact
-              </button>
-            </div>
-
-            {/* Link Existing Contact Input */}
-            {contactMode === 'existing' && (
-              <div className="relative mb-6">
-                <label className="block text-sm font-medium text-slate-700 mb-1">Search Contacts</label>
-                <div className="relative">
-                  <Search size={16} className="absolute left-3 top-3 text-slate-400" />
-                  <input
-                    type="text"
-                    className="w-full pl-10 p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none"
-                    placeholder="Type name or company..."
-                    value={contactSearch}
-                    onChange={e => { setContactSearch(e.target.value); setShowContactDropdown(true); }}
-                    onFocus={() => setShowContactDropdown(true)}
-                  />
-                </div>
-                {showContactDropdown && contactSearch && (
-                  <div className="absolute z-20 left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
-                    {filteredContacts.length > 0 ? filteredContacts.map(c => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => handleSelectContact(c)}
-                        className="w-full text-left px-4 py-3 hover:bg-slate-50 border-b border-slate-50 last:border-0 flex justify-between items-center group"
-                      >
+                {/* Target Lease Parameters */}
+                {isLeasing && (
+                    <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-100">
+                        <div className="col-span-2 text-xs font-black text-slate-500 uppercase tracking-wide border-b border-slate-200 pb-1 mb-1">Target Lease Parameters</div>
                         <div>
-                          <div className="font-bold text-slate-800">{c.firstName} {c.lastName}</div>
-                          <div className="text-xs text-slate-500">{c.company}</div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Est. Term (Years)</label>
+                            <input 
+                                name="leaseTerm"
+                                type="number"
+                                value={formData.leaseTerm}
+                                onChange={handleChange}
+                                className="w-full p-2.5 border border-slate-300 rounded-lg outline-none"
+                                placeholder="e.g. 5"
+                            />
                         </div>
-                        <UserPlus size={16} className="text-slate-300 group-hover:text-summit-accent" />
-                      </button>
-                    )) : (
-                      <div className="p-3 text-sm text-slate-400 text-center">No matching contacts found.</div>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Lease Type</label>
+                            <select 
+                                name="leaseType"
+                                value={formData.leaseType}
+                                onChange={handleChange}
+                                className="w-full p-2.5 border border-slate-300 rounded-lg outline-none"
+                            >
+                                <option value="NNN">Triple Net (NNN)</option>
+                                <option value="Gross">Gross</option>
+                                <option value="MG">Modified Gross</option>
+                                <option value="FS">Full Service</option>
+                            </select>
+                        </div>
+                    </div>
+                )}
+
+                {isDemandSide && (
+                     <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Pipeline Status</label>
+                        <select 
+                        name="status"
+                        value={formData.status}
+                        onChange={handleChange}
+                        className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none"
+                        >
+                        {Object.values(DealStatus).map(s => (
+                            <option key={s} value={s}>{s}</option>
+                        ))}
+                        </select>
+                    </div>
+                )}
+
+                {/* New: Projected Commission Field */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Projected Commission (Gross)</label>
+                  <div className="relative">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">$</span>
+                      <input 
+                      name="projectedCommission"
+                      value={formData.projectedCommission}
+                      onChange={(e) => handleCurrencyChange(e, 'projectedCommission')}
+                      onBlur={() => handleCurrencyBlur('projectedCommission')}
+                      type="text" 
+                      className="w-full pl-7 p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none"
+                      placeholder="Estimated amount..."
+                      />
+                  </div>
+                </div>
+              </div>
+
+              {/* FINAL DEAL POINTS SECTION - Emphasized when relevant */}
+              <div className={`space-y-4 rounded-xl p-5 border-2 ${['Negotiating', 'Closing', 'Completed'].includes(formData.status) ? 'bg-green-50 border-green-200' : 'bg-slate-50 border-slate-100'}`}>
+                 <h3 className={`text-sm font-black uppercase tracking-wide flex items-center gap-2 ${['Negotiating', 'Closing', 'Completed'].includes(formData.status) ? 'text-green-800' : 'text-slate-500'}`}>
+                   <CheckCircle2 size={18} /> Final Agreement & Closing Details
+                 </h3>
+                 
+                 {isLeasing ? (
+                   // LEASING FINAL TERMS
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Final Lease Rate ($/sf/yr)</label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">$</span>
+                          <input name="finalLeaseRate" type="number" step="0.01" value={formData.finalLeaseRate} onChange={handleChange} className="w-full pl-7 p-2.5 bg-white border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="0.00" />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Final Term (Years/Mos)</label>
+                        <input name="finalLeaseTerm" type="text" value={formData.finalLeaseTerm} onChange={handleChange} className="w-full p-2.5 bg-white border border-slate-300 rounded-lg outline-none" placeholder="e.g. 60 Months" />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Final Lease Type</label>
+                        <select name="finalLeaseType" value={formData.finalLeaseType} onChange={handleChange} className="w-full p-2.5 bg-white border border-slate-300 rounded-lg outline-none">
+                           <option value="NNN">Triple Net (NNN)</option>
+                           <option value="Gross">Gross</option>
+                           <option value="MG">Modified Gross</option>
+                           <option value="FS">Full Service</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Commencement Date</label>
+                        <input name="leaseStartDate" type="date" value={formData.leaseStartDate} onChange={handleChange} className="w-full p-2.5 bg-white border border-slate-300 rounded-lg outline-none" />
+                      </div>
+                   </div>
+                 ) : (
+                   // SALES FINAL TERMS
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Final Contract Price</label>
+                        <div className="relative">
+                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">$</span>
+                          <input name="closingPrice" value={formData.closingPrice} onChange={(e) => handleCurrencyChange(e, 'closingPrice')} onBlur={() => handleCurrencyBlur('closingPrice')} type="text" className="w-full pl-7 p-2.5 bg-white border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="0.00" />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Closing Date</label>
+                        <input name="closingDate" type="date" value={formData.closingDate} onChange={handleChange} className="w-full p-2.5 bg-white border border-slate-300 rounded-lg outline-none" />
+                      </div>
+                   </div>
+                 )}
+
+                 {/* Commission - Universal */}
+                 <div className="pt-2 border-t border-slate-200/50">
+                   <label className="block text-sm font-medium text-slate-700 mb-1">Total Commission Amount (Gross)</label>
+                   <div className="relative w-full md:w-1/2">
+                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"><DollarSign size={14}/></span>
+                      <input name="actualCommission" value={formData.actualCommission} onChange={(e) => handleCurrencyChange(e, 'actualCommission')} onBlur={() => handleCurrencyBlur('actualCommission')} type="text" className="w-full pl-8 p-2.5 bg-white border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-green-500 font-medium text-green-700" placeholder="0.00" />
+                   </div>
+                 </div>
+              </div>
+
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide border-b border-slate-100 pb-2 flex justify-between items-center">
+                    <span>{isDemandSide ? 'Client Information' : 'Owner Information'}</span>
+                    {formData.contactId && <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded flex items-center gap-1"><Users size={12}/> Linked</span>}
+                </h3>
+                
+                {/* Mode Switcher */}
+                <div className="flex gap-4 border-b border-slate-100 mb-4">
+                  <button 
+                    type="button" 
+                    className={`pb-2 text-xs font-bold uppercase tracking-wider transition-colors ${contactMode === 'new' ? 'text-summit-900 border-b-2 border-summit-900' : 'text-slate-400 hover:text-slate-600'}`}
+                    onClick={() => { setContactMode('new'); setFormData(p => ({...p, contactId: ''})); }}
+                  >
+                    Manual Entry
+                  </button>
+                  <button 
+                    type="button" 
+                    className={`pb-2 text-xs font-bold uppercase tracking-wider transition-colors ${contactMode === 'existing' ? 'text-summit-900 border-b-2 border-summit-900' : 'text-slate-400 hover:text-slate-600'}`}
+                    onClick={() => setContactMode('existing')}
+                  >
+                    Link Contact
+                  </button>
+                </div>
+
+                {/* Link Existing Contact Input */}
+                {contactMode === 'existing' && (
+                  <div className="relative mb-6">
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Search Contacts</label>
+                    <div className="relative">
+                      <Search size={16} className="absolute left-3 top-3 text-slate-400" />
+                      <input
+                        type="text"
+                        className="w-full pl-10 p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none"
+                        placeholder="Type name or company..."
+                        value={contactSearch}
+                        onChange={e => { setContactSearch(e.target.value); setShowContactDropdown(true); }}
+                        onFocus={() => setShowContactDropdown(true)}
+                      />
+                    </div>
+                    {showContactDropdown && contactSearch && (
+                      <div className="absolute z-20 left-0 right-0 top-full mt-1 bg-white border border-slate-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                        {filteredContacts.length > 0 ? filteredContacts.map(c => (
+                          <button
+                            key={c.id}
+                            type="button"
+                            onClick={() => handleSelectContact(c)}
+                            className="w-full text-left px-4 py-3 hover:bg-slate-50 border-b border-slate-50 last:border-0 flex justify-between items-center group"
+                          >
+                            <div>
+                              <div className="font-bold text-slate-800">{c.firstName} {c.lastName}</div>
+                              <div className="text-xs text-slate-500">{c.company}</div>
+                            </div>
+                            <UserPlus size={16} className="text-slate-300 group-hover:text-summit-accent" />
+                          </button>
+                        )) : (
+                          <div className="p-3 text-sm text-slate-400 text-center">No matching contacts found.</div>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
-              </div>
-            )}
 
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Full Name / Entity</label>
-                <input 
-                  required
-                  name="ownerName"
-                  value={formData.ownerName}
-                  onChange={handleChange}
-                  type="text" 
-                  disabled={contactMode === 'existing' && !!formData.contactId}
-                  className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:border-summit-accent disabled:bg-slate-50 disabled:text-slate-500"
-                />
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Full Name / Entity</label>
+                    <input 
+                      required
+                      name="ownerName"
+                      value={formData.ownerName}
+                      onChange={handleChange}
+                      type="text" 
+                      disabled={contactMode === 'existing' && !!formData.contactId}
+                      className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:border-summit-accent disabled:bg-slate-50 disabled:text-slate-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
+                    <input 
+                      name="ownerEmail"
+                      value={formData.ownerEmail}
+                      onChange={handleChange}
+                      type="email" 
+                      disabled={contactMode === 'existing' && !!formData.contactId}
+                      className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:border-summit-accent disabled:bg-slate-50 disabled:text-slate-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Phone</label>
+                    <input 
+                      name="ownerPhone"
+                      value={formData.ownerPhone}
+                      onChange={handlePhoneChange}
+                      maxLength={14}
+                      placeholder="(555) 555-5555"
+                      type="tel" 
+                      disabled={contactMode === 'existing' && !!formData.contactId}
+                      className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:border-summit-accent disabled:bg-slate-50 disabled:text-slate-500"
+                    />
+                  </div>
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
-                <input 
-                  name="ownerEmail"
-                  value={formData.ownerEmail}
-                  onChange={handleChange}
-                  type="email" 
-                  disabled={contactMode === 'existing' && !!formData.contactId}
-                  className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:border-summit-accent disabled:bg-slate-50 disabled:text-slate-500"
-                />
+
+              {/* Lead Source Section */}
+              <div className="space-y-4">
+                <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide border-b border-slate-100 pb-2">
+                  Lead Source Attribution
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                      How was this deal sourced? 
+                      {(formData.status === DealStatus.COMPLETED) && <span className="text-red-500">*</span>}
+                    </label>
+                    <select
+                      name="leadSource"
+                      value={formData.leadSource}
+                      onChange={handleChange}
+                      required={formData.status === DealStatus.COMPLETED}
+                      className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent focus:border-summit-accent outline-none"
+                    >
+                      <option value="">Select source...</option>
+                      {Object.entries(LEAD_SOURCE_LABELS).map(([value, label]) => (
+                        <option key={value} value={value}>{label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Source Notes</label>
+                    <input
+                      name="leadSourceNotes"
+                      value={formData.leadSourceNotes}
+                      onChange={handleChange}
+                      type="text"
+                      placeholder="e.g., Met at ICSC conference, Referred by John Smith"
+                      className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:border-summit-accent"
+                    />
+                  </div>
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Phone</label>
-                <input 
-                  name="ownerPhone"
-                  value={formData.ownerPhone}
-                  onChange={handlePhoneChange}
-                  maxLength={14}
-                  placeholder="(555) 555-5555"
-                  type="tel" 
-                  disabled={contactMode === 'existing' && !!formData.contactId}
-                  className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:border-summit-accent disabled:bg-slate-50 disabled:text-slate-500"
+
+              <div className="space-y-4">
+                 <div className="flex justify-between items-center border-b border-slate-100 pb-2">
+                  <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide">
+                      {isDemandSide ? 'Requirement Details / Brief' : 'Listing Description'}
+                  </h3>
+                  <button 
+                    type="button"
+                    onClick={handleAiGenerate}
+                    disabled={loadingAi}
+                    className="flex items-center text-xs bg-purple-100 text-purple-700 px-3 py-1.5 rounded-full hover:bg-purple-200 transition-colors disabled:opacity-50 font-medium"
+                  >
+                    {loadingAi ? <Loader2 size={14} className="animate-spin mr-1" /> : <Sparkles size={14} className="mr-1" />}
+                    {loadingAi ? 'Thinking...' : 'Generate with AI'}
+                  </button>
+                </div>
+                
+                <textarea 
+                  name="description"
+                  value={formData.description}
+                  onChange={handleChange}
+                  rows={4}
+                  placeholder={isDemandSide ? "Describe client requirements, preferred submarkets, must-haves..." : "Enter property description or use AI to generate..."}
+                  className="w-full p-3 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent"
+                />
+                
+                 <textarea 
+                  name="notes"
+                  value={formData.notes}
+                  onChange={handleChange}
+                  rows={2}
+                  placeholder="Internal notes (e.g. 'Client is motivated', 'Lease expires in 6 months')..."
+                  className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none"
                 />
               </div>
             </div>
-          </div>
-
-          {/* Lead Source Section */}
-          <div className="space-y-4">
-            <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide border-b border-slate-100 pb-2">
-              Lead Source Attribution
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">
-                  How was this deal sourced? 
-                  {(formData.status === DealStatus.COMPLETED) && <span className="text-red-500">*</span>}
-                </label>
-                <select
-                  name="leadSource"
-                  value={formData.leadSource}
-                  onChange={handleChange}
-                  required={formData.status === DealStatus.COMPLETED}
-                  className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent focus:border-summit-accent outline-none"
-                >
-                  <option value="">Select source...</option>
-                  {Object.entries(LEAD_SOURCE_LABELS).map(([value, label]) => (
-                    <option key={value} value={value}>{label}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Source Notes</label>
-                <input
-                  name="leadSourceNotes"
-                  value={formData.leadSourceNotes}
-                  onChange={handleChange}
-                  type="text"
-                  placeholder="e.g., Met at ICSC conference, Referred by John Smith"
-                  className="w-full p-2.5 border border-slate-300 rounded-lg outline-none focus:border-summit-accent"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div className="space-y-4">
-             <div className="flex justify-between items-center border-b border-slate-100 pb-2">
-              <h3 className="text-sm font-semibold text-slate-500 uppercase tracking-wide">
-                  {isDemandSide ? 'Requirement Details / Brief' : 'Listing Description'}
-              </h3>
-              <button 
-                type="button"
-                onClick={handleAiGenerate}
-                disabled={loadingAi}
-                className="flex items-center text-xs bg-purple-100 text-purple-700 px-3 py-1.5 rounded-full hover:bg-purple-200 transition-colors disabled:opacity-50 font-medium"
-              >
-                {loadingAi ? <Loader2 size={14} className="animate-spin mr-1" /> : <Sparkles size={14} className="mr-1" />}
-                {loadingAi ? 'Thinking...' : 'Generate with AI'}
-              </button>
-            </div>
-            
-            <textarea 
-              name="description"
-              value={formData.description}
-              onChange={handleChange}
-              rows={4}
-              placeholder={isDemandSide ? "Describe client requirements, preferred submarkets, must-haves..." : "Enter property description or use AI to generate..."}
-              className="w-full p-3 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent"
+          ) : (
+            // Contract Timeline Tab
+            <ContractDatesForm 
+              deal={{ contractDates: formData.contractDates }} 
+              onChange={handleContractDatesChange}
             />
-            
-             <textarea 
-              name="notes"
-              value={formData.notes}
-              onChange={handleChange}
-              rows={2}
-              placeholder="Internal notes (e.g. 'Client is motivated', 'Lease expires in 6 months')..."
-              className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none"
-            />
-          </div>
+          )}
 
-          <div className="flex justify-end pt-4 border-t border-slate-100 gap-3">
+          <div className="flex justify-end pt-6 border-t border-slate-100 gap-3 mt-4">
             <button 
               type="button" 
               onClick={onClose}

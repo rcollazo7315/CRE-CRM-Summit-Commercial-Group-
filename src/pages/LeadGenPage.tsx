@@ -1,5 +1,6 @@
+
 import React, { useState, useMemo } from 'react';
-import { Plus, TrendingUp, Phone, Users, FileText, ArrowUp, ArrowDown, Download, Save, X, Calendar, Edit, Trash2 } from 'lucide-react';
+import { Plus, TrendingUp, Phone, Users, FileText, ArrowUp, ArrowDown, Download, Save, X, Calendar, Edit, Trash2, AlertCircle } from 'lucide-react';
 import { LeadGenLog } from '../types.ts';
 
 interface LeadGenPageProps {
@@ -87,12 +88,9 @@ const LeadGenPage: React.FC<LeadGenPageProps> = ({ logs, onSaveLog, onDeleteLog 
     onSaveLog(newLog);
     setIsModalOpen(false);
     
-    // Reset form
+    // Reset form after submit for cleanliness
     if (editingId) {
         setEditingId(null);
-        setFormData(prev => ({ ...prev, callsMade: 0, lettersSent: 0, socialPosts: 0, targetedEmails: 0, networkingEvents: 0, clientMeetings: 0, referralsGenerated: 0, propertyTours: 0, bovsSubmitted: 0, listingsSigned: 0, offersMade: 0, underContract: 0, closedDeals: 0, closedAmount: 0, notes: '' }));
-    } else {
-        setFormData(prev => ({ ...prev, callsMade: 0, lettersSent: 0, socialPosts: 0, targetedEmails: 0, networkingEvents: 0, clientMeetings: 0, referralsGenerated: 0, propertyTours: 0, bovsSubmitted: 0, listingsSigned: 0, offersMade: 0, underContract: 0, closedDeals: 0, closedAmount: 0, notes: '' }));
     }
   };
 
@@ -289,8 +287,9 @@ const LeadGenPage: React.FC<LeadGenPageProps> = ({ logs, onSaveLog, onDeleteLog 
 
       {/* Logs Table */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
-         <div className="p-5 border-b border-slate-100">
+         <div className="p-5 border-b border-slate-100 flex justify-between items-center">
            <h3 className="font-bold text-slate-800">Recent Logs</h3>
+           <span className="text-xs text-slate-400 font-medium">Sorted by Date (Newest First)</span>
          </div>
          <div className="overflow-x-auto">
            <table className="w-full text-left">
@@ -308,8 +307,8 @@ const LeadGenPage: React.FC<LeadGenPageProps> = ({ logs, onSaveLog, onDeleteLog 
                </tr>
              </thead>
              <tbody className="divide-y divide-slate-100">
-               {logs.length > 0 ? logs.map(log => (
-                 <tr key={log.id} className="hover:bg-slate-50">
+               {logs.length > 0 ? logs.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(log => (
+                 <tr key={log.id} className="hover:bg-slate-50 transition-colors group">
                    <td className="p-4 font-medium text-slate-700 whitespace-nowrap">{new Date(log.date).toLocaleDateString()}</td>
                    <td className="p-4 text-center text-slate-600">{log.callsMade}</td>
                    <td className="p-4 text-center text-slate-600">{log.targetedEmails}</td>
@@ -318,13 +317,23 @@ const LeadGenPage: React.FC<LeadGenPageProps> = ({ logs, onSaveLog, onDeleteLog 
                    <td className="p-4 text-center text-slate-600">{log.offersMade}</td>
                    <td className="p-4 text-center text-green-600 font-bold">{log.closedDeals}</td>
                    <td className="p-4 text-sm text-slate-500 max-w-xs truncate">{log.notes || '-'}</td>
-                   <td className="p-4 text-center flex items-center justify-center gap-2">
-                     <button onClick={() => handleEditClick(log)} className="p-1.5 text-slate-400 hover:text-summit-900 rounded hover:bg-slate-100">
-                       <Edit size={16} />
-                     </button>
-                     <button onClick={() => handleDeleteClick(log.id)} className="p-1.5 text-slate-400 hover:text-red-600 rounded hover:bg-red-50">
-                       <Trash2 size={16} />
-                     </button>
+                   <td className="p-4 text-center">
+                     <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button 
+                            onClick={() => handleEditClick(log)} 
+                            className="p-1.5 text-slate-400 hover:text-summit-900 rounded-lg hover:bg-slate-100"
+                            title="Edit Entry"
+                        >
+                        <Edit size={16} />
+                        </button>
+                        <button 
+                            onClick={() => handleDeleteClick(log.id)} 
+                            className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg hover:bg-red-50"
+                            title="Delete Entry"
+                        >
+                        <Trash2 size={16} />
+                        </button>
+                     </div>
                    </td>
                  </tr>
                )) : (
@@ -340,12 +349,20 @@ const LeadGenPage: React.FC<LeadGenPageProps> = ({ logs, onSaveLog, onDeleteLog 
       {/* Modal */}
       {isModalOpen && (
         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-           <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+           <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto animate-in fade-in zoom-in duration-200">
               <div className="flex justify-between items-center p-6 border-b border-slate-100">
                  <h2 className="text-xl font-bold text-slate-800">{editingId ? 'Edit Activity Log' : 'New Activity Log'}</h2>
                  <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600"><X /></button>
               </div>
               <form onSubmit={handleSubmit} className="p-6">
+                 
+                 {editingId && (
+                    <div className="mb-6 p-3 bg-amber-50 text-amber-800 text-sm rounded-lg border border-amber-100 flex items-center gap-2">
+                        <AlertCircle size={16} />
+                        Editing an existing log record. Changes will be saved immediately.
+                    </div>
+                 )}
+
                  <div className="mb-6">
                    <label className="block text-sm font-medium text-slate-700 mb-2">Log Date</label>
                    <div className="relative">
@@ -355,7 +372,7 @@ const LeadGenPage: React.FC<LeadGenPageProps> = ({ logs, onSaveLog, onDeleteLog 
                         name="date"
                         value={formData.date}
                         onChange={handleChange}
-                        className="w-full pl-10 p-2.5 bg-slate-50 border border-slate-300 rounded-lg outline-none" 
+                        className="w-full pl-10 p-2.5 bg-slate-50 border border-slate-300 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent/20 focus:border-summit-accent transition-all" 
                         required
                       />
                    </div>
@@ -374,7 +391,7 @@ const LeadGenPage: React.FC<LeadGenPageProps> = ({ logs, onSaveLog, onDeleteLog 
                           ].map(field => (
                             <div key={field.name}>
                                <label className="block text-xs font-semibold text-slate-500 mb-1">{field.label}</label>
-                               <input type="number" name={field.name} value={(formData as any)[field.name]} onChange={handleChange} min="0" className="w-full p-2 border border-slate-300 rounded outline-none focus:border-summit-accent" />
+                               <input type="number" name={field.name} value={(formData as any)[field.name]} onChange={handleChange} min="0" className="w-full p-2 border border-slate-300 rounded outline-none focus:border-summit-accent transition-colors" />
                             </div>
                           ))}
                        </div>
@@ -391,7 +408,7 @@ const LeadGenPage: React.FC<LeadGenPageProps> = ({ logs, onSaveLog, onDeleteLog 
                           ].map(field => (
                             <div key={field.name}>
                                <label className="block text-xs font-semibold text-slate-500 mb-1">{field.label}</label>
-                               <input type="number" name={field.name} value={(formData as any)[field.name]} onChange={handleChange} min="0" className="w-full p-2 border border-slate-300 rounded outline-none focus:border-summit-accent" />
+                               <input type="number" name={field.name} value={(formData as any)[field.name]} onChange={handleChange} min="0" className="w-full p-2 border border-slate-300 rounded outline-none focus:border-summit-accent transition-colors" />
                             </div>
                           ))}
                        </div>
@@ -411,25 +428,27 @@ const LeadGenPage: React.FC<LeadGenPageProps> = ({ logs, onSaveLog, onDeleteLog 
                           ].map(field => (
                             <div key={field.name}>
                                <label className="block text-xs font-semibold text-slate-500 mb-1">{field.label}</label>
-                               <input type="number" name={field.name} value={(formData as any)[field.name]} onChange={handleChange} min="0" className="w-full p-2 border border-slate-300 rounded outline-none focus:border-summit-accent" />
+                               <input type="number" name={field.name} value={(formData as any)[field.name]} onChange={handleChange} min="0" className="w-full p-2 border border-slate-300 rounded outline-none focus:border-summit-accent transition-colors" />
                             </div>
                           ))}
                        </div>
                        <div className="mt-3">
                            <label className="block text-xs font-semibold text-slate-500 mb-1">Closed Volume ($)</label>
-                           <input type="number" name="closedAmount" value={formData.closedAmount} onChange={handleChange} min="0" className="w-full p-2 border border-slate-300 rounded outline-none focus:border-summit-accent" />
+                           <input type="number" name="closedAmount" value={formData.closedAmount} onChange={handleChange} min="0" className="w-full p-2 border border-slate-300 rounded outline-none focus:border-summit-accent transition-colors" />
                        </div>
                     </div>
 
                     <div>
                        <label className="block text-sm font-medium text-slate-700 mb-2">Daily Notes</label>
-                       <textarea name="notes" value={formData.notes} onChange={handleChange} rows={3} className="w-full p-3 border border-slate-300 rounded-lg outline-none" placeholder="Key wins, obstacles, or reminders..." />
+                       <textarea name="notes" value={formData.notes} onChange={handleChange} rows={3} className="w-full p-3 border border-slate-300 rounded-lg outline-none focus:border-summit-accent focus:ring-1 focus:ring-summit-accent/20 transition-all" placeholder="Key wins, obstacles, or reminders..." />
                     </div>
                  </div>
 
                  <div className="flex justify-end gap-3 mt-8">
-                    <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-50 rounded-lg font-medium">Cancel</button>
-                    <button type="submit" className="px-6 py-2 bg-summit-900 text-white rounded-lg font-bold hover:bg-summit-800 shadow-lg shadow-summit-900/10">Save Log</button>
+                    <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-slate-600 hover:bg-slate-50 rounded-lg font-medium transition-colors">Cancel</button>
+                    <button type="submit" className="px-6 py-2 bg-summit-900 text-white rounded-lg font-bold hover:bg-summit-800 shadow-lg shadow-summit-900/10 transition-all active:scale-95">
+                        {editingId ? 'Update Log' : 'Save Log'}
+                    </button>
                  </div>
               </form>
            </div>

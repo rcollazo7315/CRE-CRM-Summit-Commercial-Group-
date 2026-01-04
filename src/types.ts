@@ -103,6 +103,23 @@ export const REPRESENTATION_LABELS: Record<RepresentationType, string> = {
   tenant: 'Tenant Rep (Leasing)'
 };
 
+export type DeadlineStatus = 'pending' | 'waived' | 'completed' | 'expired';
+
+export interface ContractDeadline {
+  days: number;
+  date?: string; // Calculated deadline date (ISO YYYY-MM-DD)
+  status: DeadlineStatus;
+  waivedDate?: string;
+  completedDate?: string;
+}
+
+export interface ContractDates {
+  contractDate?: string; // ISO YYYY-MM-DD
+  dueDiligence: ContractDeadline;
+  financing: ContractDeadline;
+  closing: ContractDeadline;
+}
+
 export interface Deal {
   id: string;
   userId: string;
@@ -163,12 +180,16 @@ export interface Deal {
   commissionRate?: number;
   commission?: number;
   estimatedCommission?: number;
+  projectedCommission?: number; // New field
   offersReceived: number;
   highestOffer: number;
   daysOnMarket: number;
   leadSource?: LeadSource;
   leadSourceNotes?: string;
   leadSourceDate?: string;
+  
+  // Contract Tracking
+  contractDates?: ContractDates;
 }
 
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
@@ -258,8 +279,9 @@ export interface MortgageCalculation {
   notes?: string;
 }
 
-export type ContactType = 'owner' | 'strategic_partner' | 'investor' | 'lender' | 'broker' | 'attorney' | 'title_company' | 'property_manager' | 'contractor' | 'appraiser' | 'inspector' | 'tenant' | 'banker' | 'vendor' | 'other';
+export type ContactType = 'owner' | 'strategic_partner' | 'investor' | 'lender' | 'broker' | 'attorney' | 'title_company' | 'property_manager' | 'contractor' | 'appraiser' | 'inspector' | 'tenant' | 'banker' | 'vendor' | 'other' | 'partner' | 'developer' | 'prospect';
 export type ContactStatus = 'active' | 'inactive' | 'lead' | 'prospect';
+export type RelationshipTier = 'A' | 'B' | 'C' | 'D';
 
 export interface ContactAddress {
   street?: string;
@@ -302,7 +324,7 @@ export interface Contact {
   notes?: string;
   linkedDealIds: string[];
   interactions: ContactInteraction[];
-  tier?: string;
+  tier?: RelationshipTier;
   submarkets?: string[];
   propertyInterests?: PropertyType[];
   createdAt?: string;

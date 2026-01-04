@@ -5,7 +5,7 @@ import { MortgageCalculation } from '../types.ts';
 import { api } from '../services/firestore.ts';
 import { useAuth } from '../context/AuthContext.tsx';
 import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 
 const MortgageCalculatorPage: React.FC = () => {
   // Input State
@@ -146,19 +146,24 @@ const MortgageCalculatorPage: React.FC = () => {
   const handlePrint = () => {
     const doc = new jsPDF();
     const today = new Date().toLocaleDateString();
+    const pageWidth = doc.internal.pageSize.width;
     
-    // Header
-    doc.setFontSize(20);
-    doc.setTextColor(16, 61, 49);
-    doc.text('Summit Commercial Group', 105, 20, { align: 'center' });
+    // Header - Standard Dark Blue
+    doc.setFillColor(15, 23, 42); // Slate-900
+    doc.rect(0, 0, pageWidth, 40, 'F');
     
-    doc.setFontSize(16);
-    doc.setTextColor(0, 0, 0);
-    doc.text('Mortgage Analysis Report', 105, 30, { align: 'center' });
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(22);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Mortgage Analysis Report', 14, 22);
     
     doc.setFontSize(10);
-    doc.setTextColor(100, 100, 100);
-    doc.text(`Generated: ${today}`, 105, 38, { align: 'center' });
+    doc.setFont('helvetica', 'normal');
+    doc.text(`Generated: ${today}`, 14, 30);
+    
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Summit Commercial Group', pageWidth - 14, 22, { align: 'right' });
     
     // Property Details
     doc.setFontSize(14);
@@ -175,18 +180,16 @@ const MortgageCalculatorPage: React.FC = () => {
       ['Loan Term', `${loanTermYears} years`],
     ];
     
-    if ((doc as any).autoTable) {
-        (doc as any).autoTable({
-            startY: 55,
-            head: [['Item', 'Value']],
-            body: loanDetails,
-            theme: 'striped',
-            headStyles: { fillColor: [16, 61, 49] }
-        });
-    }
+    autoTable(doc, {
+        startY: 55,
+        head: [['Item', 'Value']],
+        body: loanDetails,
+        theme: 'striped',
+        headStyles: { fillColor: [15, 23, 42] }
+    });
     
     // Monthly Payment Breakdown
-    const finalY = (doc as any).lastAutoTable?.finalY || 100;
+    let finalY = (doc as any).lastAutoTable?.finalY || 100;
     doc.text('Monthly Payment Breakdown', 14, finalY + 10);
     
     const monthlyBreakdown = [
@@ -197,20 +200,42 @@ const MortgageCalculatorPage: React.FC = () => {
       ['Total Monthly Payment', `$${totalMonthlyPayment.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`],
     ];
     
-    if ((doc as any).autoTable) {
-        (doc as any).autoTable({
-            startY: finalY + 15,
-            head: [['Component', 'Amount']],
-            body: monthlyBreakdown,
-            theme: 'striped',
-            headStyles: { fillColor: [16, 61, 49] },
-            footStyles: { fillColor: [16, 61, 49], fontStyle: 'bold' }
-        });
-    }
+    autoTable(doc, {
+        startY: finalY + 15,
+        head: [['Component', 'Amount']],
+        body: monthlyBreakdown,
+        theme: 'striped',
+        headStyles: { fillColor: [15, 23, 42] },
+        footStyles: { fillColor: [15, 23, 42], fontStyle: 'bold' }
+    });
+
+    // Life of Loan Breakdown
+    finalY = (doc as any).lastAutoTable?.finalY || 150;
+    if (finalY > 240) { doc.addPage(); finalY = 20; }
+
+    doc.text('Life of Loan Breakdown', 14, finalY + 10);
+    
+    const totalTaxesAndFees = (annualTax + annualInsurance + annualHOA) * loanTermYears;
+
+    const lifeOfLoan = [
+        ['Total Interest Paid', `$${totalInterest.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`],
+        ['Total Tax, Ins & HOA', `$${totalTaxesAndFees.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`],
+        ['Total Cost of Loan', `$${totalCost.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`]
+    ];
+
+    autoTable(doc, {
+        startY: finalY + 15,
+        head: [['Metric', 'Total Amount']],
+        body: lifeOfLoan,
+        theme: 'striped',
+        headStyles: { fillColor: [15, 23, 42] }
+    });
     
     // Investment Metrics
-    const finalY2 = (doc as any).lastAutoTable?.finalY || 150;
-    doc.text('Investment Metrics', 14, finalY2 + 10);
+    finalY = (doc as any).lastAutoTable?.finalY || 150;
+    if (finalY > 240) { doc.addPage(); finalY = 20; }
+
+    doc.text('Investment Metrics', 14, finalY + 10);
     
     const ltv = propertyValue > 0 ? (loanAmount / propertyValue) * 100 : 0;
     const annualDebtService = monthlyPaymentPI * 12;
@@ -224,28 +249,30 @@ const MortgageCalculatorPage: React.FC = () => {
       ['Cap Rate', propertyValue > 0 ? `${((annualNOI / propertyValue) * 100).toFixed(2)}%` : 'N/A'],
     ];
     
-    if ((doc as any).autoTable) {
-        (doc as any).autoTable({
-            startY: finalY2 + 15,
-            head: [['Metric', 'Value']],
-            body: metrics,
-            theme: 'striped',
-            headStyles: { fillColor: [16, 61, 49] }
-        });
-    }
+    autoTable(doc, {
+        startY: finalY + 15,
+        head: [['Metric', 'Value']],
+        body: metrics,
+        theme: 'striped',
+        headStyles: { fillColor: [15, 23, 42] }
+    });
     
     // Amortization Schedule (First 12 Months)
-    const finalY3 = (doc as any).lastAutoTable?.finalY || 200;
+    finalY = (doc as any).lastAutoTable?.finalY || 200;
     
-    if (finalY3 < 250) { 
-      doc.text('Amortization Schedule (First Year)', 14, finalY3 + 10);
+    if (finalY > 220) { 
+        doc.addPage();
+        finalY = 20;
+    }
+    
+    doc.text('Amortization Schedule (First Year)', 14, finalY + 10);
       
-      const r = (interestRate || 0) / 100 / 12;
-      let balance = loanAmount;
-      const payment = monthlyPaymentPI;
-      const amortRows = [];
+    const r = (interestRate || 0) / 100 / 12;
+    let balance = loanAmount;
+    const payment = monthlyPaymentPI;
+    const amortRows = [];
       
-      for (let i = 1; i <= 12; i++) {
+    for (let i = 1; i <= 12; i++) {
         const interest = balance * r;
         const principal = payment - interest;
         balance = balance - principal;
@@ -259,17 +286,14 @@ const MortgageCalculatorPage: React.FC = () => {
         ]);
       }
       
-      if ((doc as any).autoTable) {
-        (doc as any).autoTable({
-            startY: finalY3 + 15,
-            head: [['Month', 'Payment', 'Principal', 'Interest', 'Balance']],
-            body: amortRows,
-            theme: 'striped',
-            headStyles: { fillColor: [16, 61, 49] },
-            styles: { fontSize: 8 }
-        });
-      }
-    }
+    autoTable(doc, {
+        startY: finalY + 15,
+        head: [['Month', 'Payment', 'Principal', 'Interest', 'Balance']],
+        body: amortRows,
+        theme: 'striped',
+        headStyles: { fillColor: [15, 23, 42] },
+        styles: { fontSize: 8 }
+    });
     
     const pageCount = doc.internal.pages.length - 1;
     for (let i = 1; i <= pageCount; i++) {
@@ -475,15 +499,15 @@ const MortgageCalculatorPage: React.FC = () => {
                   </div>
                   <div className="flex justify-between items-center py-2 border-b border-slate-100">
                      <span className="font-bold text-slate-700">Monthly Property Tax:</span>
-                     <span className="font-mono text-lg">${(annualTax/12).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                     <span className="font-mono text-lg">${(annualTax / 12).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                   </div>
                   <div className="flex justify-between items-center py-2 border-b border-slate-100">
                      <span className="font-bold text-slate-700">Monthly Insurance:</span>
-                     <span className="font-mono text-lg">${(annualInsurance/12).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                     <span className="font-mono text-lg">${(annualInsurance / 12).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                   </div>
                   <div className="flex justify-between items-center py-2 border-b border-slate-100">
                      <span className="font-bold text-slate-700">Monthly HOA:</span>
-                     <span className="font-mono text-lg">${(annualHOA/12).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                     <span className="font-mono text-lg">${(annualHOA / 12).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                   </div>
                   
                   <div className="bg-yellow-200 p-4 rounded-lg mt-4 flex justify-between items-center border border-yellow-300 print:bg-yellow-100 print:border-yellow-200">

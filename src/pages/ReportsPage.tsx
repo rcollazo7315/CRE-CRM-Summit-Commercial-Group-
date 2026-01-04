@@ -4,6 +4,8 @@ import { BarChart, TrendingUp, PieChart, Download, ArrowUp, Activity, FileText, 
 import { Deal, DealStatus, UserAccount, LeadGenLog } from '../types.ts';
 import KpiDashboard from '../components/KpiDashboard.tsx';
 import { generatePipelineReport, generateProductionReport, generateKPIReport, generateLeaseReport, generateFirmPerformanceReport } from '../utils/pdfGenerator.ts';
+import { jsPDF } from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 interface ReportsPageProps {
   deals: Deal[];
@@ -47,6 +49,134 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals, users, currentUser, lo
 
   const sortedAgents = [...displayAgents].sort((a, b) => Number(b.stats?.totalVolume || 0) - Number(a.stats?.totalVolume || 0));
 
+  const handlePrint = () => {
+    const doc = new jsPDF();
+    const today = new Date().toLocaleDateString();
+    
+    // Header
+    doc.setFontSize(20);
+    doc.setTextColor(16, 61, 49);
+    doc.text('Summit Commercial Group', 105, 20, { align: 'center' });
+    
+    doc.setFontSize(16);
+    doc.setTextColor(0, 0, 0);
+    doc.text('Agent Performance Report', 105, 30, { align: 'center' });
+    
+    doc.setFontSize(10);
+    doc.setTextColor(100, 100, 100);
+    doc.text(`Generated: ${today}`, 105, 38, { align: 'center' });
+    
+    // Summary Stats
+    doc.setFontSize(14);
+    doc.setTextColor(0, 0, 0);
+    doc.text('Executive Summary', 14, 55);
+    
+    const summaryStats = [
+      ['Total Deals', deals.length.toString()],
+      ['Active Agents', displayAgents.length.toString()],
+      ['Total Volume (Active)', `$${(totalVolume / 1000000).toFixed(2)}M`],
+      ['Closed Deals', closedCount.toString()],
+    ];
+    
+    autoTable(doc, {
+        startY: 60,
+        head: [['Metric', 'Value']],
+        body: summaryStats,
+        theme: 'grid',
+        headStyles: { fillColor: [16, 61, 49] }
+    });
+    
+    // Agent Performance Table
+    const finalY = Number((doc as any).lastAutoTable?.finalY || 100);
+    doc.setFontSize(14);
+    doc.text('Agent Performance', 14, finalY + 10);
+    
+    const agentData = sortedAgents.map(user => {
+      // Note: user.stats comes from firestore already calculated
+      const volume = Number(user.stats?.totalVolume || 0);
+      const closed = Number(user.stats?.closedDeals || 0);
+      const comm = Number(user.stats?.totalCommissions || 0);
+      
+      return [
+        `${user.firstName} ${user.lastName}`,
+        (user.stats?.totalDeals || 0).toString(),
+        closed.toString(),
+        `$${(volume / 1000000).toFixed(2)}M`,
+        `$${(comm / 1000).toFixed(1)}K`
+      ];
+    });
+    
+    autoTable(doc, {
+        startY: finalY + 15,
+        head: [['Agent', 'Total Deals', 'Closed', 'Volume', 'Commission']],
+        body: agentData,
+        theme: 'striped',
+        headStyles: { fillColor: [16, 61, 49] },
+        styles: { fontSize: 9 },
+        columnStyles: {
+            0: { cellWidth: 50 },
+            1: { halign: 'center' },
+            2: { halign: 'center' },
+            3: { halign: 'right' },
+            4: { halign: 'right' }
+        }
+    });
+    
+    // Deal Status Breakdown
+    const finalY2 = Number((doc as any).lastAutoTable?.finalY || 150);
+    
+    if (finalY2 < 250) {
+      doc.setFontSize(14);
+      doc.text('Deal Status Breakdown', 14, finalY2 + 10);
+      
+      const statusData = Object.entries(statusCounts).map(([status, count]) => [
+        status,
+        count.toString(),
+        `${((Number(count) / deals.length) * 100).toFixed(1)}%`
+      ]);
+      
+      autoTable(doc, {
+        startY: finalY2 + 15,
+        head: [['Status', 'Count', 'Percentage']],
+        body: statusData,
+        theme: 'grid',
+        headStyles: { fillColor: [16, 61, 49] }
+      });
+    }
+    
+    const pageCount = doc.internal.pages.length - 1;
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(8);
+      doc.setTextColor(150, 150, 150);
+      doc.text(
+        `Page ${i} of ${pageCount} | Confidential | Summit CRM © ${new Date().getFullYear()}`,
+        105,
+        285,
+        { align: 'center' }
+      );
+    }
+    
+    doc.save(`Agent_Report_${today.replace(/\//g, '-')}.pdf`);
+  };
+
+  const handleExport = () => {
+    const headers = "ID,Address,Type,Status,Asking Price,Offers,Highest Offer,Owner Name\n";
+    const rows = deals.map(d => 
+      `${d.id},"${d.propertyAddress}",${d.propertyType},${d.status},${d.askingPrice},${d.offersReceived},${d.highestOffer},"${d.owner.name}"`
+    ).join("\n");
+    
+    const csvContent = headers + rows;
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `Deal_Report_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="max-w-7xl mx-auto pb-10 print:max-w-none print:pb-0 print:w-full">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 print:mb-4 print:border-b-2 print:border-slate-800 print:pb-4">
@@ -55,14 +185,22 @@ const ReportsPage: React.FC<ReportsPageProps> = ({ deals, users, currentUser, lo
            <h1 className="text-2xl font-bold text-slate-900 print:text-xl">Performance Reports</h1>
            <p className="text-slate-500 print:text-sm">Consolidated market analysis and portfolio metrics.</p>
         </div>
-        {currentUser?.role === 'admin' && (
-            <button 
-                onClick={() => generateFirmPerformanceReport(users)}
-                className="bg-summit-900 text-white px-5 py-2.5 rounded-lg font-bold flex items-center gap-2 hover:bg-summit-800 shadow-lg shadow-summit-900/10 transition-all"
-            >
-                <Users size={18} /> Download Firm-Wide Audit
-            </button>
-        )}
+        <div className="flex gap-3 print:hidden">
+           {currentUser?.role === 'admin' && (
+                <button 
+                    onClick={() => generateFirmPerformanceReport(users)}
+                    className="bg-summit-900 text-white px-5 py-2.5 rounded-lg font-bold flex items-center gap-2 hover:bg-summit-800 shadow-lg shadow-summit-900/10 transition-all"
+                >
+                    <Users size={18} /> Download Firm-Wide Audit
+                </button>
+            )}
+           <button onClick={handlePrint} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg font-medium hover:bg-slate-50 flex items-center gap-2">
+             <Download size={16} /> Download PDF Report
+           </button>
+           <button onClick={handleExport} className="bg-summit-900 text-white px-4 py-2 rounded-lg font-medium hover:bg-summit-800 flex items-center gap-2 shadow-lg shadow-summit-900/10">
+             <Download size={16} /> Export CSV
+           </button>
+        </div>
       </div>
 
       {/* Report Generation Cards */}

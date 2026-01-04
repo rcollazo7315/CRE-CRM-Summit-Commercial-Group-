@@ -13,6 +13,24 @@ const SESSION_KEY = 'summit_session_uid';
 // Helper to simulate delay
 const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
+// Helper for safe JSON stringification (prevents circular reference errors)
+const safeStringify = (obj: any) => {
+  const cache = new Set();
+  return JSON.stringify(obj, (key, value) => {
+    if (typeof value === 'object' && value !== null) {
+      if (cache.has(value)) {
+        return '[Circular]';
+      }
+      // Avoid serializing DOM nodes which can cause crashes
+      if (typeof Node !== 'undefined' && value instanceof Node) {
+        return '[DOM Object]';
+      }
+      cache.add(value);
+    }
+    return value;
+  });
+};
+
 // --- Seed Data ---
 const SEED_ADMIN: UserAccount = {
   id: 'admin-1',
@@ -36,13 +54,13 @@ const SEED_ADMIN: UserAccount = {
 // Initialize Storage if empty
 const initStorage = () => {
   if (!localStorage.getItem(USERS_KEY)) {
-    localStorage.setItem(USERS_KEY, JSON.stringify([SEED_ADMIN]));
+    localStorage.setItem(USERS_KEY, safeStringify([SEED_ADMIN]));
   }
-  if (!localStorage.getItem(DEALS_KEY)) localStorage.setItem(DEALS_KEY, JSON.stringify([]));
-  if (!localStorage.getItem(TASKS_KEY)) localStorage.setItem(TASKS_KEY, JSON.stringify([]));
-  if (!localStorage.getItem(LOGS_KEY)) localStorage.setItem(LOGS_KEY, JSON.stringify([]));
-  if (!localStorage.getItem(CALCULATIONS_KEY)) localStorage.setItem(CALCULATIONS_KEY, JSON.stringify([]));
-  if (!localStorage.getItem(CONTACTS_KEY)) localStorage.setItem(CONTACTS_KEY, JSON.stringify([]));
+  if (!localStorage.getItem(DEALS_KEY)) localStorage.setItem(DEALS_KEY, safeStringify([]));
+  if (!localStorage.getItem(TASKS_KEY)) localStorage.setItem(TASKS_KEY, safeStringify([]));
+  if (!localStorage.getItem(LOGS_KEY)) localStorage.setItem(LOGS_KEY, safeStringify([]));
+  if (!localStorage.getItem(CALCULATIONS_KEY)) localStorage.setItem(CALCULATIONS_KEY, safeStringify([]));
+  if (!localStorage.getItem(CONTACTS_KEY)) localStorage.setItem(CONTACTS_KEY, safeStringify([]));
 };
 
 initStorage();
@@ -74,7 +92,7 @@ export const mockApi = {
     };
 
     users.push(newUser);
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
+    localStorage.setItem(USERS_KEY, safeStringify(users));
     localStorage.setItem(SESSION_KEY, newUser.id);
     return newUser;
   },
@@ -88,7 +106,7 @@ export const mockApi = {
     
     user.lastLogin = new Date().toISOString();
     const updatedUsers = users.map((u: UserAccount) => u.id === user.id ? user : u);
-    localStorage.setItem(USERS_KEY, JSON.stringify(updatedUsers));
+    localStorage.setItem(USERS_KEY, safeStringify(updatedUsers));
     localStorage.setItem(SESSION_KEY, user.id);
 
     if (user.status === 'denied') throw new Error('Account request denied.');
@@ -116,7 +134,7 @@ export const mockApi = {
     const idx = users.findIndex((u: UserAccount) => u.id === userId);
     if (idx !== -1) {
       users[idx] = { ...users[idx], ...updates };
-      localStorage.setItem(USERS_KEY, JSON.stringify(users));
+      localStorage.setItem(USERS_KEY, safeStringify(users));
       return users[idx];
     }
     throw new Error('User not found');
@@ -128,7 +146,7 @@ export const mockApi = {
     const idx = users.findIndex((u: UserAccount) => u.id === uid);
     if (idx !== -1) {
         users[idx].passwordHash = newPassword;
-        localStorage.setItem(USERS_KEY, JSON.stringify(users));
+        localStorage.setItem(USERS_KEY, safeStringify(users));
     }
   },
 
@@ -145,14 +163,14 @@ export const mockApi = {
       if (status === 'active') {
         users[idx].approvedAt = new Date().toISOString();
       }
-      localStorage.setItem(USERS_KEY, JSON.stringify(users));
+      localStorage.setItem(USERS_KEY, safeStringify(users));
     }
   },
 
   deleteUser: async (userId: string) => {
     let users = JSON.parse(localStorage.getItem(USERS_KEY) || '[]');
     users = users.filter((u: UserAccount) => u.id !== userId);
-    localStorage.setItem(USERS_KEY, JSON.stringify(users));
+    localStorage.setItem(USERS_KEY, safeStringify(users));
   },
 
   // Deals
@@ -172,14 +190,14 @@ export const mockApi = {
     } else {
       deals.unshift(dealWithMeta);
     }
-    localStorage.setItem(DEALS_KEY, JSON.stringify(deals));
+    localStorage.setItem(DEALS_KEY, safeStringify(deals));
     await mockApi.recalcUserStats(deal.userId);
   },
 
   deleteDeal: async (dealId: string, userId: string) => {
     let deals = JSON.parse(localStorage.getItem(DEALS_KEY) || '[]');
     deals = deals.filter((d: Deal) => d.id !== dealId);
-    localStorage.setItem(DEALS_KEY, JSON.stringify(deals));
+    localStorage.setItem(DEALS_KEY, safeStringify(deals));
     await mockApi.recalcUserStats(userId);
   },
 
@@ -197,14 +215,14 @@ export const mockApi = {
     } else {
       tasks.push(task);
     }
-    localStorage.setItem(TASKS_KEY, JSON.stringify(tasks));
+    localStorage.setItem(TASKS_KEY, safeStringify(tasks));
     await mockApi.recalcUserStats(task.userId);
   },
 
   deleteTask: async (taskId: string, userId: string) => {
     let tasks = JSON.parse(localStorage.getItem(TASKS_KEY) || '[]');
     tasks = tasks.filter((t: Task) => t.id !== taskId);
-    localStorage.setItem(TASKS_KEY, JSON.stringify(tasks));
+    localStorage.setItem(TASKS_KEY, safeStringify(tasks));
     // Assuming tasks have userId, if not, we can't recalc easily
   },
 
@@ -220,13 +238,13 @@ export const mockApi = {
     const idx = contacts.findIndex((c: Contact) => c.id === contact.id);
     if (idx >= 0) contacts[idx] = contact;
     else contacts.push(contact);
-    localStorage.setItem(CONTACTS_KEY, JSON.stringify(contacts));
+    localStorage.setItem(CONTACTS_KEY, safeStringify(contacts));
   },
 
   deleteContact: async (contactId: string) => {
     let contacts = JSON.parse(localStorage.getItem(CONTACTS_KEY) || '[]');
     contacts = contacts.filter((c: Contact) => c.id !== contactId);
-    localStorage.setItem(CONTACTS_KEY, JSON.stringify(contacts));
+    localStorage.setItem(CONTACTS_KEY, safeStringify(contacts));
   },
 
   addContactInteraction: async (contactId: string, interaction: ContactInteraction) => {
@@ -236,7 +254,7 @@ export const mockApi = {
       if(!contacts[idx].interactions) contacts[idx].interactions = [];
       contacts[idx].interactions.push(interaction);
       contacts[idx].lastContactedAt = new Date().toISOString();
-      localStorage.setItem(CONTACTS_KEY, JSON.stringify(contacts));
+      localStorage.setItem(CONTACTS_KEY, safeStringify(contacts));
     }
   },
 
@@ -247,7 +265,7 @@ export const mockApi = {
       if(!contacts[idx].linkedDealIds) contacts[idx].linkedDealIds = [];
       if(!contacts[idx].linkedDealIds.includes(dealId)) {
         contacts[idx].linkedDealIds.push(dealId);
-        localStorage.setItem(CONTACTS_KEY, JSON.stringify(contacts));
+        localStorage.setItem(CONTACTS_KEY, safeStringify(contacts));
       }
     }
   },
@@ -257,7 +275,7 @@ export const mockApi = {
     const idx = contacts.findIndex((c: Contact) => c.id === contactId);
     if (idx >= 0 && contacts[idx].linkedDealIds) {
       contacts[idx].linkedDealIds = contacts[idx].linkedDealIds.filter((id: string) => id !== dealId);
-      localStorage.setItem(CONTACTS_KEY, JSON.stringify(contacts));
+      localStorage.setItem(CONTACTS_KEY, safeStringify(contacts));
     }
   },
 
@@ -273,7 +291,7 @@ export const mockApi = {
         url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf' // Fake URL
       };
       deals[idx].documents.push(docWithUrl);
-      localStorage.setItem(DEALS_KEY, JSON.stringify(deals));
+      localStorage.setItem(DEALS_KEY, safeStringify(deals));
     }
   },
 
@@ -282,7 +300,7 @@ export const mockApi = {
     const idx = deals.findIndex((d: Deal) => d.id === dealId);
     if (idx >= 0 && deals[idx].documents) {
       deals[idx].documents = deals[idx].documents.filter((d: DocumentFile) => d.id !== documentId);
-      localStorage.setItem(DEALS_KEY, JSON.stringify(deals));
+      localStorage.setItem(DEALS_KEY, safeStringify(deals));
     }
   },
 
@@ -297,13 +315,13 @@ export const mockApi = {
     const idx = logs.findIndex((l: LeadGenLog) => l.id === log.id);
     if (idx >= 0) logs[idx] = log;
     else logs.push(log);
-    localStorage.setItem(LOGS_KEY, JSON.stringify(logs));
+    localStorage.setItem(LOGS_KEY, safeStringify(logs));
   },
 
   deleteLeadLog: async (logId: string) => {
     let logs = JSON.parse(localStorage.getItem(LOGS_KEY) || '[]');
     logs = logs.filter((l: LeadGenLog) => l.id !== logId);
-    localStorage.setItem(LOGS_KEY, JSON.stringify(logs));
+    localStorage.setItem(LOGS_KEY, safeStringify(logs));
   },
 
   // Mortgage Calculator
@@ -311,7 +329,7 @@ export const mockApi = {
     await delay(300);
     const calcs = JSON.parse(localStorage.getItem(CALCULATIONS_KEY) || '[]');
     calcs.push(calc);
-    localStorage.setItem(CALCULATIONS_KEY, JSON.stringify(calcs));
+    localStorage.setItem(CALCULATIONS_KEY, safeStringify(calcs));
     return calc;
   },
 
@@ -360,7 +378,7 @@ export const mockApi = {
     const idx = users.findIndex((u: UserAccount) => u.id === userId);
     if (idx !== -1) {
       users[idx].stats = stats;
-      localStorage.setItem(USERS_KEY, JSON.stringify(users));
+      localStorage.setItem(USERS_KEY, safeStringify(users));
     }
   }
 };

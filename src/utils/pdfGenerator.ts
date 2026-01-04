@@ -1,7 +1,11 @@
 
 import { jsPDF } from 'jspdf';
-import 'jspdf-autotable';
+import autoTable from 'jspdf-autotable';
 import { Deal, Task, DealStatus, LeadGenLog, UserAccount } from '../types.ts';
+
+// Constants
+const BRAND_COLOR = [15, 23, 42]; // Slate 900
+const ACCENT_COLOR = [16, 185, 129]; // Emerald 500
 
 // Helper to format currency
 const formatCurrency = (val: number) => {
@@ -28,28 +32,50 @@ const getDataUrl = (url: string): Promise<string> => {
   });
 };
 
+const addBrandedHeader = (doc: jsPDF, title: string, subtitle: string) => {
+    const pageWidth = doc.internal.pageSize.width;
+    doc.setFillColor(BRAND_COLOR[0], BRAND_COLOR[1], BRAND_COLOR[2]);
+    doc.rect(0, 0, pageWidth, 40, 'F');
+    doc.setTextColor(255, 255, 255);
+    doc.setFontSize(22);
+    doc.setFont('helvetica', 'bold');
+    doc.text(title, 14, 22);
+    doc.setFontSize(10);
+    doc.setFont('helvetica', 'normal');
+    doc.text(subtitle, 14, 30);
+    
+    // Logo text right aligned
+    doc.setFontSize(12);
+    doc.setFont('helvetica', 'bold');
+    doc.text("Summit Commercial Group", pageWidth - 14, 22, { align: 'right' });
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.text(new Date().toLocaleDateString(), pageWidth - 14, 30, { align: 'right' });
+    
+    doc.setTextColor(0, 0, 0); // Reset
+};
+
+const addPageFooters = (doc: jsPDF) => {
+    const pageCount = doc.internal.pages.length - 1;
+    const pageWidth = doc.internal.pageSize.width;
+    const pageHeight = doc.internal.pageSize.height;
+    for (let i = 1; i <= pageCount; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(150, 150, 150);
+        doc.text(`Confidential • Summit Commercial Group`, 14, pageHeight - 10);
+        doc.text(`Page ${i} of ${pageCount}`, pageWidth - 14, pageHeight - 10, { align: 'right' });
+    }
+};
+
 /**
  * GENERATE OWNER MARKETING REPORT
  * Used to update clients on the status of their listing.
  */
 export const generateOwnerReport = async (deal: Deal, tasks: Task[]) => {
   const doc = new jsPDF();
-  const pageWidth = doc.internal.pageSize.width;
-  const today = new Date().toLocaleDateString();
-
-  // --- HEADER ---
-  doc.setFillColor(15, 23, 42); // Slate-900
-  doc.rect(0, 0, pageWidth, 40, 'F');
   
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(22);
-  doc.setFont('helvetica', 'bold');
-  doc.text("Marketing Status Report", 14, 20);
-  
-  doc.setFontSize(10);
-  doc.setFont('helvetica', 'normal');
-  doc.text(`Generated: ${today}`, 14, 28);
-  doc.text("Summit Commercial Group", pageWidth - 14, 20, { align: 'right' });
+  addBrandedHeader(doc, "Marketing Status Report", `Prepared for: ${deal.owner.name}`);
 
   // --- PROPERTY OVERVIEW ---
   let currentY = 50;
@@ -98,7 +124,7 @@ export const generateOwnerReport = async (deal: Deal, tasks: Task[]) => {
     ['Property Tours', tours.toString(), 'Highest Offer', formatCurrency(deal.highestOffer)]
   ];
 
-  (doc as any).autoTable({
+  autoTable(doc, {
     startY: currentY,
     head: [],
     body: statsData,
@@ -127,12 +153,12 @@ export const generateOwnerReport = async (deal: Deal, tasks: Task[]) => {
     ]);
 
   if (activityRows.length > 0) {
-      (doc as any).autoTable({
+      autoTable(doc, {
         startY: currentY + 5,
         head: [['Date', 'Type', 'Activity Detail', 'Status']],
         body: activityRows,
         theme: 'striped',
-        headStyles: { fillColor: [15, 23, 42] },
+        headStyles: { fillColor: BRAND_COLOR },
         styles: { fontSize: 9 },
       });
   } else {
@@ -141,16 +167,7 @@ export const generateOwnerReport = async (deal: Deal, tasks: Task[]) => {
       doc.text("No specific activity logged for this period.", 14, currentY + 10);
   }
 
-  // --- FOOTER ---
-  const pageCount = doc.internal.pages.length - 1;
-  for (let i = 1; i <= pageCount; i++) {
-    doc.setPage(i);
-    doc.setFontSize(8);
-    doc.setTextColor(150, 150, 150);
-    doc.text(`Confidential • Prepared for ${deal.owner.name}`, 14, 285);
-    doc.text(`Page ${i} of ${pageCount}`, pageWidth - 20, 285);
-  }
-
+  addPageFooters(doc);
   doc.save(`Owner_Report_${deal.propertyAddress.replace(/\s+/g, '_')}.pdf`);
 };
 
@@ -160,31 +177,33 @@ export const generateOwnerReport = async (deal: Deal, tasks: Task[]) => {
  */
 export const generatePipelineReport = (deals: Deal[]) => {
   const doc = new jsPDF('l'); // Landscape
-  const pageWidth = doc.internal.pageSize.width;
-  const today = new Date().toLocaleDateString();
-
-  // Active deals only
-  const activeDeals = deals.filter(d => d.status !== DealStatus.COMPLETED && d.status !== DealStatus.ARCHIVED);
-  const totalVolume = activeDeals.reduce((acc, d) => acc + d.askingPrice, 0);
-  const totalPotentialComm = activeDeals.reduce((acc, d) => acc + (d.estimatedCommission || (d.askingPrice * 0.03)), 0);
-
-  // --- HEADER ---
-  doc.setFillColor(16, 185, 129); // Summit Accent Green
-  doc.rect(0, 0, pageWidth, 35, 'F');
   
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(20);
-  doc.text("Commercial Pipeline Forecast", 14, 18);
+  // Active deals only
+  const activeDeals = deals.filter(d => d.status !== DealStatus.COMPLETED && d.status !== DealStatus.ARCHIVED && d.status !== DealStatus.CLOSED_LOST);
+  const totalVolume = activeDeals.reduce((acc, d) => acc + d.askingPrice, 0);
+  
+  // Potential commission: Use Projected if available, else Estimated, else 3% of Asking
+  const totalPotentialComm = activeDeals.reduce((acc, d) => acc + (d.projectedCommission || d.estimatedCommission || (d.askingPrice * 0.03)), 0);
+  
+  let totalWeightedComm = 0;
+
+  addBrandedHeader(doc, "Pipeline & Forecast", "Projected Revenue Analysis");
+
   doc.setFontSize(10);
-  doc.text(`Active Deal Volume: ${formatCurrency(totalVolume)}  |  Proj. Gross Commission: ${formatCurrency(totalPotentialComm)}`, 14, 26);
+  doc.setTextColor(50);
+  doc.text(`Active Deal Volume: ${formatCurrency(totalVolume)}  |  Proj. Gross Commission: ${formatCurrency(totalPotentialComm)}`, 14, 48);
 
   // --- PIPELINE TABLE ---
   const tableData = activeDeals.map(d => {
-    // Basic probability logic based on status
-    let prob = 0;
-    if (d.status === DealStatus.ACTIVE) prob = 10;
+    // Probability logic
+    let prob = 10;
+    if (d.status === DealStatus.UNDER_REVIEW) prob = 25;
     if (d.status === DealStatus.NEGOTIATING) prob = 50;
     if (d.status === DealStatus.CLOSING) prob = 90;
+    
+    const potentialComm = d.projectedCommission || d.estimatedCommission || (d.askingPrice * 0.03);
+    const weightedComm = potentialComm * (prob/100);
+    totalWeightedComm += weightedComm;
     
     return [
       d.propertyAddress,
@@ -193,16 +212,18 @@ export const generatePipelineReport = (deals: Deal[]) => {
       d.status,
       formatCurrency(d.askingPrice),
       `${prob}%`,
-      formatCurrency((d.estimatedCommission || (d.askingPrice * 0.03)) * (prob/100)) // Weighted Forecast
+      formatCurrency(weightedComm)
     ];
   });
 
-  (doc as any).autoTable({
-    startY: 45,
+  autoTable(doc, {
+    startY: 55,
     head: [['Property / Requirement', 'Client', 'Side', 'Status', 'Volume', 'Prob.', 'Weighted Comm.']],
     body: tableData,
+    foot: [['', '', '', 'TOTAL', formatCurrency(totalVolume), '', formatCurrency(totalWeightedComm)]],
     theme: 'grid',
-    headStyles: { fillColor: [15, 23, 42] },
+    headStyles: { fillColor: BRAND_COLOR },
+    footStyles: { fillColor: [240, 240, 240], textColor: 0, fontStyle: 'bold' },
     columnStyles: {
         4: { halign: 'right' },
         5: { halign: 'center' },
@@ -210,7 +231,8 @@ export const generatePipelineReport = (deals: Deal[]) => {
     }
   });
 
-  doc.save(`Pipeline_Forecast_${today.replace(/\//g, '-')}.pdf`);
+  addPageFooters(doc);
+  doc.save(`Pipeline_Forecast_${new Date().toLocaleDateString().replace(/\//g, '-')}.pdf`);
 };
 
 /**
@@ -219,40 +241,43 @@ export const generatePipelineReport = (deals: Deal[]) => {
  */
 export const generateProductionReport = (deals: Deal[]) => {
   const doc = new jsPDF();
-  const pageWidth = doc.internal.pageSize.width;
-  const closedDeals = deals.filter(d => d.status === DealStatus.COMPLETED);
   
-  const totalClosed = closedDeals.reduce((acc, d) => acc + (d.closingPrice || d.askingPrice), 0);
-  const totalComm = closedDeals.reduce((acc, d) => acc + (d.actualCommission || 0), 0);
+  addBrandedHeader(doc, "Closed Production Record", "Historical Transaction Performance");
 
-  // Header
-  doc.setFontSize(18);
-  doc.text("Closed Production Report", 14, 20);
+  const closedDeals = deals.filter(d => d.status === DealStatus.COMPLETED);
+  const totalClosed = closedDeals.reduce((acc, d) => acc + (d.closingPrice || d.askingPrice), 0);
+  
+  // For Closed Deals, prioritize Actual Commission, fallback to Projected/Estimated
+  const totalComm = closedDeals.reduce((acc, d) => acc + (d.actualCommission || d.projectedCommission || 0), 0);
+
   doc.setFontSize(11);
-  doc.setTextColor(100);
-  doc.text(`Total Volume: ${formatCurrency(totalClosed)}`, 14, 28);
-  doc.text(`Total GCI: ${formatCurrency(totalComm)}`, 14, 34);
+  doc.setTextColor(50);
+  doc.text(`Total Volume Closed: ${formatCurrency(totalClosed)}`, 14, 50);
+  doc.text(`Total GCI Realized: ${formatCurrency(totalComm)}`, 14, 56);
 
   const tableData = closedDeals.map(d => [
     d.closedDate ? new Date(d.closedDate).toLocaleDateString() : '-',
     d.propertyAddress,
     d.representation,
     formatCurrency(d.closingPrice || d.askingPrice),
-    formatCurrency(d.actualCommission || 0)
+    formatCurrency(d.actualCommission || d.projectedCommission || 0)
   ]);
 
-  (doc as any).autoTable({
-    startY: 45,
+  autoTable(doc, {
+    startY: 65,
     head: [['Close Date', 'Property', 'Rep', 'Final Price', 'Commission']],
     body: tableData,
+    foot: [['', '', 'TOTAL', formatCurrency(totalClosed), formatCurrency(totalComm)]],
     theme: 'striped',
-    headStyles: { fillColor: [15, 23, 42] },
+    headStyles: { fillColor: BRAND_COLOR },
+    footStyles: { fillColor: [240, 240, 240], textColor: 0, fontStyle: 'bold' },
     columnStyles: {
         3: { halign: 'right' },
         4: { halign: 'right', fontStyle: 'bold' }
     }
   });
 
+  addPageFooters(doc);
   doc.save("Closed_Production_Report.pdf");
 };
 
@@ -262,8 +287,9 @@ export const generateProductionReport = (deals: Deal[]) => {
  */
 export const generateKPIReport = (user: UserAccount | null, deals: Deal[], logs: LeadGenLog[]) => {
   const doc = new jsPDF();
-  const pageWidth = doc.internal.pageSize.width;
   const today = new Date().toLocaleDateString();
+
+  addBrandedHeader(doc, "Executive KPI Audit", `Performance Analysis for: ${user ? `${user.firstName} ${user.lastName}` : 'All Agents'}`);
 
   // Calculations
   const totalDeals = deals.length;
@@ -276,31 +302,19 @@ export const generateKPIReport = (user: UserAccount | null, deals: Deal[], logs:
   const totalTours = logs.reduce((acc, l) => acc + (l.propertyTours || 0), 0);
   const totalOffers = logs.reduce((acc, l) => acc + (l.offersMade || 0), 0);
 
-  // --- HEADER ---
-  doc.setFillColor(30, 41, 59); // Summit 800
-  doc.rect(0, 0, pageWidth, 45, 'F');
-  
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(22);
-  doc.text("Executive Performance Audit", 14, 20);
-  
-  doc.setFontSize(11);
-  doc.text(`Agent: ${user ? `${user.firstName} ${user.lastName}` : 'All Agents'}`, 14, 30);
-  doc.text(`Report Date: ${today}`, 14, 37);
-
   // --- EXECUTIVE SUMMARY GRID ---
   doc.setFontSize(14);
   doc.setTextColor(0, 0, 0);
-  doc.text("Key Performance Indicators", 14, 60);
+  doc.text("Key Performance Indicators", 14, 55);
 
   const kpiData = [
     ['Win Rate (Closed/Lost)', `${winRate.toFixed(1)}%`, 'Total Volume Closed', formatCurrency(user?.stats?.totalVolume || 0)],
-    ['Pipeline Conversion', `${((closedDeals / totalDeals) * 100).toFixed(1)}%`, 'Gross Commission Income', formatCurrency(user?.stats?.totalCommissions || 0)],
+    ['Pipeline Conversion', `${totalDeals > 0 ? ((closedDeals / totalDeals) * 100).toFixed(1) : 0}%`, 'Gross Commission Income', formatCurrency(user?.stats?.totalCommissions || 0)],
     ['Avg Deal Size', formatCurrency(user?.stats?.totalVolume && closedDeals ? user.stats.totalVolume / closedDeals : 0), 'Days to Close (Avg)', `${user?.stats?.avgDaysToClose || 0} Days`]
   ];
 
-  (doc as any).autoTable({
-    startY: 65,
+  autoTable(doc, {
+    startY: 60,
     head: [],
     body: kpiData,
     theme: 'grid',
@@ -324,16 +338,17 @@ export const generateKPIReport = (user: UserAccount | null, deals: Deal[], logs:
     ['5. Closing (Deals)', closedDeals.toLocaleString(), `${totalOffers > 0 ? ((closedDeals/totalOffers)*100).toFixed(1) : 0}% conv`],
   ];
 
-  (doc as any).autoTable({
+  autoTable(doc, {
     startY: currentY + 5,
     head: [['Stage', 'Volume', 'Conversion Rate']],
     body: funnelData,
     theme: 'striped',
-    headStyles: { fillColor: [30, 41, 59] },
+    headStyles: { fillColor: BRAND_COLOR },
     columnStyles: { 0: { fontStyle: 'bold' } }
   });
 
-  doc.save(`Executive_KPI_Audit_${today}.pdf`);
+  addPageFooters(doc);
+  doc.save(`Executive_KPI_Audit_${today.replace(/\//g, '-')}.pdf`);
 };
 
 /**
@@ -341,26 +356,19 @@ export const generateKPIReport = (user: UserAccount | null, deals: Deal[], logs:
  * For Landlord/Tenant Reps to track expirations.
  */
 export const generateLeaseReport = (deals: Deal[]) => {
-  const doc = new jsPDF('l'); // Landscape for more columns
-  const pageWidth = doc.internal.pageSize.width;
-  const today = new Date().toLocaleDateString();
+  const doc = new jsPDF('l'); // Landscape
+  
+  addBrandedHeader(doc, "Lease Schedule & Critical Dates", "Portfolio Expiration Analysis");
 
-  // Filter for lease deals (Landlord or Tenant rep, or DealType lease)
+  // Filter for lease deals
   const leaseDeals = deals.filter(d => 
     d.dealType === 'lease' || 
     d.representation === 'landlord' || 
     d.representation === 'tenant'
   );
 
-  // --- HEADER ---
-  doc.setFillColor(59, 130, 246); // Blue
-  doc.rect(0, 0, pageWidth, 35, 'F');
-  
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(20);
-  doc.text("Lease Schedule & Critical Dates", 14, 18);
   doc.setFontSize(10);
-  doc.text(`Tracking ${leaseDeals.length} Lease Agreements`, 14, 26);
+  doc.text(`Tracking ${leaseDeals.length} Lease Agreements`, 14, 48);
 
   // --- LEASE TABLE ---
   const tableData = leaseDeals.map(d => {
@@ -370,10 +378,9 @@ export const generateLeaseReport = (deals: Deal[]) => {
     // Calculate Expiration
     if (startDate && (d.finalLeaseTerm || d.leaseTerm)) {
         const termMonths = (d.finalLeaseTerm || d.leaseTerm) || 0; 
-        // If term is likely years (e.g. < 20), multiply by 12, else assume months
-        const monthsToAdd = termMonths < 20 ? termMonths * 12 : termMonths;
+        const monthsToAdd = Number(termMonths) < 20 ? Number(termMonths) * 12 : Number(termMonths);
         const exp = new Date(startDate);
-        exp.setMonth(exp.getMonth() + Number(monthsToAdd));
+        exp.setMonth(exp.getMonth() + monthsToAdd);
         expDate = exp.toLocaleDateString();
     }
 
@@ -389,16 +396,17 @@ export const generateLeaseReport = (deals: Deal[]) => {
     ];
   });
 
-  (doc as any).autoTable({
-    startY: 45,
+  autoTable(doc, {
+    startY: 55,
     head: [['Property', 'Client', 'Role', 'Size', 'Rate', 'Commence', 'Expiration', 'Status']],
     body: tableData,
     theme: 'grid',
-    headStyles: { fillColor: [30, 41, 59] },
+    headStyles: { fillColor: BRAND_COLOR },
     styles: { fontSize: 9 }
   });
 
-  doc.save(`Lease_Schedule_${today}.pdf`);
+  addPageFooters(doc);
+  doc.save(`Lease_Schedule_${new Date().toLocaleDateString().replace(/\//g, '-')}.pdf`);
 };
 
 /**
@@ -407,20 +415,9 @@ export const generateLeaseReport = (deals: Deal[]) => {
  */
 export const generateFirmPerformanceReport = (users: UserAccount[]) => {
   const doc = new jsPDF();
-  const today = new Date().toLocaleDateString();
   const agents = users.filter(u => u.role === 'agent').sort((a, b) => (b.stats?.totalVolume || 0) - (a.stats?.totalVolume || 0));
 
-  // --- HEADER ---
-  doc.setFillColor(15, 23, 42); // Slate-900
-  doc.rect(0, 0, 210, 40, 'F');
-  
-  doc.setTextColor(255, 255, 255);
-  doc.setFontSize(22);
-  doc.text("Firm-Wide Performance Report", 14, 20);
-  
-  doc.setFontSize(10);
-  doc.text(`Generated: ${today}`, 14, 28);
-  doc.text("Confidential Executive Brief", 196, 20, { align: 'right' });
+  addBrandedHeader(doc, "Firm-Wide Performance Report", "Confidential Executive Brief");
 
   // --- SUMMARY STATS ---
   const totalVolume = agents.reduce((acc, u) => acc + (u.stats?.totalVolume || 0), 0);
@@ -438,7 +435,7 @@ export const generateFirmPerformanceReport = (users: UserAccount[]) => {
     ['Active Agents', agents.length.toString()]
   ];
 
-  (doc as any).autoTable({
+  autoTable(doc, {
     startY: 60,
     head: [],
     body: statsData,
@@ -460,17 +457,18 @@ export const generateFirmPerformanceReport = (users: UserAccount[]) => {
     formatCurrency(agent.stats?.totalCommissions || 0),
   ]);
 
-  (doc as any).autoTable({
+  autoTable(doc, {
     startY: finalY + 5,
     head: [['Agent Name', 'Active', 'Closed', 'Volume', 'GCI']],
     body: agentRows,
     theme: 'striped',
-    headStyles: { fillColor: [15, 23, 42] },
+    headStyles: { fillColor: BRAND_COLOR },
     columnStyles: { 
         3: { halign: 'right' }, 
         4: { halign: 'right', fontStyle: 'bold' } 
     }
   });
 
-  doc.save(`Firm_Performance_${today.replace(/\//g, '-')}.pdf`);
+  addPageFooters(doc);
+  doc.save(`Firm_Performance_${new Date().toLocaleDateString().replace(/\//g, '-')}.pdf`);
 };

@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, ArrowUpRight, DollarSign, Clock, ChevronDown, MessageSquare, Briefcase, FileText, CheckCircle, Trash2, MapPin, Undo2, Loader2, Building2, LayoutGrid, Columns, Building } from 'lucide-react';
+import { Plus, ArrowUpRight, DollarSign, Clock, ChevronDown, MessageSquare, Briefcase, FileText, CheckCircle, Trash2, MapPin, Undo2, Loader2, Building2, LayoutGrid, Columns, Building, CheckSquare } from 'lucide-react';
 import { Deal, DealStatus, Task, REPRESENTATION_LABELS } from '../types.ts';
 import { api } from '../services/firestore.ts';
 import TaskModal from '../components/TaskModal.tsx';
+import UpcomingDeadlinesWidget from '../components/UpcomingDeadlinesWidget.tsx';
 import { useAuth } from '../context/AuthContext.tsx';
 
 interface DashboardPageProps {
@@ -16,9 +17,10 @@ interface DashboardPageProps {
   onOpenAi: () => void;
   onSaveDeal: (deal: Deal) => void;
   searchTerm?: string;
+  onTaskComplete?: (task: Task) => void;
 }
 
-const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDeal, onDealClick, onDeleteDeal, onRouteChange, onOpenAi, onSaveDeal, searchTerm = '' }) => {
+const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDeal, onDealClick, onDeleteDeal, onRouteChange, onOpenAi, onSaveDeal, searchTerm = '', onTaskComplete }) => {
   const { currentUser } = useAuth();
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'grid' | 'pipeline'>('grid');
@@ -55,12 +57,6 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
     await api.saveTask(newTask);
     loadTasks();
     setIsTaskModalOpen(false);
-  };
-
-  const toggleTaskComplete = async (task: Task) => {
-    const updated = { ...task, status: task.status === 'completed' ? 'pending' : 'completed' } as Task;
-    await api.saveTask(updated);
-    loadTasks();
   };
 
   const handleReopenDeal = (deal: Deal, e: React.MouseEvent) => {
@@ -166,36 +162,65 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
       </div>
 
       {activeTab === 'dashboard' && !searchTerm && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 flex-shrink-0">
-          <div className="bg-gradient-to-br from-white to-slate-50 p-6 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between group hover:border-blue-200 transition-colors">
-             <div>
-               <p className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Total Pipeline Value</p>
-               <h3 className="text-2xl font-bold text-slate-900">${(pipelineValue / 1000000).toFixed(1)}M</h3>
-               <p className="text-xs text-green-600 font-bold mt-2 flex items-center bg-green-50 w-fit px-2 py-0.5 rounded-full"><ArrowUpRight size={12} className="mr-1"/> +12% vs last month</p>
-             </div>
-             <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-blue-600 shadow-sm border border-slate-100 group-hover:scale-110 transition-transform">
-               <DollarSign size={24} />
-             </div>
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8 flex-shrink-0">
+          {/* Upcoming Deadlines Widget - Takes up one column */}
+          <div className="md:col-span-1 h-full">
+             <UpcomingDeadlinesWidget deals={deals} onDealClick={onDealClick} />
           </div>
-          <div className="bg-gradient-to-br from-white to-slate-50 p-6 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between group hover:border-purple-200 transition-colors">
-             <div>
-               <p className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Active Deals</p>
-               <h3 className="text-2xl font-bold text-slate-900">{activeDealsCount}</h3>
-               <p className="text-xs text-slate-400 font-medium mt-2 bg-slate-100 w-fit px-2 py-0.5 rounded-full">Across 3 property types</p>
-             </div>
-             <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-purple-600 shadow-sm border border-slate-100 group-hover:scale-110 transition-transform">
-               <Briefcase size={24} />
-             </div>
-          </div>
-           <div className="bg-gradient-to-br from-white to-slate-50 p-6 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between group hover:border-amber-200 transition-colors">
-             <div>
-               <p className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Pending Tasks</p>
-               <h3 className="text-2xl font-bold text-slate-900">{pendingTasks.length}</h3>
-               <p className="text-xs text-amber-600 font-bold mt-2 bg-amber-50 w-fit px-2 py-0.5 rounded-full">{pendingTasks.filter(t => t.priority === 'urgent').length} urgent items</p>
-             </div>
-             <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-amber-600 shadow-sm border border-slate-100 group-hover:scale-110 transition-transform">
-               <Clock size={24} />
-             </div>
+
+          <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-gradient-to-br from-white to-slate-50 p-6 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between group hover:border-blue-200 transition-colors">
+               <div>
+                 <p className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Total Pipeline Value</p>
+                 <h3 className="text-2xl font-bold text-slate-900">${(pipelineValue / 1000000).toFixed(1)}M</h3>
+                 <p className="text-xs text-green-600 font-bold mt-2 flex items-center bg-green-50 w-fit px-2 py-0.5 rounded-full"><ArrowUpRight size={12} className="mr-1"/> +12% vs last month</p>
+               </div>
+               <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-blue-600 shadow-sm border border-slate-100 group-hover:scale-110 transition-transform">
+                 <DollarSign size={24} />
+               </div>
+            </div>
+            <div className="bg-gradient-to-br from-white to-slate-50 p-6 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between group hover:border-purple-200 transition-colors">
+               <div>
+                 <p className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Active Deals</p>
+                 <h3 className="text-2xl font-bold text-slate-900">{activeDealsCount}</h3>
+                 <p className="text-xs text-slate-400 font-medium mt-2 bg-slate-100 w-fit px-2 py-0.5 rounded-full">Across 3 property types</p>
+               </div>
+               <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-purple-600 shadow-sm border border-slate-100 group-hover:scale-110 transition-transform">
+                 <Briefcase size={24} />
+               </div>
+            </div>
+             <div className="bg-gradient-to-br from-white to-slate-50 p-6 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between group hover:border-amber-200 transition-colors">
+               <div className="flex-1">
+                 <div className="flex justify-between items-start">
+                   <div>
+                      <p className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Pending Tasks</p>
+                      <h3 className="text-2xl font-bold text-slate-900">{pendingTasks.length}</h3>
+                   </div>
+                   <button onClick={() => { setEditingTask(undefined); setIsTaskModalOpen(true); }} className="p-2 bg-amber-50 text-amber-600 rounded-full hover:bg-amber-100 transition-colors">
+                      <Plus size={16} />
+                   </button>
+                 </div>
+                 
+                 {/* Mini Task List in Card */}
+                 <div className="mt-3 space-y-2 max-h-24 overflow-y-auto pr-1">
+                    {pendingTasks.slice(0, 3).map(t => (
+                      <div key={t.id} className="flex items-center gap-2 text-xs bg-white/60 p-1.5 rounded border border-slate-100">
+                          <button 
+                              className="text-slate-400 hover:text-green-500"
+                              onClick={(e) => { e.stopPropagation(); if(onTaskComplete) { onTaskComplete(t); loadTasks(); } }}
+                          >
+                              <CheckSquare size={14} />
+                          </button>
+                          <span className="truncate flex-1">{t.title}</span>
+                      </div>
+                    ))}
+                    {pendingTasks.length === 0 && <span className="text-xs text-slate-400 italic">All caught up!</span>}
+                 </div>
+               </div>
+               <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-amber-600 shadow-sm border border-slate-100 group-hover:scale-110 transition-transform self-start ml-4">
+                 <Clock size={24} />
+               </div>
+            </div>
           </div>
         </div>
       )}

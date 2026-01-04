@@ -1,3 +1,4 @@
+
 import { 
   collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, 
   query, where, orderBy, serverTimestamp, Timestamp, writeBatch, arrayUnion, arrayRemove,
@@ -33,8 +34,16 @@ const convertTimestamps = (data: any): any => {
 
 // Helper: Clean undefined values to prevent Firestore errors
 const cleanPayload = (data: any): any => {
-  if (typeof data !== 'object' || data === null) return data;
-  if (data instanceof Date) return data.toISOString();
+  if (data === null || data === undefined) return null;
+  if (data instanceof Timestamp) return data;
+  if (data instanceof Date) return data; 
+  
+  // Pass through Firestore FieldValues (like serverTimestamp) without traversing
+  // We identify them by their specific structure or just check if it's not a plain object
+  if (data && typeof data === 'object' && data['_methodName']) return data;
+
+  if (typeof data !== 'object') return data;
+  
   if (Array.isArray(data)) return data.map(cleanPayload);
   
   const cleaned: any = {};
@@ -101,7 +110,6 @@ export const api = {
     
     const userData = convertTimestamps({ id: userDoc.id, ...userDoc.data() }) as UserAccount;
 
-    // SECURITY OVERRIDE: Ensure specific email is always admin/active if it exists
     if (email.toLowerCase() === 'raphael@sumcg.com') {
       if (userData.role !== 'admin' || userData.status !== 'active') {
         console.log("Restoring admin privileges for system owner...");
@@ -124,9 +132,14 @@ export const api = {
 
   getCurrentUser: async (uid: string) => {
     checkDbConnection();
-    const userDoc = await getDoc(doc(db!, 'users', uid));
-    if (!userDoc.exists()) return null;
-    return convertTimestamps({ id: userDoc.id, ...userDoc.data() }) as UserAccount;
+    try {
+      const userDoc = await getDoc(doc(db!, 'users', uid));
+      if (!userDoc.exists()) return null;
+      return convertTimestamps({ id: userDoc.id, ...userDoc.data() }) as UserAccount;
+    } catch (e) {
+      console.warn("getCurrentUser failed", e);
+      return null;
+    }
   },
 
   updateUserProfile: async (userId: string, updates: Partial<UserAccount>) => {
@@ -179,15 +192,15 @@ export const api = {
         const snapshot = await getDocs(q);
         return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Deal[];
     } catch (e: any) {
-        // PERMISSION DENIED FALLBACK
-        // If admin query is denied (e.g. Firestore rules think user is not admin), fallback to fetching user's own data
         if (isAdmin && e.code === 'permission-denied') {
-            console.warn("Admin query denied for Deals. Falling back to user scope.");
-            const q = query(collection(db!, 'deals'), where('userId', '==', userId));
-            const snapshot = await getDocs(q);
-            return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Deal[];
+            try {
+                const q = query(collection(db!, 'deals'), where('userId', '==', userId));
+                const snapshot = await getDocs(q);
+                return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Deal[];
+            } catch (fallbackError) {
+                return [];
+            }
         }
-        console.warn("Get deals failed", e);
         return [];
     }
   },
@@ -243,65 +256,54 @@ export const api = {
         const snapshot = await getDocs(q);
         return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Contact[];
     } catch (e: any) {
-        // PERMISSION DENIED FALLBACK
         if (isAdmin && e.code === 'permission-denied') {
-            console.warn("Admin query denied for Contacts. Falling back to user scope.");
-            const q = query(collection(db!, 'contacts'), where('userId', '==', userId));
-            const snapshot = await getDocs(q);
-            return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Contact[];
+            try {
+                const q = query(collection(db!, 'contacts'), where('userId', '==', userId));
+                const snapshot = await getDocs(q);
+                return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as Contact[];
+            } catch (fallbackError) {
+                return [];
+            }
         }
-        console.warn("Get contacts failed", e);
         return [];
     }
   },
 
   saveContact: async (contact: Contact) => {
     checkDbConnection();
-    
     const currentUser = auth?.currentUser;
     if (!currentUser) throw new Error("User must be authenticated to save contacts.");
     
-    // Determine Owner. If it's a new contact, assign to current user.
-    let ownerId = contact.userId;
-    const isNew = !contact.id || contact.id.length <= 5;
-
-    // Force ownerId to current user if new, or if missing.
-    // This ensures the "create" rule passes (request.resource.data.userId == auth.uid).
-    if (isNew || !ownerId || ownerId === '') {
-        ownerId = currentUser.uid;
-    }
-
+    const ownerId = contact.userId || currentUser.uid;
     const { id, createdAt, userId, ...contactRest } = contact;
     const cleanedRest = cleanPayload(contactRest);
     delete (cleanedRest as any).id; 
 
-    let ref;
-    if (id && id.length > 5) { 
-        ref = doc(db!, 'contacts', id);
-    } else {
-        ref = doc(collection(db!, 'contacts'));
-    }
-
-    const dataToSave: any = {
-        ...cleanedRest,
-        userId: ownerId, 
-        updatedAt: serverTimestamp()
-    };
-
-    if (createdAt) {
-        dataToSave.createdAt = createdAt;
-    } else if (isNew) {
-        dataToSave.createdAt = serverTimestamp();
-    }
-
     try {
-      await setDoc(ref, dataToSave, { merge: true });
+        if (id && id.length > 5) {
+            // UPDATE: Check existing ownership implicitly via rules
+            const ref = doc(db!, 'contacts', id);
+            await updateDoc(ref, { 
+                ...cleanedRest, 
+                // Do NOT overwrite userId on update for admin, 
+                // but for orphaned records allow claim via rules if needed.
+                // We rely on rules to allow the update if user owns it.
+                updatedAt: serverTimestamp() 
+            });
+        } else {
+            // CREATE: Explicitly set owner to CURRENT user to satisfy rule: request.resource.data.userId == request.auth.uid
+            // Unless the caller is Admin, we shouldn't create contacts for others in this context anyway.
+            
+            await addDoc(collection(db!, 'contacts'), { 
+                ...cleanedRest, 
+                userId: currentUser.uid, // Strict enforcement for creation
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp() 
+            });
+        }
     } catch (error: any) {
-      console.error("[Firestore] ❌ saveContact error details:", error);
-      if (error.code === 'permission-denied') {
-        throw new Error("Permission denied. Ensure you are logged in and this contact belongs to you.");
-      }
-      throw error;
+        console.error("[Firestore] saveContact error:", error.code || error.message);
+        throw error;
     }
   },
 
@@ -354,7 +356,6 @@ export const api = {
     const downloadURL = await getDownloadURL(storageRef);
     const docMetadata = { ...cleanPayload(document), url: downloadURL, storagePath, uploadDate: new Date().toISOString() };
     
-    // We update the deal document.
     const dealRef = doc(db!, 'deals', dealId);
     await updateDoc(dealRef, { documents: arrayUnion(docMetadata), lastUpdated: serverTimestamp() });
   },

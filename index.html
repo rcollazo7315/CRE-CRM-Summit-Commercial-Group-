@@ -11,10 +11,32 @@
     <script>
       window.process = { env: { NODE_ENV: 'production' } };
       
+      // Safe stringify to handle circular references and complex objects
+      function safeStringify(obj, indent = 2) {
+        const cache = new Set();
+        return JSON.stringify(
+          obj,
+          (key, value) => {
+            if (typeof value === "object" && value !== null) {
+              if (cache.has(value)) {
+                return "[Circular]";
+              }
+              // Avoid serializing DOM nodes or Window objects which cause crashes
+              if (value instanceof Node || value instanceof Window) {
+                return "[DOM Object]";
+              }
+              cache.add(value);
+            }
+            return value;
+          },
+          indent
+        );
+      }
+
       function showGlobalError(title, details) {
         const root = document.getElementById('root');
         if (root) {
-           // Only overwrite if we are in a loading state or empty, otherwise log to console to not destroy UI
+           // Only overwrite if we are in a loading state or empty to avoid nuking the app on non-fatal errors
            if (root.innerText.includes('Initialising') || root.innerHTML.includes('spin') || root.innerHTML === '') {
              root.innerHTML = `
               <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:#0f172a;color:white;font-family:Inter,sans-serif;padding:24px;">
@@ -42,6 +64,10 @@
         } catch (e) {
             errorDetails = 'An unknown error occurred and details could not be extracted.';
         }
+        
+        // Suppress common resize observer loops which are benign
+        if (msg && typeof msg === 'string' && msg.includes('ResizeObserver')) return false;
+        
         showGlobalError('Runtime Exception', errorDetails);
         return false;
       };
@@ -54,12 +80,9 @@
                 details = reason.stack || reason.message;
             } else if (typeof reason === 'object') {
                 try {
-                    details = JSON.stringify(reason, null, 2);
+                    details = safeStringify(reason);
                 } catch (jsonError) {
-                    // Fallback for circular references
-                    details = reason.toString ? reason.toString() : 'Object with circular reference';
-                    if (reason.message) details += `\nMessage: ${reason.message}`;
-                    if (reason.code) details += `\nCode: ${reason.code}`;
+                    details = Object.prototype.toString.call(reason);
                 }
             } else {
                 details = String(reason);
@@ -68,7 +91,9 @@
             details = "Error processing rejection reason.";
         }
         
-        showGlobalError('Unhandled Promise Rejection', details);
+        console.warn("Unhandled Rejection caught:", details);
+        // Only trigger global screen for critical failures, not background promise rejections
+        // showGlobalError('Unhandled Promise Rejection', details); 
       });
       
       tailwind.config = {

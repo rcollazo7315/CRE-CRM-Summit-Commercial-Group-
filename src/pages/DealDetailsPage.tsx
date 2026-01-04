@@ -1,12 +1,13 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, MapPin, User, Phone, Mail, Edit, FileText, Download, Trash2, CheckSquare, Clock, Plus, Map as MapIcon, Upload, Loader2, MoreVertical, Tag, Briefcase, Building, CheckCircle2, Zap, Compass, Sparkles, MapPinned, ExternalLink, Target, Globe, ShieldCheck } from 'lucide-react';
+import { ArrowLeft, MapPin, User, Phone, Mail, Edit, FileText, Download, Trash2, CheckSquare, Clock, Plus, Map as MapIcon, Upload, Loader2, MoreVertical, Tag, Briefcase, Building, CheckCircle2, Zap, Compass, Sparkles, MapPinned, ExternalLink, Target, Globe, ShieldCheck, Camera, Calendar } from 'lucide-react';
 import { Deal, DealStatus, DocumentFile, Task, LEAD_SOURCE_LABELS, REPRESENTATION_LABELS } from '../types.ts';
 import TaskModal from '../components/TaskModal.tsx';
 import { api } from '../services/firestore.ts';
 import { useAuth } from '../context/AuthContext.tsx';
 import { analyzeSiteNeighborhood, GroundingSource } from '../services/geminiService.ts';
 import { generateOwnerReport } from '../utils/pdfGenerator.ts';
+import { getDaysRemaining, getDeadlineColor, isValidDate } from '../utils/dateUtils.ts';
 
 interface DealDetailsPageProps {
   deal: Deal;
@@ -17,9 +18,10 @@ interface DealDetailsPageProps {
   onViewDocuments: () => void;
   onAddDocument: (dealId: string, doc: DocumentFile, file: File) => void;
   onDeleteDocument: (dealId: string, docId: string) => void;
+  onTaskComplete: (task: Task) => void;
 }
 
-const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdateDeal, onEditDeal, onDeleteDeal, onViewDocuments, onAddDocument, onDeleteDocument }) => {
+const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdateDeal, onEditDeal, onDeleteDeal, onViewDocuments, onAddDocument, onDeleteDocument, onTaskComplete }) => {
   const { currentUser } = useAuth();
   const [activeTab, setActiveTab] = useState<'info' | 'tasks' | 'documents'>('info');
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -29,9 +31,10 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
   const [loadingInsights, setLoadingInsights] = useState(false);
   const [insights, setInsights] = useState<{ text: string; sources: GroundingSource[] } | null>(null);
   
-  // Document Upload State
+  // Document & Image Upload State
   const [isUploading, setIsUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const heroImageInputRef = useRef<HTMLInputElement>(null);
 
   const isDemandSide = deal.representation === 'buyer' || deal.representation === 'tenant';
   const isLeasing = deal.representation === 'landlord' || deal.representation === 'tenant';
@@ -81,7 +84,20 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
   // Google Maps Embed URL
   const mapUrl = `https://www.google.com/maps?q=${encodeURIComponent(deal.propertyAddress)}&output=embed`;
 
-  // Document Handlers
+  // Hero Image Handler
+  const handleHeroImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const base64String = reader.result as string;
+      onUpdateDeal({ ...deal, imageUrl: base64String });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Document Handler
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -116,6 +132,26 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
     window.open(doc.url, '_blank');
   };
 
+  // Determine next deadline
+  const nextDeadline = React.useMemo(() => {
+    if (!deal.contractDates?.contractDate) return null;
+    
+    const types: ('dueDiligence' | 'financing' | 'closing')[] = ['dueDiligence', 'financing', 'closing'];
+    const candidates = types
+      .map(t => ({
+        type: t,
+        ...deal.contractDates![t]
+      }))
+      .filter(item => item.status === 'pending' && isValidDate(item.date))
+      .map(item => ({
+        ...item,
+        daysRemaining: getDaysRemaining(item.date!)
+      }))
+      .sort((a, b) => a.daysRemaining - b.daysRemaining);
+
+    return candidates[0] || null;
+  }, [deal.contractDates]);
+
   return (
     <div className="max-w-6xl mx-auto pb-10">
       <button onClick={onBack} className="flex items-center text-slate-500 hover:text-summit-900 mb-6 transition-colors font-medium">
@@ -133,6 +169,19 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
                 </span>
                 <span className="text-slate-300">•</span>
                 <span className="font-medium text-slate-500">{deal.propertyType}</span>
+                
+                {/* Next Deadline Badge */}
+                {nextDeadline && (
+                  <>
+                    <span className="text-slate-300">•</span>
+                    <span className={`flex items-center gap-1 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded ${
+                      getDeadlineColor(nextDeadline.daysRemaining, false)
+                    }`}>
+                      <Clock size={12} />
+                      {nextDeadline.type === 'dueDiligence' ? 'Due Diligence' : nextDeadline.type === 'financing' ? 'Financing' : 'Closing'} in {nextDeadline.daysRemaining} days
+                    </span>
+                  </>
+                )}
              </div>
              <h1 className="text-3xl font-bold text-slate-900">{deal.propertyAddress}</h1>
              <p className="flex items-center text-slate-500 mt-2">
@@ -277,11 +326,26 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
 
               <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
                 <div className="h-64 bg-slate-100 relative group">
-                   <img src={deal.imageUrl} className="w-full h-full object-cover" alt="Property" />
-                   {isDemandSide && (
-                       <div className="absolute inset-0 flex items-center justify-center bg-slate-900/30">
-                           <div className="bg-white/90 backdrop-blur px-4 py-2 rounded-lg font-bold text-slate-800 shadow-sm">
-                               Reference Image / Target Style
+                   <img src={deal.imageUrl} className="w-full h-full object-cover transition-all group-hover:scale-105" alt="Property" />
+                   <div className="absolute inset-0 bg-black/30 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                      <button 
+                        onClick={() => heroImageInputRef.current?.click()}
+                        className="bg-white text-slate-900 px-4 py-2 rounded-lg font-bold flex items-center gap-2 shadow-lg hover:scale-105 transition-transform"
+                      >
+                        <Camera size={18} /> Change Photo
+                      </button>
+                      <input 
+                        type="file" 
+                        ref={heroImageInputRef}
+                        onChange={handleHeroImageChange}
+                        className="hidden"
+                        accept="image/*"
+                      />
+                   </div>
+                   {isDemandSide && !deal.imageUrl.includes('base64') && (
+                       <div className="absolute top-4 left-4">
+                           <div className="bg-white/90 backdrop-blur px-3 py-1 rounded text-xs font-bold text-slate-800 shadow-sm">
+                               Ref / Target Style
                            </div>
                        </div>
                    )}
@@ -347,6 +411,12 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
                             <p className="text-xl font-bold text-green-600">{deal.highestOffer > 0 ? `$${deal.highestOffer.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}` : '-'}</p>
                         </div>
                     )}
+                    {deal.projectedCommission && (
+                        <div className="p-4 bg-slate-50 rounded-lg col-span-2 border border-slate-200">
+                            <p className="text-xs text-slate-500 uppercase">Projected Commission</p>
+                            <p className="text-xl font-bold text-slate-900">${deal.projectedCommission.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
+                        </div>
+                    )}
                  </div>
               </div>
            </div>
@@ -394,18 +464,24 @@ const DealDetailsPage: React.FC<DealDetailsPageProps> = ({ deal, onBack, onUpdat
           </div>
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
              {tasks.length > 0 ? tasks.map(task => (
-               <div key={task.id} className="p-4 border-b border-slate-100 flex items-center gap-4 hover:bg-slate-50">
-                  <div className={`p-2 rounded-full ${task.status === 'completed' ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-400 cursor-pointer hover:bg-green-50 hover:text-green-500'}`}
-                       onClick={() => handleSaveTask({ ...task, status: task.status === 'completed' ? 'pending' : 'completed' })}
+               <div key={task.id} className="p-4 border-b border-slate-100 flex items-center gap-4 hover:bg-slate-50 transition-colors">
+                  <button 
+                       className={`p-2 rounded-full transition-colors flex-shrink-0 ${task.status === 'completed' ? 'bg-green-100 text-green-600' : 'bg-slate-100 text-slate-400 hover:bg-green-50 hover:text-green-500'}`}
+                       onClick={(e) => { 
+                         e.stopPropagation();
+                         onTaskComplete(task);
+                         // Optimistic update locally for immediate feedback
+                         setTasks(prev => prev.map(t => t.id === task.id ? {...t, status: t.status === 'completed' ? 'pending' : 'completed'} : t));
+                       }}
                   >
                      <CheckSquare size={20} />
-                  </div>
+                  </button>
                   <div className="flex-1 cursor-pointer" onClick={() => { setEditingTask(task); setIsTaskModalOpen(true); }}>
                      <h4 className={`font-medium ${task.status === 'completed' ? 'text-slate-400 line-through' : 'text-slate-800'}`}>{task.title}</h4>
                      <p className="text-xs text-slate-500 flex items-center gap-2 mt-1">
-                        <span className="capitalize bg-slate-100 px-2 rounded">{task.type}</span>
+                        <span className="capitalize bg-slate-100 px-2 rounded font-semibold">{task.type}</span>
                         <span className="flex items-center gap-1"><Clock size={12} /> {new Date(task.dueDate).toLocaleDateString()} at {task.dueTime}</span>
-                        {task.priority === 'urgent' && <span className="text-red-500 font-bold">Urgent</span>}
+                        {task.priority === 'urgent' && <span className="text-red-500 font-bold bg-red-50 px-2 rounded">Urgent</span>}
                      </p>
                   </div>
                </div>

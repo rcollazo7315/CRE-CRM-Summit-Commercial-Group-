@@ -1,770 +1,585 @@
 
 import React, { useState, useMemo } from 'react';
 import { 
-  Users, UserPlus, Search, Download, Upload, X, 
-  MapPin, Phone, Mail, Globe, Linkedin, Tag, 
-  Edit, Trash2, Building, User as UserIcon, MoreVertical, StickyNote,
-  ArrowRight, Check
+  Users, UserPlus, Search, X, Mail, Phone, Tag, 
+  Upload, Check, ArrowRight, AlertCircle, Edit, Trash2,
+  Building, User as UserIcon, MoreHorizontal, MapPin, 
+  Linkedin, Globe, Briefcase, FileText, Smartphone
 } from 'lucide-react';
-import { Contact, ContactInteraction, Deal, ContactType, ContactStatus } from '../types.ts';
-import ConfirmModal from '../components/ConfirmModal.tsx';
+import { Contact, ContactInteraction, Deal, ContactType, ContactStatus, RelationshipTier } from '../types.ts';
 
-// Constants for Dropdowns & Styling
 const CONTACT_TYPES: { value: ContactType; label: string; color: string }[] = [
-  { value: 'owner', label: 'Owner', color: 'bg-blue-100 text-blue-700' },
-  { value: 'strategic_partner', label: 'Strategic Partner', color: 'bg-purple-100 text-purple-700' },
-  { value: 'banker', label: 'Banker', color: 'bg-green-100 text-green-700' },
-  { value: 'investor', label: 'Investor', color: 'bg-emerald-100 text-emerald-700' },
-  { value: 'vendor', label: 'Vendor', color: 'bg-orange-100 text-orange-700' },
-  { value: 'attorney', label: 'Attorney', color: 'bg-indigo-100 text-indigo-700' },
-  { value: 'broker', label: 'Broker', color: 'bg-cyan-100 text-cyan-700' },
-  { value: 'title_company', label: 'Title Co.', color: 'bg-teal-100 text-teal-700' },
-  { value: 'appraiser', label: 'Appraiser', color: 'bg-yellow-100 text-yellow-700' },
-  { value: 'contractor', label: 'Contractor', color: 'bg-stone-100 text-stone-700' },
-  { value: 'property_manager', label: 'Prop. Manager', color: 'bg-lime-100 text-lime-700' },
-  { value: 'tenant', label: 'Tenant', color: 'bg-rose-100 text-rose-700' },
-  { value: 'other', label: 'Other', color: 'bg-slate-100 text-slate-700' }
+  { value: 'owner', label: 'Owner/Landlord', color: 'bg-blue-100 text-blue-700' },
+  { value: 'investor', label: 'Buyer/Investor', color: 'bg-emerald-100 text-emerald-700' },
+  { value: 'tenant', label: 'Tenant/Occupier', color: 'bg-rose-100 text-rose-700' },
+  { value: 'broker', label: 'Broker', color: 'bg-orange-100 text-orange-700' },
+  { value: 'developer', label: 'Developer', color: 'bg-indigo-100 text-indigo-700' },
+  { value: 'lender', label: 'Lender', color: 'bg-yellow-100 text-yellow-700' },
+  { value: 'prospect', label: 'Prospect', color: 'bg-slate-100 text-slate-700' }
 ];
 
-const CONTACT_STATUSES: { value: ContactStatus; label: string; color: string }[] = [
+const CONTACT_STATUS_OPTS: { value: ContactStatus; label: string; color: string }[] = [
   { value: 'active', label: 'Active', color: 'bg-green-100 text-green-700' },
   { value: 'lead', label: 'Lead', color: 'bg-blue-100 text-blue-700' },
   { value: 'prospect', label: 'Prospect', color: 'bg-amber-100 text-amber-700' },
   { value: 'inactive', label: 'Inactive', color: 'bg-slate-100 text-slate-500' }
 ];
 
-interface ContactsPageProps {
-  contacts: Contact[];
-  deals: Deal[];
-  onSaveContact: (contact: Contact) => Promise<void>;
-  onDeleteContact: (contactId: string) => Promise<void>;
-  onAddInteraction: (contactId: string, interaction: ContactInteraction) => Promise<void>;
-  onLinkDeal: (contactId: string, dealId: string) => Promise<void>;
-  onUnlinkDeal: (contactId: string, dealId: string) => Promise<void>;
-  onImportContacts: (contacts: Contact[]) => Promise<void>;
-  searchTerm: string;
-}
+const TIERS: RelationshipTier[] = ['A', 'B', 'C', 'D'];
 
-const ContactsPage: React.FC<ContactsPageProps> = ({ 
-  contacts, deals, onSaveContact, onDeleteContact, onAddInteraction, onLinkDeal, onUnlinkDeal, onImportContacts, searchTerm
-}) => {
-  // -- Local State --
-  const [localSearch, setLocalSearch] = useState('');
-  const [filterType, setFilterType] = useState<string>('all');
-  const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [tagInput, setTagInput] = useState('');
-  
-  // Modal States
+const CONTACT_FIELDS = [
+  { key: 'firstName', label: 'First Name', required: true },
+  { key: 'lastName', label: 'Last Name', required: true },
+  { key: 'email', label: 'Email' },
+  { key: 'phone', label: 'Office Phone' },
+  { key: 'mobile', label: 'Mobile Phone' },
+  { key: 'company', label: 'Company' },
+  { key: 'jobTitle', label: 'Job Title' },
+  { key: 'linkedin', label: 'LinkedIn URL' },
+  { key: 'website', label: 'Website' },
+  { key: 'contactType', label: 'Type' },
+];
+
+const ContactsPage: React.FC<{ 
+  contacts: Contact[]; 
+  deals: Deal[]; 
+  onSaveContact: (c: Contact) => Promise<void>;
+  onDeleteContact: (id: string) => Promise<void>;
+  onAddInteraction: (id: string, i: ContactInteraction) => Promise<void>;
+  onLinkDeal: (cId: string, dId: string) => Promise<void>;
+  onUnlinkDeal: (cId: string, dId: string) => Promise<void>;
+  onImportContacts: (list: Contact[]) => Promise<void>;
+}> = ({ contacts, deals, onSaveContact, onDeleteContact, onImportContacts }) => {
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [editingContact, setEditingContact] = useState<Partial<Contact> | null>(null);
-  const [selectedContact, setSelectedContact] = useState<Contact | null>(null);
-  const [deleteId, setDeleteId] = useState<string | null>(null);
-  
-  // Import States
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'details' | 'profile'>('details');
+
+  // Import State
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
   const [importStep, setImportStep] = useState<'paste' | 'map'>('paste');
   const [importText, setImportText] = useState('');
   const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
   const [csvRows, setCsvRows] = useState<string[][]>([]);
-  const [fieldMappings, setFieldMappings] = useState<Record<string, number>>({});
+  const [mappings, setMappings] = useState<Record<string, number>>({});
 
-  // Interaction State
-  const [newInteraction, setNewInteraction] = useState<Partial<ContactInteraction>>({
-    type: 'call',
-    date: new Date().toISOString().split('T')[0],
-    subject: '',
-    notes: ''
-  });
-
-  // Deal Link State
-  const [isLinkingDeal, setIsLinkingDeal] = useState(false);
-
-  // -- Computed --
   const filteredContacts = useMemo(() => {
     return contacts.filter(c => {
-      const term = (localSearch || searchTerm).toLowerCase();
-      const matchesSearch = 
-        `${c.firstName} ${c.lastName}`.toLowerCase().includes(term) ||
-        c.company?.toLowerCase().includes(term) ||
-        c.email?.toLowerCase().includes(term) ||
-        c.phone?.includes(term) ||
-        c.mobile?.includes(term) ||
-        c.tags.some(t => t.toLowerCase().includes(term));
-      
-      const matchesType = filterType === 'all' || c.contactType === filterType;
-      const matchesStatus = filterStatus === 'all' || c.status === filterStatus;
-
-      return matchesSearch && matchesType && matchesStatus;
+      const name = `${c.firstName} ${c.lastName}`.toLowerCase();
+      return name.includes(searchTerm.toLowerCase()) || 
+             c.company?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+             c.tags?.some(t => t.toLowerCase().includes(searchTerm.toLowerCase()));
     });
-  }, [contacts, searchTerm, localSearch, filterType, filterStatus]);
+  }, [contacts, searchTerm]);
 
-  // -- Helpers --
-  const getInitials = (first: string, last: string) => `${first?.[0] || ''}${last?.[0] || ''}`.toUpperCase();
-  const getTypeColor = (type: ContactType) => CONTACT_TYPES.find(t => t.value === type)?.color || 'bg-slate-100 text-slate-700';
-  const getStatusColor = (status: ContactStatus) => CONTACT_STATUSES.find(s => s.value === status)?.color || 'bg-slate-100 text-slate-700';
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaveError(null);
+    if (editingContact) {
+      try {
+        await onSaveContact({
+          ...editingContact,
+          id: editingContact.id, 
+          tags: editingContact.tags || [],
+          linkedDealIds: editingContact.linkedDealIds || [],
+          interactions: editingContact.interactions || [],
+          status: editingContact.status || 'lead',
+          contactType: editingContact.contactType || 'prospect',
+          tier: editingContact.tier || 'C',
+          submarkets: editingContact.submarkets || [],
+          propertyInterests: editingContact.propertyInterests || [],
+          address: editingContact.address || {},
+          investorCriteria: editingContact.investorCriteria || { is1031Active: false }
+        } as Contact);
+        setIsEditModalOpen(false);
+      } catch (err: any) {
+        setSaveError(err.message || 'Failed to save contact. Check permissions.');
+      }
+    }
+  };
 
-  // -- Handlers --
-  const handleEditClick = (contact?: Contact) => {
-    setTagInput('');
-    if (contact) {
-      // Use spread instead of JSON parse/stringify for safer shallow copying (properties are mostly primitives or simple arrays)
-      // For deep copying complex objects, structuredClone is better if available, but manual copy is safest in TS/React
-      setEditingContact({
-        ...contact,
-        tags: [...(contact.tags || [])],
-        linkedDealIds: [...(contact.linkedDealIds || [])],
-        interactions: [...(contact.interactions || [])],
-        address: contact.address ? {...contact.address} : undefined
-      });
-    } else {
-      setEditingContact({
+  const handleEditClick = (c: Contact) => {
+    setEditingContact({
+        ...c,
+        address: c.address || { city: '', state: '' },
+        tags: c.tags || [],
+    });
+    setActiveTab('details');
+    setIsEditModalOpen(true);
+    setSaveError(null);
+  };
+
+  const handleNewClick = () => {
+    setEditingContact({ 
         firstName: '', 
         lastName: '', 
         company: '', 
-        jobTitle: '', 
-        email: '',
-        phone: '',
-        mobile: '',
-        linkedin: '',
-        website: '',
-        contactType: 'prospect', 
-        status: 'lead', 
-        tags: [], 
-        linkedDealIds: [], 
-        interactions: [],
-        address: { street: '', city: '', state: '', zip: '' }
-      });
-    }
-    setIsEditModalOpen(true);
+        contactType: 'prospect',
+        status: 'lead',
+        tier: 'C',
+        address: { city: '', state: '' },
+        tags: []
+    }); 
+    setActiveTab('details');
+    setIsEditModalOpen(true); 
+    setSaveError(null);
   };
 
-  const handleAddTag = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && tagInput.trim()) {
-      e.preventDefault();
-      if (editingContact && !editingContact.tags?.includes(tagInput.trim())) {
-        setEditingContact({
-          ...editingContact,
-          tags: [...(editingContact.tags || []), tagInput.trim()]
-        });
-      }
-      setTagInput('');
-    }
-  };
-
-  const removeTag = (tag: string) => {
-    if (editingContact) {
-      setEditingContact({
-        ...editingContact,
-        tags: editingContact.tags?.filter(t => t !== tag) || []
-      });
-    }
-  };
-
-  const handleSaveForm = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingContact) return;
-    
-    if (!editingContact.firstName || !editingContact.lastName) {
-      alert("First and Last Name are required.");
-      return;
-    }
-
-    const contactToSave = {
-      ...editingContact,
-      id: editingContact.id || Math.random().toString(36).substr(2, 9),
-      createdAt: editingContact.createdAt || new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    } as Contact;
-
-    await onSaveContact(contactToSave);
-    setIsEditModalOpen(false);
-    
-    if (selectedContact && selectedContact.id === contactToSave.id) {
-        setSelectedContact(contactToSave);
-    }
-  };
-
-  const handleDeleteConfirm = async () => {
-    if (deleteId) {
-      await onDeleteContact(deleteId);
-      if (selectedContact?.id === deleteId) {
-        setSelectedContact(null);
-      }
-      setDeleteId(null);
-    }
-  };
-
-  const handleParseCsv = () => {
+  const parseCsv = () => {
     const lines = importText.split('\n').filter(l => l.trim());
     if (lines.length < 2) {
-      alert("CSV must contain a header row and at least one data row.");
+      alert("Invalid CSV format. Please include a header row and at least one data row.");
       return;
     }
-
     const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-    const rows = lines.slice(1).map(line => line.split(',').map(c => c.trim().replace(/^"|"$/g, '')));
-
+    const rows = lines.slice(1).map(l => l.split(',').map(v => v.trim().replace(/^"|"$/g, '')));
+    
     setCsvHeaders(headers);
     setCsvRows(rows);
 
-    // Try to auto-map based on common names
-    const autoMappings: Record<string, number> = {};
-    const fieldKeys = ['firstName', 'lastName', 'email', 'phone', 'company', 'contactType', 'jobTitle'];
-    
-    fieldKeys.forEach(field => {
-      const matchIndex = headers.findIndex(h => {
-        const header = h.toLowerCase().replace(/[\s_]/g, '');
-        const fieldName = field.toLowerCase();
-        return header.includes(fieldName) || fieldName.includes(header);
+    // Initial Guess logic
+    const initialMappings: Record<string, number> = {};
+    CONTACT_FIELDS.forEach(field => {
+      const idx = headers.findIndex(h => {
+        const hLow = h.toLowerCase();
+        const fLow = field.label.toLowerCase();
+        const kLow = field.key.toLowerCase();
+        return hLow.includes(fLow) || fLow.includes(hLow) || hLow.includes(kLow);
       });
-      if (matchIndex !== -1) autoMappings[field] = matchIndex;
+      if (idx !== -1) initialMappings[field.key] = idx;
     });
 
-    setFieldMappings(autoMappings);
+    setMappings(initialMappings);
     setImportStep('map');
   };
 
-  const handleCompleteImport = async () => {
-    if (fieldMappings['firstName'] === undefined || fieldMappings['lastName'] === undefined) {
-      alert("Mapping for First Name and Last Name is required.");
+  const handleFinalImport = async () => {
+    if (mappings['firstName'] === undefined || mappings['lastName'] === undefined) {
+      alert("Please map both First Name and Last Name columns.");
       return;
     }
 
     const newContacts: Contact[] = csvRows.map(row => ({
-      id: Math.random().toString(36).substr(2, 9),
-      userId: '', // Set by parent
-      firstName: row[fieldMappings['firstName']] || 'Unknown',
-      lastName: row[fieldMappings['lastName']] || '',
-      email: row[fieldMappings['email']] || '',
-      phone: row[fieldMappings['phone']] || '',
-      company: row[fieldMappings['company']] || '',
-      jobTitle: row[fieldMappings['jobTitle']] || '',
-      contactType: (row[fieldMappings['contactType']]?.toLowerCase() as ContactType) || 'other',
+      userId: '', // Set by parent service
+      firstName: row[mappings['firstName']] || 'Unknown',
+      lastName: row[mappings['lastName']] || '',
+      email: row[mappings['email']] || '',
+      phone: row[mappings['phone']] || '',
+      mobile: row[mappings['mobile']] || '',
+      company: row[mappings['company']] || '',
+      jobTitle: row[mappings['jobTitle']] || '',
+      linkedin: row[mappings['linkedin']] || '',
+      website: row[mappings['website']] || '',
+      contactType: (row[mappings['contactType']]?.toLowerCase() as ContactType) || 'prospect',
       status: 'lead',
+      tier: 'C',
+      submarkets: [],
+      propertyInterests: [],
       tags: ['Imported'],
       linkedDealIds: [],
       interactions: [],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    }));
+      createdAt: new Date().toISOString()
+    } as Contact));
 
     await onImportContacts(newContacts);
     setIsImportModalOpen(false);
-    setImportStep('paste');
     setImportText('');
-    alert(`Imported ${newContacts.length} contacts.`);
-  };
-
-  const exportCsv = () => {
-    const headers = "FirstName,LastName,Company,Email,Phone,Type,Status\n";
-    const rows = contacts.map(c => 
-        `${c.firstName},${c.lastName},${c.company || ''},${c.email || ''},${c.phone || ''},${c.contactType},${c.status}`
-    ).join("\n");
-    const blob = new Blob([headers + rows], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `Contacts_Export_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
+    setImportStep('paste');
   };
 
   return (
-    <div className="max-w-7xl mx-auto h-[calc(100vh-100px)] flex flex-col">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4 flex-shrink-0">
+    <div className="h-full flex flex-col max-w-7xl mx-auto">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
         <div>
-           <h1 className="text-2xl font-bold text-slate-900">Contacts</h1>
-           <p className="text-slate-500">Manage your network, partners, and leads.</p>
+          <h1 className="text-3xl font-black text-slate-900 tracking-tight">Relationships</h1>
+          <p className="text-slate-500 font-medium mt-1">Manage your professional network and lead pipeline.</p>
         </div>
-        <div className="flex gap-2">
-           <button onClick={() => { setIsImportModalOpen(true); setImportStep('paste'); }} className="bg-white border border-slate-300 text-slate-700 px-3 py-2 rounded-lg font-medium hover:bg-slate-50 flex items-center gap-2 text-sm">
-             <Upload size={16} /> Import
-           </button>
-           <button onClick={exportCsv} className="bg-white border border-slate-300 text-slate-700 px-3 py-2 rounded-lg font-medium hover:bg-slate-50 flex items-center gap-2 text-sm">
-             <Download size={16} /> Export
-           </button>
-           <button onClick={() => handleEditClick()} className="bg-summit-900 text-white px-4 py-2 rounded-lg font-medium hover:bg-summit-800 flex items-center gap-2 shadow-lg shadow-summit-900/10">
-             <UserPlus size={18} /> Add Contact
-           </button>
+        <div className="flex gap-3">
+          <button 
+            onClick={() => { setIsImportModalOpen(true); setImportStep('paste'); }}
+            className="bg-white border border-slate-200 text-slate-700 px-4 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-slate-50 transition-all shadow-sm"
+          >
+            <Upload size={18} /> Import CSV
+          </button>
+          <button onClick={handleNewClick} className="bg-summit-900 text-white px-6 py-3 rounded-2xl font-black flex items-center gap-2 shadow-xl shadow-summit-900/20 hover:scale-[1.02] transition-all">
+            <UserPlus size={20} /> New Contact
+          </button>
         </div>
       </div>
 
-      {/* Stats Row */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 flex-shrink-0">
-         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-            <p className="text-xs font-bold text-slate-500 uppercase">Total Contacts</p>
-            <p className="text-2xl font-bold text-slate-900">{contacts.length}</p>
-         </div>
-         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-            <p className="text-xs font-bold text-slate-500 uppercase">Active</p>
-            <p className="text-2xl font-bold text-green-600">{contacts.filter(c => c.status === 'active').length}</p>
-         </div>
-         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-            <p className="text-xs font-bold text-slate-500 uppercase">Leads</p>
-            <p className="text-2xl font-bold text-blue-600">{contacts.filter(c => c.status === 'lead').length}</p>
-         </div>
-         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-            <p className="text-xs font-bold text-slate-500 uppercase">Recent Activity</p>
-            <p className="text-2xl font-bold text-purple-600">
-                {contacts.filter(c => {
-                    if (!c.lastContactedAt) return false;
-                    const days = (new Date().getTime() - new Date(c.lastContactedAt).getTime()) / (1000 * 3600 * 24);
-                    return days <= 30;
-                }).length}
-            </p>
-         </div>
+      <div className="bg-white p-5 rounded-3xl shadow-sm border border-slate-200 mb-8 flex gap-4 items-center">
+        <div className="relative flex-1">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={20} />
+          <input 
+            type="text" 
+            placeholder="Search network by name, company, email, or tags..." 
+            className="w-full pl-12 pr-6 py-3 bg-slate-50 border border-slate-100 rounded-2xl outline-none focus:ring-2 focus:ring-summit-accent/20 font-medium transition-all" 
+            value={searchTerm} 
+            onChange={e => setSearchTerm(e.target.value)} 
+          />
+        </div>
       </div>
 
-      {/* Toolbar */}
-      <div className="bg-white p-4 rounded-xl shadow-sm border border-slate-200 mb-4 flex flex-col md:flex-row gap-4 items-center justify-between flex-shrink-0">
-         <div className="w-full md:w-80 relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-            <input 
-              type="text" 
-              placeholder={searchTerm ? `Global filter active: "${searchTerm}"` : "Search contacts by name, company..."}
-              value={localSearch}
-              onChange={(e) => setLocalSearch(e.target.value)}
-              className={`w-full pl-9 pr-4 py-2 border rounded-lg text-sm focus:ring-2 focus:ring-summit-accent outline-none transition-all ${searchTerm ? 'bg-blue-50 border-blue-200 text-blue-800 placeholder-blue-400' : 'bg-white border-slate-300'}`}
-            />
-            {searchTerm && <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] uppercase font-bold text-blue-400">Global Filter On</span>}
-         </div>
-         <div className="flex gap-2 w-full md:w-auto overflow-x-auto">
-            <select 
-              value={filterType} 
-              onChange={(e) => setFilterType(e.target.value)}
-              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 outline-none cursor-pointer"
-            >
-               <option value="all">All Types</option>
-               {CONTACT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-            </select>
-            <select 
-              value={filterStatus} 
-              onChange={(e) => setFilterStatus(e.target.value)}
-              className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-700 outline-none cursor-pointer"
-            >
-               <option value="all">All Statuses</option>
-               {CONTACT_STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-            </select>
-         </div>
-      </div>
-
-      {/* Main List */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex-1 flex flex-col">
-         <div className="overflow-auto flex-1">
-            <table className="w-full text-left border-collapse">
-               <thead className="bg-slate-50 sticky top-0 z-10 shadow-sm">
-                  <tr>
-                     <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Contact Name</th>
-                     <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Contact Info</th>
-                     <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider">Type / Status</th>
-                     <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider hidden md:table-cell">Tags</th>
-                     <th className="p-4 text-xs font-bold text-slate-500 uppercase tracking-wider text-right">Actions</th>
-                  </tr>
-               </thead>
-               <tbody className="divide-y divide-slate-100">
-                  {filteredContacts.length > 0 ? filteredContacts.map(contact => (
-                     <tr key={contact.id} onClick={() => setSelectedContact(contact)} className="hover:bg-slate-50 cursor-pointer transition-colors group">
-                        <td className="p-4">
-                           <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center font-bold text-sm">
-                                 {getInitials(contact.firstName, contact.lastName)}
-                              </div>
-                              <div>
-                                 <div className="font-bold text-slate-900">{contact.firstName} {contact.lastName}</div>
-                                 <div className="text-xs text-slate-500">{contact.jobTitle} {contact.company ? `at ${contact.company}` : ''}</div>
-                              </div>
-                           </div>
-                        </td>
-                        <td className="p-4 text-sm text-slate-600">
-                           {contact.email && <div className="flex items-center gap-2 mb-1"><Mail size={12} className="text-slate-400"/> {contact.email}</div>}
-                           {contact.phone && <div className="flex items-center gap-2"><Phone size={12} className="text-slate-400"/> {contact.phone}</div>}
-                        </td>
-                        <td className="p-4">
-                           <div className="flex flex-col gap-1.5 items-start">
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${getTypeColor(contact.contactType)}`}>
-                                 {contact.contactType.replace('_', ' ')}
-                              </span>
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${getStatusColor(contact.status).replace('bg-', 'border-').replace('text-', 'text-')}`}>
-                                 {contact.status}
-                              </span>
-                           </div>
-                        </td>
-                        <td className="p-4 hidden md:table-cell">
-                           <div className="flex flex-wrap gap-1">
-                              {contact.tags.slice(0, 2).map(t => (
-                                 <span key={t} className="bg-slate-100 text-slate-600 px-2 py-0.5 rounded text-xs">{t}</span>
-                              ))}
-                              {contact.tags.length > 2 && <span className="text-xs text-slate-400">+{contact.tags.length - 2}</span>}
-                           </div>
-                        </td>
-                        <td className="p-4 text-right">
-                           <button onClick={(e) => { e.stopPropagation(); handleEditClick(contact); }} className="p-2 text-slate-300 hover:text-summit-900 rounded-full hover:bg-slate-200"><Edit size={16} /></button>
-                           <button onClick={(e) => { e.stopPropagation(); setDeleteId(contact.id); }} className="p-2 text-slate-300 hover:text-red-500 rounded-full hover:bg-slate-200 ml-1"><Trash2 size={16} /></button>
-                        </td>
-                     </tr>
-                  )) : (
-                     <tr>
-                        <td colSpan={5} className="p-12 text-center text-slate-400">
-                           <Users size={48} className="mx-auto mb-4 opacity-20" />
-                           <p>No contacts found matching your filters.</p>
-                        </td>
-                     </tr>
-                  )}
-               </tbody>
-            </table>
-         </div>
-      </div>
-
-      {/* Detail Slide-over */}
-      {selectedContact && (
-         <div className="fixed inset-0 z-50 flex justify-end">
-            <div className="absolute inset-0 bg-slate-900/20 backdrop-blur-sm transition-opacity" onClick={() => setSelectedContact(null)}></div>
-            <div className="relative w-full max-w-2xl bg-white h-full shadow-2xl overflow-hidden flex flex-col animate-in slide-in-from-right duration-300">
-               {/* Detail Header */}
-               <div className="p-6 bg-slate-50 border-b border-slate-200 flex justify-between items-start">
-                  <div className="flex items-center gap-4">
-                     <div className="w-16 h-16 rounded-full bg-summit-900 text-white flex items-center justify-center font-bold text-2xl shadow-lg">
-                        {getInitials(selectedContact.firstName, selectedContact.lastName)}
-                     </div>
-                     <div>
-                        <h2 className="text-2xl font-bold text-slate-900">{selectedContact.firstName} {selectedContact.lastName}</h2>
-                        <p className="text-slate-600 font-medium">{selectedContact.jobTitle} @ {selectedContact.company}</p>
-                        <div className="flex gap-2 mt-2">
-                           <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${getTypeColor(selectedContact.contactType)}`}>{selectedContact.contactType.replace('_', ' ')}</span>
-                           <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase ${getStatusColor(selectedContact.status)}`}>{selectedContact.status}</span>
-                        </div>
-                     </div>
-                  </div>
-                  <div className="flex gap-2">
-                     <button onClick={() => { handleEditClick(selectedContact); }} className="p-2 text-slate-500 hover:text-summit-900 hover:bg-white rounded-lg border border-transparent hover:border-slate-200 transition-all">
-                        <Edit size={20} />
-                     </button>
-                     <button onClick={() => setDeleteId(selectedContact.id)} className="p-2 text-slate-500 hover:text-red-600 hover:bg-white rounded-lg border border-transparent hover:border-red-100 transition-all">
-                        <Trash2 size={20} />
-                     </button>
-                     <button onClick={() => setSelectedContact(null)} className="p-2 text-slate-400 hover:text-slate-600 hover:bg-white rounded-lg">
-                        <X size={24} />
-                     </button>
-                  </div>
-               </div>
-
-               {/* Detail Content */}
-               <div className="flex-1 overflow-y-auto p-6 bg-white">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                     <div className="space-y-4">
-                        <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wide border-b border-slate-100 pb-2">Contact Details</h3>
-                        <div className="space-y-3 text-sm">
-                           {selectedContact.email && <div className="flex items-center gap-3 text-slate-600"><Mail size={16} className="text-slate-400"/> <a href={`mailto:${selectedContact.email}`} className="hover:text-summit-accent">{selectedContact.email}</a></div>}
-                           {selectedContact.phone && <div className="flex items-center gap-3 text-slate-600"><Phone size={16} className="text-slate-400"/> <a href={`tel:${selectedContact.phone}`} className="hover:text-summit-accent">{selectedContact.phone} (Office)</a></div>}
-                           {selectedContact.mobile && <div className="flex items-center gap-3 text-slate-600"><Phone size={16} className="text-slate-400"/> <a href={`tel:${selectedContact.mobile}`} className="hover:text-summit-accent">{selectedContact.mobile} (Mobile)</a></div>}
-                           {selectedContact.linkedin && <div className="flex items-center gap-3 text-slate-600"><Linkedin size={16} className="text-slate-400"/> <a href={selectedContact.linkedin} target="_blank" rel="noreferrer" className="hover:text-summit-accent">LinkedIn Profile</a></div>}
-                           {selectedContact.website && <div className="flex items-center gap-3 text-slate-600"><Globe size={16} className="text-slate-400"/> <a href={selectedContact.website} target="_blank" rel="noreferrer" className="hover:text-summit-accent">Website</a></div>}
-                        </div>
-                        
-                        {selectedContact.address && (selectedContact.address.street || selectedContact.address.city) && (
-                           <div className="pt-2">
-                              <h4 className="font-bold text-xs text-slate-500 uppercase mb-1">Mailing Address</h4>
-                              <p className="text-sm text-slate-600">
-                                {selectedContact.address.street}<br/>
-                                {selectedContact.address.city}, {selectedContact.address.state} {selectedContact.address.zip}
-                              </p>
-                           </div>
+      <div className="flex-1 bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+        <div className="overflow-y-auto">
+          <table className="w-full text-left">
+            <thead className="bg-slate-50/50 text-slate-400 text-[10px] font-black uppercase tracking-widest border-b border-slate-100">
+              <tr>
+                <th className="p-6">Contact</th>
+                <th className="p-6">Contact Info</th>
+                <th className="p-6">Role</th>
+                <th className="p-6">Status</th>
+                <th className="p-6 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {filteredContacts.map(c => (
+                <tr key={c.id} onClick={() => setSelectedContact(c)} className="hover:bg-slate-50 cursor-pointer transition-colors group">
+                  <td className="p-6">
+                    <div className="flex items-center gap-4">
+                      <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center font-black text-slate-500 border-2 border-transparent group-hover:border-summit-accent/50 transition-all uppercase">
+                        {c.firstName?.[0] || ''}{c.lastName?.[0] || ''}
+                      </div>
+                      <div>
+                        <p className="font-bold text-slate-900 leading-tight">{c.firstName} {c.lastName}</p>
+                        <p className="text-xs text-slate-400 font-medium">{c.jobTitle || 'No Title'}</p>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="p-6">
+                    <div className="space-y-1">
+                        {c.email && (
+                            <div className="flex items-center gap-2 text-xs text-slate-600 font-medium">
+                                <Mail size={12} className="text-slate-400" /> {c.email}
+                            </div>
                         )}
-                     </div>
-                     <div className="space-y-6">
-                        <div>
-                           <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wide border-b border-slate-100 pb-2 mb-3">Tags</h3>
-                           <div className="flex flex-wrap gap-2">
-                              {selectedContact.tags.length > 0 ? selectedContact.tags.map(t => (
-                                 <span key={t} className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-xs font-medium flex items-center gap-1"><Tag size={12} /> {t}</span>
-                              )) : <span className="text-slate-400 text-sm italic">No tags</span>}
+                        {c.phone && (
+                            <div className="flex items-center gap-2 text-xs text-slate-600 font-medium">
+                                <Phone size={12} className="text-slate-400" /> {c.phone}
+                            </div>
+                        )}
+                        {c.mobile && (
+                            <div className="flex items-center gap-2 text-xs text-slate-600 font-medium">
+                                <Smartphone size={12} className="text-slate-400" /> {c.mobile}
+                            </div>
+                        )}
+                    </div>
+                  </td>
+                  <td className="p-6">
+                    <div className="flex flex-col items-start gap-1">
+                        <span className="text-sm font-bold text-slate-800 tracking-tight">{c.company || 'Private'}</span>
+                        <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-widest ${CONTACT_TYPES.find(t => t.value === c.contactType)?.color || 'bg-slate-100 text-slate-700'}`}>
+                        {c.contactType.replace('_', ' ')}
+                        </span>
+                    </div>
+                  </td>
+                  <td className="p-6">
+                    <div className="flex items-center gap-2">
+                        <span className={`w-2 h-2 rounded-full ${
+                            c.status === 'active' ? 'bg-green-500' :
+                            c.status === 'lead' ? 'bg-blue-500' :
+                            c.status === 'prospect' ? 'bg-amber-500' : 'bg-slate-300'
+                        }`}></span>
+                        <span className="text-xs font-bold text-slate-600 uppercase">{c.status}</span>
+                    </div>
+                    <div className="mt-1 text-[10px] text-slate-400 font-medium">
+                        Tier {c.tier || 'C'}
+                    </div>
+                  </td>
+                  <td className="p-6 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                        {c.linkedin && (
+                            <a href={c.linkedin} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()} className="p-2 text-slate-300 hover:text-blue-600 transition-colors">
+                                <Linkedin size={16} />
+                            </a>
+                        )}
+                        <button onClick={e => { e.stopPropagation(); handleEditClick(c); }} className="p-2 text-slate-300 hover:text-summit-900 transition-colors"><Edit size={18} /></button>
+                        <button onClick={e => { e.stopPropagation(); if(confirm('Delete contact?')) onDeleteContact(c.id); }} className="p-2 text-slate-300 hover:text-red-500 transition-colors"><Trash2 size={18} /></button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {filteredContacts.length === 0 && (
+                <tr>
+                  <td colSpan={5} className="p-32 text-center text-slate-300">
+                    <Users size={48} className="mx-auto mb-4 opacity-10" />
+                    <p className="font-black uppercase tracking-widest text-xs">No matching relationships</p>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* --- IMPORT MODAL --- */}
+      {isImportModalOpen && (
+        <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md flex items-center justify-center z-[100] p-4">
+           <div className="bg-white w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-300 flex flex-col max-h-[90vh]">
+              <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/30">
+                 <div>
+                    <h3 className="font-black text-2xl text-slate-900">Batch Onboarding</h3>
+                    <p className="text-sm text-slate-500 font-bold uppercase tracking-widest mt-1">Step {importStep === 'paste' ? '1' : '2'} of 2</p>
+                 </div>
+                 <button onClick={() => setIsImportModalOpen(false)} className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-slate-400 hover:text-slate-900 transition-all shadow-sm"><X size={24}/></button>
+              </div>
+
+              <div className="p-8 flex-1 overflow-y-auto">
+                 {importStep === 'paste' ? (
+                   <div className="space-y-6">
+                      <div className="bg-blue-50 p-5 rounded-3xl border border-blue-100 flex items-start gap-4">
+                         <AlertCircle className="text-blue-600 mt-1" size={20} />
+                         <p className="text-sm text-blue-800 leading-relaxed font-semibold">
+                            Paste your CSV data directly from your spreadsheet. The first row should contain headers like "First Name", "Email", "Company", etc.
+                         </p>
+                      </div>
+                      <textarea 
+                        rows={10}
+                        className="w-full p-6 bg-slate-50 border-2 border-slate-100 rounded-3xl font-mono text-xs outline-none focus:border-summit-accent transition-all resize-none"
+                        placeholder="First Name,Last Name,Email,Company,Phone..."
+                        value={importText}
+                        onChange={e => setImportText(e.target.value)}
+                      />
+                      <div className="flex justify-end pt-4">
+                        <button 
+                          onClick={parseCsv}
+                          disabled={!importText.trim()}
+                          className="bg-summit-900 text-white px-10 py-4 rounded-2xl font-black flex items-center gap-3 hover:bg-summit-800 disabled:opacity-50 transition-all hover:translate-x-1"
+                        >
+                          Scan Document <ArrowRight size={20} />
+                        </button>
+                      </div>
+                   </div>
+                 ) : (
+                   <div className="space-y-8">
+                      <div className="bg-emerald-50 p-5 rounded-3xl border border-emerald-100 text-emerald-800 text-sm font-black flex items-center gap-3">
+                        <Check size={20} className="bg-emerald-600 text-white rounded-full p-0.5" /> 
+                        Successfully identified {csvRows.length} entities and {csvHeaders.length} data points.
+                      </div>
+
+                      <div className="space-y-4">
+                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Column Mapping</p>
+                         {CONTACT_FIELDS.map(field => (
+                           <div key={field.key} className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-summit-accent/30 transition-all">
+                              <label className="text-sm font-black text-slate-800 uppercase tracking-tighter flex items-center gap-2">
+                                {field.label} {field.required && <span className="text-red-500 text-lg">*</span>}
+                              </label>
+                              <select 
+                                className="w-full md:w-64 p-3 bg-white border border-slate-200 rounded-xl text-xs font-black outline-none focus:ring-4 focus:ring-summit-accent/10"
+                                value={mappings[field.key] === undefined ? "" : mappings[field.key]}
+                                onChange={e => setMappings({...mappings, [field.key]: parseInt(e.target.value)})}
+                              >
+                                 <option value="">-- Ignore Header --</option>
+                                 {csvHeaders.map((h, i) => (
+                                   <option key={i} value={i}>{h}</option>
+                                 ))}
+                              </select>
                            </div>
-                        </div>
-                        <div>
-                           <h3 className="font-bold text-slate-800 text-sm uppercase tracking-wide border-b border-slate-100 pb-2 mb-2">Notes</h3>
-                           <p className="text-sm text-slate-600 whitespace-pre-line bg-slate-50 p-3 rounded-lg border border-slate-100">
-                              {selectedContact.notes || "No notes available."}
-                           </p>
-                        </div>
-                     </div>
-                  </div>
-               </div>
-            </div>
-         </div>
+                         ))}
+                      </div>
+
+                      <div className="flex justify-between items-center pt-8 mt-4 border-t border-slate-100">
+                         <button onClick={() => setImportStep('paste')} className="text-slate-400 font-black text-xs uppercase tracking-widest hover:text-slate-900 transition-colors">Abort & Reset</button>
+                         <button onClick={handleFinalImport} className="bg-summit-accent text-summit-900 px-12 py-5 rounded-2xl font-black text-xl shadow-2xl shadow-emerald-900/20 hover:scale-[1.02] transition-all active:scale-95">
+                           Sync Database
+                         </button>
+                      </div>
+                   </div>
+                 )}
+              </div>
+           </div>
+        </div>
       )}
 
       {/* --- ADD/EDIT MODAL --- */}
       {isEditModalOpen && editingContact && (
-         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white w-full max-w-4xl rounded-xl shadow-2xl overflow-hidden max-h-[90vh] flex flex-col">
-               <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                  <h2 className="font-bold text-lg text-slate-800">{editingContact.id ? 'Edit Contact' : 'New Contact'}</h2>
-                  <button onClick={() => setIsEditModalOpen(false)}><X size={20} className="text-slate-400 hover:text-slate-600"/></button>
-               </div>
-               <form onSubmit={handleSaveForm} className="p-8 overflow-y-auto flex-1">
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                     
-                     {/* LEFT COLUMN: IDENTITY & WORK */}
-                     <div className="space-y-6">
-                        <div>
-                           <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><Building size={14}/> Professional Identity</h3>
-                           <div className="grid grid-cols-2 gap-4">
-                              <div>
-                                 <label className="text-xs font-bold text-slate-700 block mb-1">First Name *</label>
-                                 <input type="text" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent" value={editingContact.firstName} onChange={e => setEditingContact({...editingContact!, firstName: e.target.value})} required />
-                              </div>
-                              <div>
-                                 <label className="text-xs font-bold text-slate-700 block mb-1">Last Name *</label>
-                                 <input type="text" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent" value={editingContact.lastName} onChange={e => setEditingContact({...editingContact!, lastName: e.target.value})} required />
-                              </div>
-                              <div className="col-span-2">
-                                 <label className="text-xs font-bold text-slate-700 block mb-1">Company</label>
-                                 <input type="text" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent" value={editingContact.company || ''} onChange={e => setEditingContact({...editingContact!, company: e.target.value})} placeholder="Entity Name" />
-                              </div>
-                              <div className="col-span-2">
-                                 <label className="text-xs font-bold text-slate-700 block mb-1">Job Title</label>
-                                 <input type="text" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent" value={editingContact.jobTitle || ''} onChange={e => setEditingContact({...editingContact!, jobTitle: e.target.value})} />
-                              </div>
-                           </div>
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center z-[100] p-4">
+           <div className="bg-white w-full max-w-4xl rounded-[2.5rem] shadow-2xl p-0 flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in duration-200">
+              
+              <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/50">
+                 <div className="flex items-center gap-4">
+                    <div className="w-16 h-16 rounded-2xl bg-white shadow-sm border border-slate-200 flex items-center justify-center text-3xl font-black text-slate-300">
+                        {editingContact.firstName ? editingContact.firstName[0] : <UserIcon />}
+                    </div>
+                    <div>
+                        <h3 className="font-black text-2xl text-slate-900 tracking-tight">
+                            {editingContact.id ? 'Edit Profile' : 'New Entity'}
+                        </h3>
+                        <p className="text-sm text-slate-500 font-bold">Professional Network</p>
+                    </div>
+                 </div>
+                 <div className="flex gap-2">
+                    <button onClick={() => setActiveTab('details')} className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'details' ? 'bg-summit-900 text-white shadow-lg' : 'bg-white text-slate-500 hover:bg-slate-100'}`}>Essentials</button>
+                    <button onClick={() => setActiveTab('profile')} className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${activeTab === 'profile' ? 'bg-summit-900 text-white shadow-lg' : 'bg-white text-slate-500 hover:bg-slate-100'}`}>Profile & Notes</button>
+                 </div>
+              </div>
+
+              {saveError && (
+                <div className="bg-red-50 text-red-600 p-4 mx-8 mt-4 rounded-xl flex items-center gap-2 text-sm font-bold border border-red-100">
+                  <AlertCircle size={20} /> {saveError}
+                </div>
+              )}
+
+              <form onSubmit={handleSave} className="flex-1 overflow-y-auto p-8">
+                 
+                 {activeTab === 'details' && (
+                    <div className="space-y-8">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">First Name *</label>
+                                <input className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-summit-accent transition-all" placeholder="John" value={editingContact?.firstName || ''} onChange={e => setEditingContact({...editingContact!, firstName: e.target.value})} required />
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Last Name *</label>
+                                <input className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-summit-accent transition-all" placeholder="Doe" value={editingContact?.lastName || ''} onChange={e => setEditingContact({...editingContact!, lastName: e.target.value})} required />
+                            </div>
                         </div>
 
-                        <div>
-                           <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><Tag size={14}/> Classification</h3>
-                           <div className="grid grid-cols-2 gap-4">
-                              <div>
-                                 <label className="text-xs font-bold text-slate-700 block mb-1">Relationship Type</label>
-                                 <select 
-                                    className="w-full p-2.5 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent"
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Company / Entity</label>
+                                <div className="relative">
+                                    <Building className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                                    <input className="w-full pl-12 p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-summit-accent transition-all" placeholder="Acme Corp" value={editingContact?.company || ''} onChange={e => setEditingContact({...editingContact!, company: e.target.value})} />
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Job Title</label>
+                                <div className="relative">
+                                    <Briefcase className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                                    <input className="w-full pl-12 p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-summit-accent transition-all" placeholder="VP of Acquisitions" value={editingContact?.jobTitle || ''} onChange={e => setEditingContact({...editingContact!, jobTitle: e.target.value})} />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Relationship</label>
+                                <select 
+                                    className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-summit-accent transition-all appearance-none"
                                     value={editingContact.contactType}
                                     onChange={e => setEditingContact({...editingContact!, contactType: e.target.value as ContactType})}
-                                 >
+                                >
                                     {CONTACT_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-                                 </select>
-                              </div>
-                              <div>
-                                 <label className="text-xs font-bold text-slate-700 block mb-1">Status</label>
-                                 <select 
-                                    className="w-full p-2.5 bg-white border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent"
+                                </select>
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Status</label>
+                                <select 
+                                    className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-summit-accent transition-all appearance-none"
                                     value={editingContact.status}
                                     onChange={e => setEditingContact({...editingContact!, status: e.target.value as ContactStatus})}
-                                 >
-                                    {CONTACT_STATUSES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                                 </select>
-                              </div>
-                           </div>
+                                >
+                                    {CONTACT_STATUS_OPTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                                </select>
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Priority Tier</label>
+                                <div className="flex gap-2">
+                                    {TIERS.map(tier => (
+                                        <button 
+                                            key={tier}
+                                            type="button"
+                                            onClick={() => setEditingContact({...editingContact!, tier})}
+                                            className={`flex-1 py-4 rounded-2xl font-black text-sm transition-all border-2 ${editingContact?.tier === tier ? 'border-summit-accent bg-summit-accent/10 text-summit-900' : 'border-slate-100 bg-slate-50 text-slate-400 hover:border-slate-200'}`}
+                                        >
+                                            {tier}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
                         </div>
-
-                        <div>
-                           <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><Tag size={14}/> Segmentation Tags</h3>
-                           <div className="space-y-3">
-                              <div className="flex flex-wrap gap-2 min-h-[30px]">
-                                {editingContact.tags && editingContact.tags.length > 0 ? editingContact.tags.map(tag => (
-                                  <span key={tag} className="bg-slate-100 text-slate-700 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 border border-slate-200">
-                                    {tag}
-                                    <button type="button" onClick={() => removeTag(tag)} className="text-slate-400 hover:text-red-500 rounded-full hover:bg-slate-200 p-0.5 transition-colors"><X size={12}/></button>
-                                  </span>
-                                )) : <span className="text-xs text-slate-400 italic py-1">No tags added yet.</span>}
-                              </div>
-                              <input 
-                                type="text" 
-                                className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent text-sm" 
-                                placeholder="Type tag and press Enter..." 
-                                value={tagInput}
-                                onChange={e => setTagInput(e.target.value)}
-                                onKeyDown={handleAddTag}
-                              />
-                              <p className="text-[10px] text-slate-400">Press Enter to add a tag.</p>
-                           </div>
-                        </div>
-                     </div>
-
-                     {/* RIGHT COLUMN: CONTACT & ADDRESS */}
-                     <div className="space-y-6">
-                        <div>
-                           <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><Phone size={14}/> Contact Details</h3>
-                           <div className="space-y-3">
-                              <div>
-                                 <label className="text-xs font-bold text-slate-700 block mb-1">Email Address</label>
-                                 <input type="email" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent" value={editingContact.email || ''} onChange={e => setEditingContact({...editingContact!, email: e.target.value})} placeholder="name@company.com" />
-                              </div>
-                              <div className="grid grid-cols-2 gap-4">
-                                 <div>
-                                    <label className="text-xs font-bold text-slate-700 block mb-1">Work Phone</label>
-                                    <input type="tel" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent" value={editingContact.phone || ''} onChange={e => setEditingContact({...editingContact!, phone: e.target.value})} />
-                                 </div>
-                                 <div>
-                                    <label className="text-xs font-bold text-slate-700 block mb-1">Mobile Phone</label>
-                                    <input type="tel" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent" value={editingContact.mobile || ''} onChange={e => setEditingContact({...editingContact!, mobile: e.target.value})} />
-                                 </div>
-                              </div>
-                              <div>
-                                 <label className="text-xs font-bold text-slate-700 block mb-1">LinkedIn URL</label>
-                                 <input type="url" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent" value={editingContact.linkedin || ''} onChange={e => setEditingContact({...editingContact!, linkedin: e.target.value})} placeholder="https://linkedin.com/in/..." />
-                              </div>
-                              <div>
-                                 <label className="text-xs font-bold text-slate-700 block mb-1">Website</label>
-                                 <input type="url" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent" value={editingContact.website || ''} onChange={e => setEditingContact({...editingContact!, website: e.target.value})} placeholder="https://..." />
-                              </div>
-                           </div>
-                        </div>
-
-                        <div>
-                           <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2"><MapPin size={14}/> Mailing Address</h3>
-                           <div className="space-y-3">
-                              <input type="text" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent mb-2" value={editingContact.address?.street || ''} onChange={e => setEditingContact({...editingContact!, address: {...editingContact?.address, street: e.target.value}})} placeholder="Street Address" />
-                              <div className="grid grid-cols-3 gap-3">
-                                 <input type="text" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent" value={editingContact.address?.city || ''} onChange={e => setEditingContact({...editingContact!, address: {...editingContact?.address, city: e.target.value}})} placeholder="City" />
-                                 <input type="text" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent" value={editingContact.address?.state || ''} onChange={e => setEditingContact({...editingContact!, address: {...editingContact?.address, state: e.target.value}})} placeholder="State" />
-                                 <input type="text" className="w-full p-2.5 border border-slate-200 rounded-lg outline-none focus:ring-2 focus:ring-summit-accent" value={editingContact.address?.zip || ''} onChange={e => setEditingContact({...editingContact!, address: {...editingContact?.address, zip: e.target.value}})} placeholder="Zip" />
-                              </div>
-                           </div>
-                        </div>
-                     </div>
-                  </div>
-
-                  <div className="mt-8 pt-6 border-t border-slate-100 flex justify-end gap-3">
-                     <button type="button" onClick={() => setIsEditModalOpen(false)} className="px-5 py-2.5 text-slate-600 hover:bg-slate-100 rounded-lg font-medium">Cancel</button>
-                     <button type="submit" className="px-8 py-2.5 bg-summit-900 text-white rounded-lg hover:bg-summit-800 font-bold shadow-lg">Save Contact Profile</button>
-                  </div>
-               </form>
-            </div>
-         </div>
-      )}
-
-      {/* --- IMPORT MODAL --- */}
-      {isImportModalOpen && (
-         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white w-full max-w-2xl rounded-xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-               <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
-                  <div>
-                    <h2 className="font-bold text-lg text-slate-800">Import Contacts</h2>
-                    <p className="text-xs text-slate-500">Step {importStep === 'paste' ? '1' : '2'} of 2</p>
-                  </div>
-                  <button onClick={() => setIsImportModalOpen(false)}><X size={20} className="text-slate-400"/></button>
-               </div>
-               
-               <div className="p-6 overflow-y-auto flex-1">
-                  {importStep === 'paste' ? (
-                    <div className="space-y-4">
-                      <p className="text-sm text-slate-600">
-                        Paste your CSV data below. Ensure the first row contains headers.
-                      </p>
-                      <textarea 
-                        rows={12} 
-                        className="w-full p-4 border border-slate-300 rounded-lg font-mono text-xs outline-none focus:ring-2 focus:ring-summit-accent/20 transition-all"
-                        placeholder="FirstName,LastName,Email,Phone,Company,Type..."
-                        value={importText}
-                        onChange={e => setImportText(e.target.value)}
-                      />
-                      <div className="flex justify-end">
-                        <button 
-                          onClick={handleParseCsv}
-                          disabled={!importText.trim()}
-                          className="px-6 py-2.5 bg-summit-900 text-white rounded-lg hover:bg-summit-800 font-bold flex items-center gap-2 disabled:opacity-50 transition-all"
-                        >
-                          Next: Map Columns <ArrowRight size={18} />
-                        </button>
-                      </div>
                     </div>
-                  ) : (
-                    <div className="space-y-6">
-                      <div className="bg-blue-50 p-4 rounded-lg border border-blue-100 mb-4">
-                        <p className="text-sm text-blue-800 font-medium">
-                          We found {csvHeaders.length} columns and {csvRows.length} contacts. Match them below:
-                        </p>
-                      </div>
+                 )}
 
-                      <div className="grid grid-cols-1 gap-6">
-                        {[
-                          { field: 'firstName', label: 'First Name', required: true },
-                          { field: 'lastName', label: 'Last Name', required: true },
-                          { field: 'email', label: 'Email Address' },
-                          { field: 'phone', label: 'Phone Number' },
-                          { field: 'company', label: 'Company' },
-                          { field: 'jobTitle', label: 'Job Title' },
-                          { field: 'contactType', label: 'Contact Type' }
-                        ].map(f => (
-                          <div key={f.field} className="flex flex-col md:flex-row md:items-center justify-between gap-2 border-b border-slate-100 pb-4">
-                            <label className="text-sm font-bold text-slate-700">
-                              {f.label} {f.required && <span className="text-red-500">*</span>}
-                            </label>
-                            <select 
-                              className="w-full md:w-64 p-2 bg-slate-50 border border-slate-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-summit-accent/20"
-                              value={fieldMappings[f.field] === undefined ? "" : fieldMappings[f.field]}
-                              onChange={e => setFieldMappings({...fieldMappings, [f.field]: parseInt(e.target.value)})}
-                            >
-                              <option value="">-- Ignore Field --</option>
-                              {csvHeaders.map((h, i) => (
-                                <option key={i} value={i}>{h}</option>
-                              ))}
-                            </select>
-                          </div>
-                        ))}
-                      </div>
+                 {activeTab === 'profile' && (
+                    <div className="space-y-8">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Email Address</label>
+                                <div className="relative">
+                                    <Mail className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                                    <input className="w-full pl-12 p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-summit-accent transition-all" placeholder="email@example.com" value={editingContact?.email || ''} onChange={e => setEditingContact({...editingContact!, email: e.target.value})} />
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Office Phone</label>
+                                <div className="relative">
+                                    <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                                    <input className="w-full pl-12 p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-summit-accent transition-all" placeholder="(555) 123-4567" value={editingContact?.phone || ''} onChange={e => setEditingContact({...editingContact!, phone: e.target.value})} />
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Mobile Phone</label>
+                                <div className="relative">
+                                    <Smartphone className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                                    <input className="w-full pl-12 p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-summit-accent transition-all" placeholder="(555) 987-6543" value={editingContact?.mobile || ''} onChange={e => setEditingContact({...editingContact!, mobile: e.target.value})} />
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Location</label>
+                                <div className="relative">
+                                    <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <input 
+                                            className="w-full pl-12 p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-summit-accent transition-all" 
+                                            placeholder="City" 
+                                            value={editingContact?.address?.city || ''} 
+                                            onChange={e => setEditingContact({...editingContact!, address: { ...editingContact!.address, city: e.target.value }})} 
+                                        />
+                                        <input 
+                                            className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-summit-accent transition-all" 
+                                            placeholder="State" 
+                                            value={editingContact?.address?.state || ''} 
+                                            onChange={e => setEditingContact({...editingContact!, address: { ...editingContact!.address, state: e.target.value }})} 
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
 
-                      <div className="flex justify-between mt-8 pt-6 border-t border-slate-100">
-                        <button 
-                          onClick={() => setImportStep('paste')}
-                          className="px-5 py-2.5 text-slate-600 hover:bg-slate-50 rounded-lg font-medium"
-                        >
-                          Back to Paste
-                        </button>
-                        <button 
-                          onClick={handleCompleteImport}
-                          className="px-8 py-2.5 bg-summit-accent text-white rounded-lg hover:bg-emerald-600 font-bold shadow-lg shadow-emerald-900/10 flex items-center gap-2"
-                        >
-                          <Check size={18} /> Complete Import
-                        </button>
-                      </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">LinkedIn URL</label>
+                                <div className="relative">
+                                    <Linkedin className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                                    <input className="w-full pl-12 p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-summit-accent transition-all" placeholder="https://linkedin.com/in/..." value={editingContact?.linkedin || ''} onChange={e => setEditingContact({...editingContact!, linkedin: e.target.value})} />
+                                </div>
+                            </div>
+                            <div className="space-y-2">
+                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Website</label>
+                                <div className="relative">
+                                    <Globe className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+                                    <input className="w-full pl-12 p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-summit-accent transition-all" placeholder="https://..." value={editingContact?.website || ''} onChange={e => setEditingContact({...editingContact!, website: e.target.value})} />
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Notes & Context</label>
+                            <textarea 
+                                rows={4}
+                                className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-medium outline-none focus:border-summit-accent transition-all resize-none" 
+                                placeholder="Investment criteria, background info, or personal details..." 
+                                value={editingContact?.notes || ''} 
+                                onChange={e => setEditingContact({...editingContact!, notes: e.target.value})} 
+                            />
+                        </div>
                     </div>
-                  )}
-               </div>
-            </div>
-         </div>
-      )}
+                 )}
 
-      {/* --- LINK DEAL MODAL --- */}
-      {isLinkingDeal && selectedContact && (
-         <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-            <div className="bg-white w-full max-w-md rounded-xl shadow-2xl overflow-hidden">
-               <div className="p-5 border-b border-slate-100 flex justify-between items-center">
-                  <h2 className="font-bold text-lg text-slate-800">Link Deal to Contact</h2>
-                  <button onClick={() => setIsLinkingDeal(false)}><X size={20} className="text-slate-400"/></button>
-               </div>
-               <div className="p-4 max-h-96 overflow-y-auto">
-                  {deals.filter(d => !selectedContact.linkedDealIds.includes(d.id)).length > 0 ? (
-                     <div className="space-y-2">
-                        {deals.filter(d => !selectedContact.linkedDealIds.includes(d.id)).map(deal => (
-                           <div key={deal.id} 
-                                onClick={async () => {
-                                    await onLinkDeal(selectedContact.id, deal.id);
-                                    setSelectedContact({...selectedContact, linkedDealIds: [...selectedContact.linkedDealIds, deal.id]});
-                                    setIsLinkingDeal(false);
-                                }}
-                                className="p-3 border border-slate-200 rounded hover:border-summit-accent hover:bg-green-50 cursor-pointer transition-all"
-                           >
-                              <div className="font-bold text-sm text-slate-800">{deal.propertyAddress}</div>
-                              <div className="text-xs text-slate-500">${deal.askingPrice.toLocaleString()} • {deal.status}</div>
-                           </div>
-                        ))}
-                     </div>
-                  ) : (
-                     <p className="text-center text-slate-500 text-sm py-4">No available deals to link.</p>
-                  )}
-               </div>
-            </div>
-         </div>
+                 <div className="flex justify-end gap-4 mt-10 border-t border-slate-100 pt-6">
+                    <button type="button" onClick={() => setIsEditModalOpen(false)} className="px-8 py-4 text-slate-400 font-black uppercase text-xs tracking-widest hover:text-slate-600 transition-all">Cancel</button>
+                    <button type="submit" className="bg-summit-900 text-white px-10 py-4 rounded-2xl font-black shadow-lg hover:bg-summit-800 transition-all active:scale-95 flex items-center gap-2">
+                        <Check size={20} /> Save Profile
+                    </button>
+                 </div>
+              </form>
+           </div>
+        </div>
       )}
-
-      {/* --- CONFIRM DELETE MODAL --- */}
-      <ConfirmModal 
-        isOpen={!!deleteId}
-        onClose={() => setDeleteId(null)}
-        onConfirm={handleDeleteConfirm}
-        title="Delete Contact"
-        message="Are you sure you want to delete this contact? This action will remove all associated interaction history and cannot be undone."
-        confirmText="Delete Contact"
-      />
     </div>
   );
 };
