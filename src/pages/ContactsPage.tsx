@@ -4,9 +4,10 @@ import {
   Users, UserPlus, Search, X, Mail, Phone, Tag, 
   Upload, Check, ArrowRight, AlertCircle, Edit, Trash2,
   Building, User as UserIcon, MoreHorizontal, MapPin, 
-  Linkedin, Globe, Briefcase, FileText, Smartphone
+  Linkedin, Globe, Briefcase, FileText, Smartphone, Download
 } from 'lucide-react';
 import { Contact, ContactInteraction, Deal, ContactType, ContactStatus, RelationshipTier } from '../types.ts';
+import * as XLSX from 'xlsx';
 
 const CONTACT_TYPES: { value: ContactType; label: string; color: string }[] = [
   { value: 'owner', label: 'Owner/Landlord', color: 'bg-blue-100 text-blue-700' },
@@ -59,11 +60,8 @@ const ContactsPage: React.FC<{
 
   // Import State
   const [isImportModalOpen, setIsImportModalOpen] = useState(false);
-  const [importStep, setImportStep] = useState<'paste' | 'map'>('paste');
-  const [importText, setImportText] = useState('');
-  const [csvHeaders, setCsvHeaders] = useState<string[]>([]);
-  const [csvRows, setCsvRows] = useState<string[][]>([]);
-  const [mappings, setMappings] = useState<Record<string, number>>({});
+  const [importedContacts, setImportedContacts] = useState<Contact[]>([]);
+  const [importErrors, setImportErrors] = useState<string[]>([]);
 
   const filteredContacts = useMemo(() => {
     return contacts.filter(c => {
@@ -127,66 +125,151 @@ const ContactsPage: React.FC<{
     setSaveError(null);
   };
 
-  const parseCsv = () => {
-    const lines = importText.split('\n').filter(l => l.trim());
-    if (lines.length < 2) {
-      alert("Invalid CSV format. Please include a header row and at least one data row.");
-      return;
-    }
-    const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-    const rows = lines.slice(1).map(l => l.split(',').map(v => v.trim().replace(/^"|"$/g, '')));
+  // --- IMPORT EXPORT LOGIC ---
+
+  const handleDownloadTemplate = () => {
+    const headers = [
+      "First Name*", "Last Name*", "Company", "Job Title", "Email", 
+      "Phone", "Mobile", "LinkedIn", "Website", "Contact Type", 
+      "Status", "Tags (comma separated)", "Street", "City", "State", "ZIP"
+    ];
     
-    setCsvHeaders(headers);
-    setCsvRows(rows);
+    const example = [
+      "John", "Smith", "ABC Realty", "Principal", "john@abcrealty.com", 
+      "555-0100", "555-0101", "linkedin.com/in/johnsmith", "abcrealty.com", 
+      "investor", "active", "investor, multifamily", "123 Main St", "Phoenix", "AZ", "85001"
+    ];
 
-    // Initial Guess logic
-    const initialMappings: Record<string, number> = {};
-    CONTACT_FIELDS.forEach(field => {
-      const idx = headers.findIndex(h => {
-        const hLow = h.toLowerCase();
-        const fLow = field.label.toLowerCase();
-        const kLow = field.key.toLowerCase();
-        return hLow.includes(fLow) || fLow.includes(hLow) || hLow.includes(kLow);
-      });
-      if (idx !== -1) initialMappings[field.key] = idx;
-    });
-
-    setMappings(initialMappings);
-    setImportStep('map');
+    const ws = XLSX.utils.aoa_to_sheet([headers, example]);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Template");
+    XLSX.writeFile(wb, `contact_import_template_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
-  const handleFinalImport = async () => {
-    if (mappings['firstName'] === undefined || mappings['lastName'] === undefined) {
-      alert("Please map both First Name and Last Name columns.");
+  const handleExportContacts = () => {
+    const data = contacts.map(c => ({
+      "First Name": c.firstName,
+      "Last Name": c.lastName,
+      "Company": c.company,
+      "Job Title": c.jobTitle,
+      "Email": c.email,
+      "Phone": c.phone,
+      "Mobile": c.mobile,
+      "Contact Type": c.contactType,
+      "Status": c.status,
+      "Tags": c.tags.join(', '),
+      "City": c.address?.city,
+      "State": c.address?.state
+    }));
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Contacts");
+    XLSX.writeFile(wb, `Summit_Contacts_Export_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
+  const handleFileImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      const bstr = evt.target?.result;
+      const wb = XLSX.read(bstr, { type: 'binary' });
+      const wsname = wb.SheetNames[0];
+      const ws = wb.Sheets[wsname];
+      const data = XLSX.utils.sheet_to_json(ws, { header: 1 });
+      
+      processImportData(data as any[]);
+    };
+    reader.readAsBinaryString(file);
+    // Reset input
+    e.target.value = '';
+  };
+
+  const processImportData = (rows: any[]) => {
+    if (rows.length < 2) {
+      alert("File appears empty or missing headers.");
       return;
     }
 
-    const newContacts: Contact[] = csvRows.map(row => ({
-      userId: '', // Set by parent service
-      firstName: row[mappings['firstName']] || 'Unknown',
-      lastName: row[mappings['lastName']] || '',
-      email: row[mappings['email']] || '',
-      phone: row[mappings['phone']] || '',
-      mobile: row[mappings['mobile']] || '',
-      company: row[mappings['company']] || '',
-      jobTitle: row[mappings['jobTitle']] || '',
-      linkedin: row[mappings['linkedin']] || '',
-      website: row[mappings['website']] || '',
-      contactType: (row[mappings['contactType']]?.toLowerCase() as ContactType) || 'prospect',
-      status: 'lead',
-      tier: 'C',
-      submarkets: [],
-      propertyInterests: [],
-      tags: ['Imported'],
-      linkedDealIds: [],
-      interactions: [],
-      createdAt: new Date().toISOString()
-    } as Contact));
+    const headers = rows[0].map((h: string) => h.toLowerCase().trim());
+    const validContacts: Contact[] = [];
+    const errors: string[] = [];
 
-    await onImportContacts(newContacts);
+    // Helper to find index by fuzzy match
+    const getIdx = (key: string) => headers.findIndex((h: string) => h.includes(key.toLowerCase()));
+
+    // Map column indexes
+    const idxMap = {
+      first: getIdx('first'),
+      last: getIdx('last'),
+      email: getIdx('email'),
+      phone: getIdx('phone'),
+      mobile: getIdx('mobile'),
+      company: getIdx('company'),
+      title: getIdx('job'),
+      type: getIdx('type'),
+      status: getIdx('status'),
+      tags: getIdx('tags')
+    };
+
+    if (idxMap.first === -1 || idxMap.last === -1) {
+      alert("Could not find 'First Name' and 'Last Name' columns. Please use the template.");
+      return;
+    }
+
+    rows.slice(1).forEach((row, i) => {
+      if (row.length === 0) return;
+      
+      const firstName = row[idxMap.first];
+      const lastName = row[idxMap.last];
+
+      if (!firstName || !lastName) {
+        errors.push(`Row ${i + 2}: Missing Name`);
+        return;
+      }
+
+      const contact: Contact = {
+        id: Math.random().toString(36).substr(2, 9),
+        userId: '', // Set by backend
+        firstName: String(firstName).trim(),
+        lastName: String(lastName).trim(),
+        email: row[idxMap.email] ? String(row[idxMap.email]).trim() : '',
+        phone: row[idxMap.phone] ? String(row[idxMap.phone]).trim() : '',
+        mobile: row[idxMap.mobile] ? String(row[idxMap.mobile]).trim() : '',
+        company: row[idxMap.company] ? String(row[idxMap.company]).trim() : '',
+        jobTitle: row[idxMap.title] ? String(row[idxMap.title]).trim() : '',
+        contactType: 'prospect', // Default
+        status: 'lead', // Default
+        tier: 'C',
+        tags: row[idxMap.tags] ? String(row[idxMap.tags]).split(',').map(t => t.trim()) : ['Imported'],
+        linkedDealIds: [],
+        interactions: [],
+        submarkets: [],
+        propertyInterests: [],
+        createdAt: new Date().toISOString()
+      };
+
+      // Type mapping
+      const typeVal = row[idxMap.type]?.toLowerCase();
+      if (typeVal && CONTACT_TYPES.some(t => t.value === typeVal)) {
+        contact.contactType = typeVal as ContactType;
+      }
+
+      validContacts.push(contact);
+    });
+
+    setImportedContacts(validContacts);
+    setImportErrors(errors);
+    setIsImportModalOpen(true);
+  };
+
+  const confirmImport = async () => {
+    await onImportContacts(importedContacts);
     setIsImportModalOpen(false);
-    setImportText('');
-    setImportStep('paste');
+    setImportedContacts([]);
+    setImportErrors([]);
   };
 
   return (
@@ -197,12 +280,20 @@ const ContactsPage: React.FC<{
           <p className="text-slate-500 font-medium mt-1">Manage your professional network and lead pipeline.</p>
         </div>
         <div className="flex gap-3">
-          <button 
-            onClick={() => { setIsImportModalOpen(true); setImportStep('paste'); }}
-            className="bg-white border border-slate-200 text-slate-700 px-4 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-slate-50 transition-all shadow-sm"
-          >
-            <Upload size={18} /> Import CSV
-          </button>
+          <div className="flex gap-2">
+             <button onClick={handleDownloadTemplate} className="bg-white border border-slate-200 text-slate-600 px-3 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-slate-50 transition-all shadow-sm text-xs uppercase tracking-wider">
+                <Download size={16} /> Template
+             </button>
+             <button onClick={handleExportContacts} className="bg-white border border-slate-200 text-slate-600 px-3 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-slate-50 transition-all shadow-sm text-xs uppercase tracking-wider">
+                <FileText size={16} /> Export
+             </button>
+             <div className="relative">
+                <input type="file" onChange={handleFileImport} className="absolute inset-0 opacity-0 cursor-pointer" accept=".xlsx, .csv" />
+                <button className="bg-white border border-slate-200 text-slate-700 px-4 py-3 rounded-2xl font-bold flex items-center gap-2 hover:bg-slate-50 transition-all shadow-sm">
+                    <Upload size={18} /> Import
+                </button>
+             </div>
+          </div>
           <button onClick={handleNewClick} className="bg-summit-900 text-white px-6 py-3 rounded-2xl font-black flex items-center gap-2 shadow-xl shadow-summit-900/20 hover:scale-[1.02] transition-all">
             <UserPlus size={20} /> New Contact
           </button>
@@ -314,80 +405,50 @@ const ContactsPage: React.FC<{
         </div>
       </div>
 
-      {/* --- IMPORT MODAL --- */}
+      {/* --- IMPORT CONFIRMATION MODAL --- */}
       {isImportModalOpen && (
         <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-md flex items-center justify-center z-[100] p-4">
            <div className="bg-white w-full max-w-2xl rounded-[2.5rem] shadow-2xl overflow-hidden animate-in fade-in zoom-in duration-300 flex flex-col max-h-[90vh]">
               <div className="p-8 border-b border-slate-100 flex justify-between items-center bg-slate-50/30">
                  <div>
-                    <h3 className="font-black text-2xl text-slate-900">Batch Onboarding</h3>
-                    <p className="text-sm text-slate-500 font-bold uppercase tracking-widest mt-1">Step {importStep === 'paste' ? '1' : '2'} of 2</p>
+                    <h3 className="font-black text-2xl text-slate-900">Review Import</h3>
+                    <p className="text-sm text-slate-500 font-bold uppercase tracking-widest mt-1">
+                        Found {importedContacts.length} valid contacts
+                    </p>
                  </div>
                  <button onClick={() => setIsImportModalOpen(false)} className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-slate-400 hover:text-slate-900 transition-all shadow-sm"><X size={24}/></button>
               </div>
 
               <div className="p-8 flex-1 overflow-y-auto">
-                 {importStep === 'paste' ? (
-                   <div className="space-y-6">
-                      <div className="bg-blue-50 p-5 rounded-3xl border border-blue-100 flex items-start gap-4">
-                         <AlertCircle className="text-blue-600 mt-1" size={20} />
-                         <p className="text-sm text-blue-800 leading-relaxed font-semibold">
-                            Paste your CSV data directly from your spreadsheet. The first row should contain headers like "First Name", "Email", "Company", etc.
-                         </p>
-                      </div>
-                      <textarea 
-                        rows={10}
-                        className="w-full p-6 bg-slate-50 border-2 border-slate-100 rounded-3xl font-mono text-xs outline-none focus:border-summit-accent transition-all resize-none"
-                        placeholder="First Name,Last Name,Email,Company,Phone..."
-                        value={importText}
-                        onChange={e => setImportText(e.target.value)}
-                      />
-                      <div className="flex justify-end pt-4">
-                        <button 
-                          onClick={parseCsv}
-                          disabled={!importText.trim()}
-                          className="bg-summit-900 text-white px-10 py-4 rounded-2xl font-black flex items-center gap-3 hover:bg-summit-800 disabled:opacity-50 transition-all hover:translate-x-1"
-                        >
-                          Scan Document <ArrowRight size={20} />
-                        </button>
-                      </div>
-                   </div>
-                 ) : (
-                   <div className="space-y-8">
-                      <div className="bg-emerald-50 p-5 rounded-3xl border border-emerald-100 text-emerald-800 text-sm font-black flex items-center gap-3">
-                        <Check size={20} className="bg-emerald-600 text-white rounded-full p-0.5" /> 
-                        Successfully identified {csvRows.length} entities and {csvHeaders.length} data points.
-                      </div>
-
-                      <div className="space-y-4">
-                         <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] mb-4">Column Mapping</p>
-                         {CONTACT_FIELDS.map(field => (
-                           <div key={field.key} className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100 hover:border-summit-accent/30 transition-all">
-                              <label className="text-sm font-black text-slate-800 uppercase tracking-tighter flex items-center gap-2">
-                                {field.label} {field.required && <span className="text-red-500 text-lg">*</span>}
-                              </label>
-                              <select 
-                                className="w-full md:w-64 p-3 bg-white border border-slate-200 rounded-xl text-xs font-black outline-none focus:ring-4 focus:ring-summit-accent/10"
-                                value={mappings[field.key] === undefined ? "" : mappings[field.key]}
-                                onChange={e => setMappings({...mappings, [field.key]: parseInt(e.target.value)})}
-                              >
-                                 <option value="">-- Ignore Header --</option>
-                                 {csvHeaders.map((h, i) => (
-                                   <option key={i} value={i}>{h}</option>
-                                 ))}
-                              </select>
-                           </div>
-                         ))}
-                      </div>
-
-                      <div className="flex justify-between items-center pt-8 mt-4 border-t border-slate-100">
-                         <button onClick={() => setImportStep('paste')} className="text-slate-400 font-black text-xs uppercase tracking-widest hover:text-slate-900 transition-colors">Abort & Reset</button>
-                         <button onClick={handleFinalImport} className="bg-summit-accent text-summit-900 px-12 py-5 rounded-2xl font-black text-xl shadow-2xl shadow-emerald-900/20 hover:scale-[1.02] transition-all active:scale-95">
-                           Sync Database
-                         </button>
-                      </div>
-                   </div>
+                 {importErrors.length > 0 && (
+                    <div className="mb-6 bg-red-50 border border-red-100 rounded-xl p-4">
+                        <h4 className="font-bold text-red-800 text-sm mb-2 flex items-center gap-2"><AlertCircle size={16}/> Skipped Rows ({importErrors.length})</h4>
+                        <ul className="list-disc list-inside text-xs text-red-600 max-h-32 overflow-y-auto">
+                            {importErrors.map((e, i) => <li key={i}>{e}</li>)}
+                        </ul>
+                    </div>
                  )}
+
+                 <div className="space-y-4">
+                    <p className="text-xs font-bold uppercase text-slate-400 tracking-wider">Preview (First 5)</p>
+                    {importedContacts.slice(0, 5).map((c, i) => (
+                        <div key={i} className="flex items-center justify-between p-3 bg-slate-50 rounded-xl border border-slate-100">
+                            <div>
+                                <p className="font-bold text-slate-800 text-sm">{c.firstName} {c.lastName}</p>
+                                <p className="text-xs text-slate-500">{c.email}</p>
+                            </div>
+                            <span className="text-[10px] font-bold uppercase bg-white px-2 py-1 rounded border border-slate-200 text-slate-500">{c.contactType}</span>
+                        </div>
+                    ))}
+                    {importedContacts.length > 5 && <p className="text-center text-xs text-slate-400 italic">...and {importedContacts.length - 5} more.</p>}
+                 </div>
+
+                 <div className="flex justify-end gap-3 mt-8 pt-4 border-t border-slate-100">
+                    <button onClick={() => setIsImportModalOpen(false)} className="px-6 py-3 rounded-xl font-bold text-slate-500 hover:bg-slate-50 transition-colors">Cancel</button>
+                    <button onClick={confirmImport} className="bg-summit-accent text-summit-900 px-8 py-3 rounded-xl font-black shadow-lg hover:bg-emerald-400 transition-all">
+                        Import {importedContacts.length} Contacts
+                    </button>
+                 </div>
               </div>
            </div>
         </div>
@@ -519,40 +580,10 @@ const ContactsPage: React.FC<{
                                 </div>
                             </div>
                             <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Location</label>
-                                <div className="relative">
-                                    <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <input 
-                                            className="w-full pl-12 p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-summit-accent transition-all" 
-                                            placeholder="City" 
-                                            value={editingContact?.address?.city || ''} 
-                                            onChange={e => setEditingContact({...editingContact!, address: { ...editingContact!.address, city: e.target.value }})} 
-                                        />
-                                        <input 
-                                            className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-summit-accent transition-all" 
-                                            placeholder="State" 
-                                            value={editingContact?.address?.state || ''} 
-                                            onChange={e => setEditingContact({...editingContact!, address: { ...editingContact!.address, state: e.target.value }})} 
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div className="space-y-2">
-                                <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">LinkedIn URL</label>
-                                <div className="relative">
-                                    <Linkedin className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
-                                    <input className="w-full pl-12 p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-summit-accent transition-all" placeholder="https://linkedin.com/in/..." value={editingContact?.linkedin || ''} onChange={e => setEditingContact({...editingContact!, linkedin: e.target.value})} />
-                                </div>
-                            </div>
-                            <div className="space-y-2">
                                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Website</label>
                                 <div className="relative">
                                     <Globe className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
-                                    <input className="w-full pl-12 p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-summit-accent transition-all" placeholder="https://..." value={editingContact?.website || ''} onChange={e => setEditingContact({...editingContact!, website: e.target.value})} />
+                                    <input className="w-full pl-12 p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-bold outline-none focus:border-summit-accent transition-all" placeholder="example.com" value={editingContact?.website || ''} onChange={e => setEditingContact({...editingContact!, website: e.target.value})} />
                                 </div>
                             </div>
                         </div>
@@ -560,9 +591,9 @@ const ContactsPage: React.FC<{
                         <div className="space-y-2">
                             <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Notes & Context</label>
                             <textarea 
-                                rows={4}
-                                className="w-full p-4 bg-slate-50 border-2 border-slate-100 rounded-2xl font-medium outline-none focus:border-summit-accent transition-all resize-none" 
-                                placeholder="Investment criteria, background info, or personal details..." 
+                                className="w-full p-6 bg-slate-50 border-2 border-slate-100 rounded-2xl font-medium outline-none focus:border-summit-accent transition-all resize-none text-sm leading-relaxed" 
+                                rows={6} 
+                                placeholder="Meeting notes, preferences, investment criteria..." 
                                 value={editingContact?.notes || ''} 
                                 onChange={e => setEditingContact({...editingContact!, notes: e.target.value})} 
                             />
@@ -570,11 +601,9 @@ const ContactsPage: React.FC<{
                     </div>
                  )}
 
-                 <div className="flex justify-end gap-4 mt-10 border-t border-slate-100 pt-6">
+                 <div className="flex justify-end gap-4 mt-10">
                     <button type="button" onClick={() => setIsEditModalOpen(false)} className="px-8 py-4 text-slate-400 font-black uppercase text-xs tracking-widest hover:text-slate-600 transition-all">Cancel</button>
-                    <button type="submit" className="bg-summit-900 text-white px-10 py-4 rounded-2xl font-black shadow-lg hover:bg-summit-800 transition-all active:scale-95 flex items-center gap-2">
-                        <Check size={20} /> Save Profile
-                    </button>
+                    <button type="submit" className="bg-summit-900 text-white px-10 py-4 rounded-2xl font-black shadow-lg hover:bg-summit-800 transition-all active:scale-95">Save Relationship</button>
                  </div>
               </form>
            </div>

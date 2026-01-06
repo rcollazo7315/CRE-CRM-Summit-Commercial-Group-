@@ -99,7 +99,7 @@ export const generateOwnerReport = async (deal: Deal, tasks: Task[]) => {
   doc.setFontSize(10);
   doc.setTextColor(100, 100, 100);
   doc.setFont('helvetica', 'normal');
-  doc.text(`${deal.propertyType} • ${deal.representation.toUpperCase()} Rep`, 80, currentY + 12);
+  doc.text(`${deal.propertyType} • ${(deal.representation || 'seller').toUpperCase()} Rep`, 80, currentY + 12);
   
   doc.text(`List Price: ${formatCurrency(deal.askingPrice)}`, 80, currentY + 20);
   doc.text(`Days on Market: ${deal.daysOnMarket || 0}`, 80, currentY + 26);
@@ -256,7 +256,7 @@ export const generateProductionReport = (deals: Deal[]) => {
   doc.text(`Total GCI Realized: ${formatCurrency(totalComm)}`, 14, 56);
 
   const tableData = closedDeals.map(d => [
-    d.closedDate ? new Date(d.closedDate).toLocaleDateString() : '-',
+    d.closingDate ? new Date(d.closingDate).toLocaleDateString() : '-',
     d.propertyAddress,
     d.representation,
     formatCurrency(d.closingPrice || d.askingPrice),
@@ -362,7 +362,6 @@ export const generateLeaseReport = (deals: Deal[]) => {
 
   // Filter for lease deals
   const leaseDeals = deals.filter(d => 
-    d.dealType === 'lease' || 
     d.representation === 'landlord' || 
     d.representation === 'tenant'
   );
@@ -388,7 +387,7 @@ export const generateLeaseReport = (deals: Deal[]) => {
       d.propertyAddress,
       d.representation === 'landlord' ? (d.clientName || 'Owner') : (d.clientName || 'Tenant'),
       d.representation === 'landlord' ? 'LL Rep' : 'Tenant Rep',
-      `${d.minSqFt || d.squareFootage || '-'} sf`,
+      `${d.minSqFt || '-'} sf`,
       d.finalLeaseRate ? `$${d.finalLeaseRate}/sf` : '-',
       d.leaseStartDate ? new Date(d.leaseStartDate).toLocaleDateString() : 'TBD',
       expDate,

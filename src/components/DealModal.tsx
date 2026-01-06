@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { X, Sparkles, Upload, Loader2, Save, Image as ImageIcon, Briefcase, Building, CheckCircle2, DollarSign, Calendar, UserPlus, Users, Search, Clock } from 'lucide-react';
+import { X, Sparkles, Save, Image as ImageIcon, Briefcase, Building, CheckCircle2, DollarSign, Users, Search, Clock, Calculator, UserPlus, Loader2 } from 'lucide-react';
 import { PropertyType, DealStatus, Deal, LeadSource, LEAD_SOURCE_LABELS, RepresentationType, REPRESENTATION_LABELS, Contact, ContractDates } from '../types.ts';
 import { generateListingDescription } from '../services/geminiService.ts';
+import { calculateTotalLeaseValue } from '../utils/calculations.ts';
 import ContractDatesForm from './ContractDatesForm.tsx';
 
 interface DealModalProps {
@@ -43,8 +44,13 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
     maxSqFt: '' as string | number,
     leaseTerm: '' as string | number,
     leaseType: 'NNN',
-    projectedCommission: '' as string | number, // New Field
     
+    // Commission Fields
+    projectedCommission: 0, 
+    commissionPercentage: '' as string | number,
+    commissionBasis: 'askingPrice' as 'askingPrice' | 'targetBudget' | 'totalLeaseValue',
+    annualIncrease: '' as string | number,
+
     // Final Deal Points
     closingPrice: '' as string | number,
     closingDate: '',
@@ -93,8 +99,12 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
         maxSqFt: initialData.maxSqFt || '',
         leaseTerm: initialData.leaseTerm || '',
         leaseType: initialData.leaseType || 'NNN',
-        projectedCommission: initialData.projectedCommission ? initialData.projectedCommission.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '',
         
+        projectedCommission: initialData.projectedCommission || 0,
+        commissionPercentage: initialData.commissionPercentage || '',
+        commissionBasis: initialData.commissionBasis || 'askingPrice',
+        annualIncrease: initialData.annualIncrease || '',
+
         // Load Final Points
         closingPrice: initialData.closingPrice ? initialData.closingPrice.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '',
         closingDate: initialData.closingDate || '',
@@ -135,7 +145,10 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
         maxSqFt: '',
         leaseTerm: '',
         leaseType: 'NNN',
-        projectedCommission: '',
+        projectedCommission: 0,
+        commissionPercentage: 3,
+        commissionBasis: 'askingPrice',
+        annualIncrease: '',
         closingPrice: '',
         closingDate: '',
         finalLeaseRate: '',
@@ -160,11 +173,46 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
     }
   }, [initialData, isOpen]);
 
-  if (!isOpen) return null;
-
   // Determine role context
   const isDemandSide = formData.representation === 'buyer' || formData.representation === 'tenant';
   const isLeasing = formData.representation === 'landlord' || formData.representation === 'tenant';
+
+  // --- Real-time Commission Calculation ---
+  useEffect(() => {
+    let baseValue = 0;
+    const commPercent = parseFloat(formData.commissionPercentage.toString()) || 0;
+
+    if (isLeasing) {
+        // Calculate Total Lease Value
+        // Assuming 'askingPrice' field is being used as Monthly Rent for leasing UI simplicity
+        const monthlyRent = parseFloat(formData.askingPrice.toString().replace(/,/g, '')) || 0;
+        const term = parseFloat(formData.leaseTerm.toString()) || 0;
+        const increase = parseFloat(formData.annualIncrease.toString()) || 0;
+        
+        // Term in months usually, but input might be years.
+        const termMonths = term * 12; 
+        
+        if (monthlyRent > 0 && termMonths > 0) {
+            baseValue = calculateTotalLeaseValue(monthlyRent, termMonths, increase);
+        }
+    } else {
+        // Sales
+        baseValue = parseFloat(formData.askingPrice.toString().replace(/,/g, '')) || 0;
+    }
+
+    const projected = baseValue * (commPercent / 100);
+    setFormData(prev => ({ ...prev, projectedCommission: projected }));
+
+  }, [
+    formData.askingPrice, 
+    formData.leaseTerm, 
+    formData.annualIncrease, 
+    formData.commissionPercentage, 
+    isLeasing
+  ]);
+
+
+  if (!isOpen) return null;
 
   const handlePhoneChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const formatted = formatPhoneNumber(e.target.value);
@@ -213,7 +261,6 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
 
   const handleAiGenerate = async () => {
     if (!formData.propertyAddress || !formData.askingPrice) {
-      console.log("Please enter at least address and price to generate a description.");
       return;
     }
     const cleanPrice = parseFloat(formData.askingPrice.toString().replace(/,/g, ''));
@@ -240,10 +287,9 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const numericAsking = parseFloat(formData.askingPrice.toString().replace(/,/g, ''));
-    const numericProjected = formData.projectedCommission ? parseFloat(formData.projectedCommission.toString().replace(/,/g, '')) : undefined;
-    const numericClosing = formData.closingPrice ? parseFloat(formData.closingPrice.toString().replace(/,/g, '')) : undefined;
-    const numericCommission = formData.actualCommission ? parseFloat(formData.actualCommission.toString().replace(/,/g, '')) : undefined;
-    const numericFinalRate = formData.finalLeaseRate ? parseFloat(formData.finalLeaseRate.toString()) : undefined;
+    const numericClosing = formData.closingPrice ? parseFloat(formData.closingPrice.toString().replace(/,/g, '')) : null;
+    const numericCommission = formData.actualCommission ? parseFloat(formData.actualCommission.toString().replace(/,/g, '')) : null;
+    const numericFinalRate = formData.finalLeaseRate ? parseFloat(formData.finalLeaseRate.toString()) : null;
 
     const dealPayload = {
       ...initialData,
@@ -251,19 +297,24 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
       propertyAddress: formData.propertyAddress,
       propertyType: formData.propertyType,
       askingPrice: numericAsking, 
-      minSqFt: formData.minSqFt ? parseFloat(formData.minSqFt.toString()) : undefined,
-      maxSqFt: formData.maxSqFt ? parseFloat(formData.maxSqFt.toString()) : undefined,
-      leaseTerm: formData.leaseTerm ? parseFloat(formData.leaseTerm.toString()) : undefined,
+      minSqFt: formData.minSqFt ? parseFloat(formData.minSqFt.toString()) : null,
+      maxSqFt: formData.maxSqFt ? parseFloat(formData.maxSqFt.toString()) : null,
+      leaseTerm: formData.leaseTerm ? parseFloat(formData.leaseTerm.toString()) : null,
       leaseType: formData.leaseType,
-      projectedCommission: numericProjected,
+      
+      // Commission Data
+      projectedCommission: formData.projectedCommission,
+      commissionPercentage: parseFloat(formData.commissionPercentage.toString()) || 0,
+      commissionBasis: formData.commissionBasis,
+      annualIncrease: parseFloat(formData.annualIncrease.toString()) || 0,
       
       // Final Points
       closingPrice: numericClosing,
-      closingDate: formData.closingDate,
+      closingDate: formData.closingDate || null,
       finalLeaseRate: numericFinalRate,
-      finalLeaseTerm: formData.finalLeaseTerm ? parseFloat(formData.finalLeaseTerm.toString()) : undefined,
+      finalLeaseTerm: formData.finalLeaseTerm ? parseFloat(formData.finalLeaseTerm.toString()) : null,
       finalLeaseType: formData.finalLeaseType,
-      leaseStartDate: formData.leaseStartDate,
+      leaseStartDate: formData.leaseStartDate || null,
       actualCommission: numericCommission,
 
       status: formData.status,
@@ -277,7 +328,7 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
         email: formData.ownerEmail,
         phone: formData.ownerPhone 
       },
-      contactId: formData.contactId,
+      contactId: formData.contactId || null,
 
       id: initialData?.id || Math.random().toString(36).substr(2, 9),
       offersReceived: initialData?.offersReceived || 0,
@@ -293,6 +344,17 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
 
     onSave(dealPayload);
     onClose();
+  };
+
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files[0]) {
+      const file = e.target.files[0];
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFormData(prev => ({ ...prev, imageUrl: reader.result as string }));
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   return (
@@ -397,7 +459,7 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">
-                        {isDemandSide ? (isLeasing ? 'Max Rent Budget / Yr' : 'Max Purchase Budget') : (isLeasing ? 'Asking Rent / Yr' : 'Asking Price')}
+                        {isLeasing ? 'Monthly Rent' : (isDemandSide ? 'Max Purchase Budget' : 'Asking Price')}
                     </label>
                     <div className="relative">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">$</span>
@@ -458,67 +520,103 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
 
                 {/* Target Lease Parameters */}
                 {isLeasing && (
-                    <div className="grid grid-cols-2 gap-4 bg-slate-50 p-4 rounded-lg border border-slate-100">
-                        <div className="col-span-2 text-xs font-black text-slate-500 uppercase tracking-wide border-b border-slate-200 pb-1 mb-1">Target Lease Parameters</div>
-                        <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-1">Est. Term (Years)</label>
-                            <input 
-                                name="leaseTerm"
-                                type="number"
-                                value={formData.leaseTerm}
-                                onChange={handleChange}
-                                className="w-full p-2.5 border border-slate-300 rounded-lg outline-none"
-                                placeholder="e.g. 5"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-1">Lease Type</label>
-                            <select 
-                                name="leaseType"
-                                value={formData.leaseType}
-                                onChange={handleChange}
-                                className="w-full p-2.5 border border-slate-300 rounded-lg outline-none"
-                            >
-                                <option value="NNN">Triple Net (NNN)</option>
-                                <option value="Gross">Gross</option>
-                                <option value="MG">Modified Gross</option>
-                                <option value="FS">Full Service</option>
-                            </select>
+                    <div className="bg-slate-50 p-4 rounded-lg border border-slate-100">
+                        <div className="text-xs font-black text-slate-500 uppercase tracking-wide border-b border-slate-200 pb-1 mb-3">Lease Structure</div>
+                        <div className="grid grid-cols-3 gap-4">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Term (Years)</label>
+                                <input 
+                                    name="leaseTerm"
+                                    type="number"
+                                    value={formData.leaseTerm}
+                                    onChange={handleChange}
+                                    className="w-full p-2.5 border border-slate-300 rounded-lg outline-none"
+                                    placeholder="e.g. 5"
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Type</label>
+                                <select 
+                                    name="leaseType"
+                                    value={formData.leaseType}
+                                    onChange={handleChange}
+                                    className="w-full p-2.5 border border-slate-300 rounded-lg outline-none"
+                                >
+                                    <option value="NNN">Triple Net (NNN)</option>
+                                    <option value="Gross">Gross</option>
+                                    <option value="MG">Modified Gross</option>
+                                    <option value="FS">Full Service</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Annual Incr. %</label>
+                                <div className="relative">
+                                    <input 
+                                        name="annualIncrease"
+                                        type="number"
+                                        step="0.1"
+                                        value={formData.annualIncrease}
+                                        onChange={handleChange}
+                                        className="w-full p-2.5 border border-slate-300 rounded-lg outline-none"
+                                        placeholder="3.0"
+                                    />
+                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold">%</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 )}
 
-                {isDemandSide && (
-                     <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Pipeline Status</label>
-                        <select 
-                        name="status"
-                        value={formData.status}
-                        onChange={handleChange}
-                        className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none"
-                        >
-                        {Object.values(DealStatus).map(s => (
-                            <option key={s} value={s}>{s}</option>
-                        ))}
-                        </select>
-                    </div>
-                )}
-
-                {/* New: Projected Commission Field */}
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Projected Commission (Gross)</label>
-                  <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500">$</span>
-                      <input 
-                      name="projectedCommission"
-                      value={formData.projectedCommission}
-                      onChange={(e) => handleCurrencyChange(e, 'projectedCommission')}
-                      onBlur={() => handleCurrencyBlur('projectedCommission')}
-                      type="text" 
-                      className="w-full pl-7 p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none"
-                      placeholder="Estimated amount..."
-                      />
+                {/* PROJECTED COMMISSION SECTION */}
+                <div className="bg-emerald-50/50 p-4 rounded-lg border border-emerald-100">
+                  <div className="flex items-center justify-between mb-3">
+                     <h3 className="text-xs font-black text-emerald-800 uppercase tracking-wide flex items-center gap-2">
+                        <Calculator size={14} /> Commission Projection
+                     </h3>
                   </div>
+                  <div className="grid grid-cols-2 gap-4 mb-3">
+                     <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Commission Rate</label>
+                        <div className="relative">
+                            <input 
+                                name="commissionPercentage"
+                                type="number"
+                                step="0.1"
+                                value={formData.commissionPercentage}
+                                onChange={handleChange}
+                                className="w-full p-2.5 border border-emerald-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500"
+                                placeholder="3.0"
+                            />
+                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">%</span>
+                        </div>
+                     </div>
+                     {!isLeasing && (
+                         <div>
+                            <label className="block text-sm font-medium text-slate-700 mb-1">Basis</label>
+                            <select 
+                                name="commissionBasis"
+                                value={formData.commissionBasis}
+                                onChange={(e) => setFormData(p => ({...p, commissionBasis: e.target.value as any}))}
+                                className="w-full p-2.5 border border-emerald-200 rounded-lg outline-none bg-white"
+                            >
+                                <option value="askingPrice">Asking Price</option>
+                                <option value="targetBudget">Target Budget</option>
+                            </select>
+                         </div>
+                     )}
+                  </div>
+                  
+                  <div className="flex justify-between items-center bg-white p-3 rounded-lg border border-emerald-100 shadow-sm">
+                      <span className="text-sm font-medium text-slate-500">Projected Gross:</span>
+                      <span className="text-lg font-bold text-emerald-700">
+                        ${formData.projectedCommission.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}
+                      </span>
+                  </div>
+                  {isLeasing && (
+                      <p className="text-[10px] text-slate-400 mt-2 text-right">
+                          Based on total lease value over {formData.leaseTerm || 0} years with {formData.annualIncrease || 0}% annual increases.
+                      </p>
+                  )}
                 </div>
               </div>
 
@@ -756,6 +854,27 @@ const DealModal: React.FC<DealModalProps> = ({ isOpen, onClose, onSave, initialD
                   placeholder="Internal notes (e.g. 'Client is motivated', 'Lease expires in 6 months')..."
                   className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none"
                 />
+                
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-2">Deal Photo</label>
+                  <div className="flex items-center gap-4">
+                    <img src={formData.imageUrl || 'https://via.placeholder.com/100'} alt="Preview" className="w-20 h-20 rounded-lg object-cover border border-slate-200" />
+                    <button 
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      className="px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium hover:bg-slate-50 flex items-center gap-2"
+                    >
+                      <ImageIcon size={16} /> Change Photo
+                    </button>
+                    <input 
+                      type="file" 
+                      ref={fileInputRef}
+                      className="hidden"
+                      accept="image/*"
+                      onChange={handleImageUpload}
+                    />
+                  </div>
+                </div>
               </div>
             </div>
           ) : (

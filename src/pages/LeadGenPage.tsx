@@ -2,6 +2,7 @@
 import React, { useState, useMemo } from 'react';
 import { Plus, TrendingUp, Phone, Users, FileText, ArrowUp, ArrowDown, Download, Save, X, Calendar, Edit, Trash2, AlertCircle } from 'lucide-react';
 import { LeadGenLog } from '../types.ts';
+import ConfirmModal from '../components/ConfirmModal.tsx';
 
 interface LeadGenPageProps {
   logs: LeadGenLog[];
@@ -11,10 +12,23 @@ interface LeadGenPageProps {
 
 type TimeFrame = 'weekly' | 'monthly' | 'quarterly' | 'yearly';
 
+// Helper to format date safely without timezone shift
+const formatLogDate = (dateStr: string) => {
+  if (!dateStr) return '-';
+  // Append T12:00:00 to YYYY-MM-DD strings to prevent timezone rollback (e.g. UTC midnight -> previous day local)
+  const safeDate = dateStr.includes('T') ? dateStr : `${dateStr}T12:00:00`;
+  return new Date(safeDate).toLocaleDateString(undefined, { 
+    month: 'short', 
+    day: 'numeric', 
+    year: 'numeric' 
+  });
+};
+
 const LeadGenPage: React.FC<LeadGenPageProps> = ({ logs, onSaveLog, onDeleteLog }) => {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [reportTimeframe, setReportTimeframe] = useState<TimeFrame>('monthly');
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [deleteModal, setDeleteModal] = useState<{isOpen: boolean; logId: string | null}>({ isOpen: false, logId: null });
   
   const [formData, setFormData] = useState<Partial<LeadGenLog>>({
     date: new Date().toISOString().split('T')[0],
@@ -73,8 +87,13 @@ const LeadGenPage: React.FC<LeadGenPageProps> = ({ logs, onSaveLog, onDeleteLog 
   };
 
   const handleDeleteClick = (logId: string) => {
-    if (confirm("Are you sure you want to delete this activity log? This action cannot be undone.")) {
-      onDeleteLog(logId);
+    setDeleteModal({ isOpen: true, logId });
+  };
+
+  const confirmDelete = () => {
+    if (deleteModal.logId) {
+      onDeleteLog(deleteModal.logId);
+      setDeleteModal({ isOpen: false, logId: null });
     }
   };
 
@@ -96,7 +115,7 @@ const LeadGenPage: React.FC<LeadGenPageProps> = ({ logs, onSaveLog, onDeleteLog 
 
   // --- Aggregation Engine ---
   const isInBucket = (dateStr: string, bucketIndex: number, tf: TimeFrame) => {
-    const date = new Date(dateStr);
+    const date = new Date(dateStr.includes('T') ? dateStr : `${dateStr}T12:00:00`);
     const today = new Date();
     
     date.setHours(0,0,0,0);
@@ -289,7 +308,7 @@ const LeadGenPage: React.FC<LeadGenPageProps> = ({ logs, onSaveLog, onDeleteLog 
       <div className="bg-white rounded-xl shadow-sm border border-slate-100 overflow-hidden">
          <div className="p-5 border-b border-slate-100 flex justify-between items-center">
            <h3 className="font-bold text-slate-800">Recent Logs</h3>
-           <span className="text-xs text-slate-400 font-medium">Sorted by Date (Newest First)</span>
+           <span className="text-xs text-slate-400 font-medium">Sorted by Activity Date (Newest First)</span>
          </div>
          <div className="overflow-x-auto">
            <table className="w-full text-left">
@@ -309,7 +328,7 @@ const LeadGenPage: React.FC<LeadGenPageProps> = ({ logs, onSaveLog, onDeleteLog 
              <tbody className="divide-y divide-slate-100">
                {logs.length > 0 ? logs.sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(log => (
                  <tr key={log.id} className="hover:bg-slate-50 transition-colors group">
-                   <td className="p-4 font-medium text-slate-700 whitespace-nowrap">{new Date(log.date).toLocaleDateString()}</td>
+                   <td className="p-4 font-bold text-slate-700 whitespace-nowrap">{formatLogDate(log.date)}</td>
                    <td className="p-4 text-center text-slate-600">{log.callsMade}</td>
                    <td className="p-4 text-center text-slate-600">{log.targetedEmails}</td>
                    <td className="p-4 text-center text-slate-600">{log.clientMeetings}</td>
@@ -454,6 +473,17 @@ const LeadGenPage: React.FC<LeadGenPageProps> = ({ logs, onSaveLog, onDeleteLog 
            </div>
         </div>
       )}
+
+      {/* Delete Confirmation Modal */}
+      <ConfirmModal 
+        isOpen={deleteModal.isOpen} 
+        onClose={() => setDeleteModal({ isOpen: false, logId: null })}
+        onConfirm={confirmDelete}
+        title="Delete Activity Log"
+        message="Are you sure you want to delete this activity log? This action cannot be undone."
+        confirmText="Delete"
+        variant="danger"
+      />
     </div>
   );
 };

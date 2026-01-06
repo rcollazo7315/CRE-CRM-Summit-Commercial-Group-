@@ -1,20 +1,23 @@
 
 import React, { useState, useEffect } from 'react';
-import { Calculator, Save, RefreshCw, DollarSign, Info, Download } from 'lucide-react';
+import { Calculator, Save, RefreshCw, DollarSign, Info, Download, CalendarClock, TrendingUp } from 'lucide-react';
 import { MortgageCalculation } from '../types.ts';
 import { api } from '../services/firestore.ts';
 import { useAuth } from '../context/AuthContext.tsx';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { calculateRemainingBalance, generateAmortizationSchedule } from '../utils/calculations.ts';
 
 const MortgageCalculatorPage: React.FC = () => {
   // Input State
   const [purchasePrice, setPurchasePrice] = useState<number>(2500000);
-  const [downPaymentValue, setDownPaymentValue] = useState<number>(20);
+  const [downPaymentValue, setDownPaymentValue] = useState<number>(30);
   const [downPaymentMode, setDownPaymentMode] = useState<'percent' | 'amount'>('percent');
   
-  const [interestRate, setInterestRate] = useState<number>(6.5);
-  const [loanTermYears, setLoanTermYears] = useState<number>(25);
+  const [interestRate, setInterestRate] = useState<number>(6.75);
+  const [amortizationYears, setAmortizationYears] = useState<number>(25); // For monthly payment calc
+  const [loanTermYears, setLoanTermYears] = useState<number>(10); // For balloon date
+  
   const [annualTax, setAnnualTax] = useState<number>(35000);
   const [annualInsurance, setAnnualInsurance] = useState<number>(12000);
   const [annualHOA, setAnnualHOA] = useState<number>(0);
@@ -28,6 +31,7 @@ const MortgageCalculatorPage: React.FC = () => {
   const [loanAmount, setLoanAmount] = useState<number>(0);
   const [monthlyPaymentPI, setMonthlyPaymentPI] = useState(0);
   const [totalMonthlyPayment, setTotalMonthlyPayment] = useState(0);
+  const [balloonPayment, setBalloonPayment] = useState(0);
   const [totalInterest, setTotalInterest] = useState(0);
   const [totalCost, setTotalCost] = useState(0);
   const [savedCalculations, setSavedCalculations] = useState<MortgageCalculation[]>([]);
@@ -36,7 +40,7 @@ const MortgageCalculatorPage: React.FC = () => {
 
   useEffect(() => {
     calculateMortgage();
-  }, [purchasePrice, downPaymentValue, downPaymentMode, interestRate, loanTermYears, annualTax, annualInsurance, annualHOA]);
+  }, [purchasePrice, downPaymentValue, downPaymentMode, interestRate, amortizationYears, loanTermYears, annualTax, annualInsurance, annualHOA]);
 
   useEffect(() => {
     loadSavedCalculations();
@@ -67,19 +71,23 @@ const MortgageCalculatorPage: React.FC = () => {
     setLoanAmount(principal);
 
     const rate = Number(interestRate) || 0;
-    const years = Number(loanTermYears) || 0;
-
+    
+    // Monthly payment based on Amortization Period
     const r = rate / 100 / 12;
-    const n = years * 12;
+    const nAmort = (Number(amortizationYears) || 0) * 12;
+    const nTerm = (Number(loanTermYears) || 0) * 12;
 
     let pi = 0;
     if (rate === 0) {
-        pi = n > 0 ? principal / n : 0;
+        pi = nAmort > 0 ? principal / nAmort : 0;
     } else {
-        pi = (principal * r) / (1 - Math.pow(1 + r, -n));
+        pi = (principal * r) / (1 - Math.pow(1 + r, -nAmort));
     }
     
     if (!isFinite(pi)) pi = 0;
+
+    // Calculate Balloon using utility
+    const balloon = calculateRemainingBalance(principal, rate, amortizationYears, nTerm);
 
     const taxMonthly = (Number(annualTax) || 0) / 12;
     const insMonthly = (Number(annualInsurance) || 0) / 12;
@@ -87,24 +95,23 @@ const MortgageCalculatorPage: React.FC = () => {
 
     const totalMonthly = pi + taxMonthly + insMonthly + hoaMonthly;
     
-    const totalPayments = pi * n;
-    const totalInt = totalPayments - principal;
-    const totalTx = (Number(annualTax) || 0) * years;
-    const totalIns = (Number(annualInsurance) || 0) * years;
-    const totalH = (Number(annualHOA) || 0) * years;
-    const totalC = totalPayments + totalTx + totalIns + totalH;
-
+    // Total Cost over the Term (not Amortization)
+    const totalPayments = pi * nTerm;
+    // Interest paid over the Term approximately
+    const totalCostOverTerm = totalPayments + balloon;
+    
     setMonthlyPaymentPI(pi);
     setTotalMonthlyPayment(totalMonthly);
-    setTotalInterest(totalInt);
-    setTotalCost(totalC);
+    setBalloonPayment(balloon);
+    setTotalCost(totalCostOverTerm);
   };
 
   const handleClear = () => {
     setPurchasePrice(0);
     setDownPaymentValue(0);
     setInterestRate(0);
-    setLoanTermYears(0);
+    setAmortizationYears(25);
+    setLoanTermYears(10);
     setAnnualTax(0);
     setAnnualInsurance(0);
     setAnnualHOA(0);
@@ -128,13 +135,14 @@ const MortgageCalculatorPage: React.FC = () => {
         downPaymentMode,
         loanAmount,
         interestRate,
-        loanTermYears,
-        loanTerm: loanTermYears,
+        loanTermYears: amortizationYears, // Stored as Amort
+        loanTerm: loanTermYears, // Stored as Term (Balloon)
         annualTax,
         annualInsurance,
         annualHOA,
         monthlyPayment: totalMonthlyPayment,
         totalCostOfLoan: totalCost,
+        balloonPayment,
         propertyValue,
         annualNOI
     };
@@ -146,29 +154,24 @@ const MortgageCalculatorPage: React.FC = () => {
   const handlePrint = () => {
     const doc = new jsPDF();
     const today = new Date().toLocaleDateString();
-    const pageWidth = doc.internal.pageSize.width;
     
-    // Header - Standard Dark Blue
-    doc.setFillColor(15, 23, 42); // Slate-900
-    doc.rect(0, 0, pageWidth, 40, 'F');
+    // Header
+    doc.setFontSize(20);
+    doc.setTextColor(16, 61, 49);
+    doc.text('Summit Commercial Group', 105, 20, { align: 'center' });
     
-    doc.setTextColor(255, 255, 255);
-    doc.setFontSize(22);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Mortgage Analysis Report', 14, 22);
+    doc.setFontSize(16);
+    doc.setTextColor(0, 0, 0);
+    doc.text('Commercial Loan Analysis', 105, 30, { align: 'center' });
     
     doc.setFontSize(10);
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Generated: ${today}`, 14, 30);
+    doc.setTextColor(100, 100, 100);
+    doc.text(`Generated: ${today}`, 105, 38, { align: 'center' });
     
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'bold');
-    doc.text('Summit Commercial Group', pageWidth - 14, 22, { align: 'right' });
-    
-    // Property Details
+    // Loan Details
     doc.setFontSize(14);
     doc.setTextColor(0, 0, 0);
-    doc.text('Loan Details', 14, 50);
+    doc.text('Loan Structure', 14, 50);
     
     const loanDetails = [
       ['Purchase Price', `$${purchasePrice.toLocaleString()}`],
@@ -177,7 +180,8 @@ const MortgageCalculatorPage: React.FC = () => {
         : `$${downPaymentValue.toLocaleString()}`],
       ['Loan Amount', `$${loanAmount.toLocaleString()}`],
       ['Interest Rate', `${interestRate}%`],
-      ['Loan Term', `${loanTermYears} years`],
+      ['Amortization', `${amortizationYears} Years`],
+      ['Loan Term (Balloon)', `${loanTermYears} Years`],
     ];
     
     autoTable(doc, {
@@ -185,11 +189,11 @@ const MortgageCalculatorPage: React.FC = () => {
         head: [['Item', 'Value']],
         body: loanDetails,
         theme: 'striped',
-        headStyles: { fillColor: [15, 23, 42] }
+        headStyles: { fillColor: [16, 61, 49] }
     });
     
     // Monthly Payment Breakdown
-    let finalY = (doc as any).lastAutoTable?.finalY || 100;
+    const finalY = (doc as any).lastAutoTable?.finalY || 100;
     doc.text('Monthly Payment Breakdown', 14, finalY + 10);
     
     const monthlyBreakdown = [
@@ -205,138 +209,49 @@ const MortgageCalculatorPage: React.FC = () => {
         head: [['Component', 'Amount']],
         body: monthlyBreakdown,
         theme: 'striped',
-        headStyles: { fillColor: [15, 23, 42] },
-        footStyles: { fillColor: [15, 23, 42], fontStyle: 'bold' }
+        headStyles: { fillColor: [16, 61, 49] },
+        footStyles: { fillColor: [16, 61, 49], fontStyle: 'bold' }
     });
 
-    // Life of Loan Breakdown
-    finalY = (doc as any).lastAutoTable?.finalY || 150;
-    if (finalY > 240) { doc.addPage(); finalY = 20; }
+    // Balloon & Metrics
+    const finalY2 = (doc as any).lastAutoTable?.finalY || 150;
+    doc.text('Key Metrics & Balloon', 14, finalY2 + 10);
 
-    doc.text('Life of Loan Breakdown', 14, finalY + 10);
-    
-    const totalTaxesAndFees = (annualTax + annualInsurance + annualHOA) * loanTermYears;
-
-    const lifeOfLoan = [
-        ['Total Interest Paid', `$${totalInterest.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`],
-        ['Total Tax, Ins & HOA', `$${totalTaxesAndFees.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`],
-        ['Total Cost of Loan', `$${totalCost.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`]
-    ];
-
-    autoTable(doc, {
-        startY: finalY + 15,
-        head: [['Metric', 'Total Amount']],
-        body: lifeOfLoan,
-        theme: 'striped',
-        headStyles: { fillColor: [15, 23, 42] }
-    });
-    
-    // Investment Metrics
-    finalY = (doc as any).lastAutoTable?.finalY || 150;
-    if (finalY > 240) { doc.addPage(); finalY = 20; }
-
-    doc.text('Investment Metrics', 14, finalY + 10);
-    
     const ltv = propertyValue > 0 ? (loanAmount / propertyValue) * 100 : 0;
     const annualDebtService = monthlyPaymentPI * 12;
     const dscr = annualDebtService > 0 ? annualNOI / annualDebtService : 0;
-    
+
     const metrics = [
-      ['Property Value', `$${propertyValue.toLocaleString()}`],
-      ['Annual NOI', `$${annualNOI.toLocaleString()}`],
-      ['LTV Ratio', `${ltv.toFixed(2)}%`],
-      ['DSCR', dscr.toFixed(2)],
-      ['Cap Rate', propertyValue > 0 ? `${((annualNOI / propertyValue) * 100).toFixed(2)}%` : 'N/A'],
+        ['Balloon Payment (End of Term)', `$${balloonPayment.toLocaleString(undefined, {minimumFractionDigits: 2})}`],
+        ['LTV Ratio', `${ltv.toFixed(2)}%`],
+        ['DSCR', dscr.toFixed(2)],
+        ['Annual NOI', `$${annualNOI.toLocaleString()}`]
     ];
-    
+
     autoTable(doc, {
-        startY: finalY + 15,
+        startY: finalY2 + 15,
         head: [['Metric', 'Value']],
         body: metrics,
-        theme: 'striped',
-        headStyles: { fillColor: [15, 23, 42] }
+        theme: 'grid',
+        headStyles: { fillColor: [16, 61, 49] }
     });
     
-    // Amortization Schedule (First 12 Months)
-    finalY = (doc as any).lastAutoTable?.finalY || 200;
-    
-    if (finalY > 220) { 
-        doc.addPage();
-        finalY = 20;
-    }
-    
-    doc.text('Amortization Schedule (First Year)', 14, finalY + 10);
-      
-    const r = (interestRate || 0) / 100 / 12;
-    let balance = loanAmount;
-    const payment = monthlyPaymentPI;
-    const amortRows = [];
-      
-    for (let i = 1; i <= 12; i++) {
-        const interest = balance * r;
-        const principal = payment - interest;
-        balance = balance - principal;
-        
-        amortRows.push([
-          i.toString(),
-          `$${payment.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`,
-          `$${principal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`,
-          `$${interest.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`,
-          `$${balance > 0 ? balance.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '0.00'}`
-        ]);
-      }
-      
-    autoTable(doc, {
-        startY: finalY + 15,
-        head: [['Month', 'Payment', 'Principal', 'Interest', 'Balance']],
-        body: amortRows,
-        theme: 'striped',
-        headStyles: { fillColor: [15, 23, 42] },
-        styles: { fontSize: 8 }
-    });
-    
-    const pageCount = doc.internal.pages.length - 1;
-    for (let i = 1; i <= pageCount; i++) {
-      doc.setPage(i);
-      doc.setFontSize(8);
-      doc.setTextColor(150, 150, 150);
-      doc.text(
-        `Page ${i} of ${pageCount} | Summit CRM © ${new Date().getFullYear()}`,
-        105,
-        285,
-        { align: 'center' }
-      );
-    }
-    
-    doc.save(`Mortgage_Analysis_${today.replace(/\//g, '-')}.pdf`);
+    doc.save(`Commercial_Loan_Analysis_${today.replace(/\//g, '-')}.pdf`);
   };
 
   const renderAmortization = () => {
-    const r = (Number(interestRate) || 0) / 100 / 12;
-    let balance = loanAmount;
-    const payment = monthlyPaymentPI;
-    const rows = [];
-    const today = new Date();
-
-    for (let i = 1; i <= 12; i++) {
-        const interest = balance * r;
-        const principal = payment - interest;
-        balance = balance - principal;
-        const date = new Date(today.getFullYear(), today.getMonth() + i, 1);
-
-        rows.push(
-            <tr key={i} className="hover:bg-slate-50 text-sm">
-                <td className="p-3 border-b border-slate-100">{i}</td>
-                <td className="p-3 border-b border-slate-100">{date.toLocaleDateString()}</td>
-                <td className="p-3 border-b border-slate-100 text-right">${(balance + principal).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
-                <td className="p-3 border-b border-slate-100 text-right font-medium">${payment.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
-                <td className="p-3 border-b border-slate-100 text-right text-green-700">${principal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
-                <td className="p-3 border-b border-slate-100 text-right text-red-700">${interest.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
-                <td className="p-3 border-b border-slate-100 text-right font-bold">${balance > 0 ? balance.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '0.00'}</td>
-            </tr>
-        );
-    }
-    return rows;
+    const schedule = generateAmortizationSchedule(loanAmount, interestRate, amortizationYears, loanTermYears);
+    
+    return schedule.slice(0, 12).map((row) => (
+        <tr key={row.paymentNumber} className="hover:bg-slate-50 text-sm">
+            <td className="p-3 border-b border-slate-100">{row.paymentNumber}</td>
+            <td className="p-3 border-b border-slate-100">{row.date.toLocaleDateString()}</td>
+            <td className="p-3 border-b border-slate-100 text-right font-medium">${row.payment.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+            <td className="p-3 border-b border-slate-100 text-right text-green-700">${row.principal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+            <td className="p-3 border-b border-slate-100 text-right text-red-700">${row.interest.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+            <td className="p-3 border-b border-slate-100 text-right font-bold">${row.balance.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+        </tr>
+    ));
   };
 
   const ltv = propertyValue > 0 ? (loanAmount / propertyValue) * 100 : 0;
@@ -348,8 +263,8 @@ const MortgageCalculatorPage: React.FC = () => {
     <div className="max-w-6xl mx-auto pb-10 print:w-full print:max-w-none print:pb-0">
       <div className="bg-summit-900 text-white p-6 rounded-t-xl shadow-lg print:shadow-none print:rounded-none flex justify-between items-center mb-6 print:mb-8 print:border-b-2 print:border-slate-800">
          <div>
-            <h1 className="text-2xl font-bold uppercase tracking-wide">Commercial Mortgage Calculator</h1>
-            <p className="text-slate-300 text-sm opacity-80 print:text-slate-100">Summit Commercial Group | Financial Analysis Tool</p>
+            <h1 className="text-2xl font-bold uppercase tracking-wide">Commercial Loan Calculator</h1>
+            <p className="text-slate-300 text-sm opacity-80 print:text-slate-100">Amortization & Balloon Payment Analysis</p>
          </div>
          <div className="flex gap-3 print:hidden">
             <button onClick={handleClear} className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors">
@@ -359,7 +274,7 @@ const MortgageCalculatorPage: React.FC = () => {
                 <Save size={16} /> Save
             </button>
             <button onClick={handlePrint} className="bg-white text-summit-900 hover:bg-slate-100 px-4 py-2 rounded-lg font-bold flex items-center gap-2 transition-colors">
-                <Download size={16} /> Download PDF Report
+                <Download size={16} /> PDF Report
             </button>
          </div>
       </div>
@@ -369,7 +284,7 @@ const MortgageCalculatorPage: React.FC = () => {
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border print:border-slate-300 print:break-inside-avoid print:shadow-none">
                <div className="bg-blue-50 p-4 border-b border-blue-100 print:bg-slate-100 print:border-slate-300">
                   <h2 className="font-bold text-slate-800 flex items-center gap-2 text-lg">
-                     <Calculator size={20} className="text-summit-900" /> Loan Inputs
+                     <Calculator size={20} className="text-summit-900" /> Loan Parameters
                   </h2>
                </div>
                <div className="p-6 space-y-4">
@@ -413,12 +328,22 @@ const MortgageCalculatorPage: React.FC = () => {
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
                      <label className="font-bold text-slate-700">Interest Rate (%):</label>
-                     <input type="number" value={interestRate} onChange={(e) => setInterestRate(Number(e.target.value))} className="w-full px-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900 text-right print:hidden" />
+                     <input type="number" step="0.125" value={interestRate} onChange={(e) => setInterestRate(Number(e.target.value))} className="w-full px-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900 text-right print:hidden" />
                      <div className="hidden print:block text-right font-bold text-slate-900">{interestRate}%</div>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
-                     <label className="font-bold text-slate-700">Loan Term (Years):</label>
+                     <label className="font-bold text-slate-700 flex items-center gap-1">
+                        Amortization <span className="text-xs font-normal text-slate-400">(Yrs)</span>
+                     </label>
+                     <input type="number" value={amortizationYears} onChange={(e) => setAmortizationYears(Number(e.target.value))} className="w-full px-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900 text-right print:hidden" />
+                     <div className="hidden print:block text-right font-bold text-slate-900">{amortizationYears} Years</div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
+                     <label className="font-bold text-slate-700 flex items-center gap-1">
+                        Loan Term <span className="text-xs font-normal text-slate-400">(Balloon Yrs)</span>
+                     </label>
                      <input type="number" value={loanTermYears} onChange={(e) => setLoanTermYears(Number(e.target.value))} className="w-full px-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900 text-right print:hidden" />
                      <div className="hidden print:block text-right font-bold text-slate-900">{loanTermYears} Years</div>
                   </div>
@@ -458,31 +383,6 @@ const MortgageCalculatorPage: React.FC = () => {
                   </div>
                </div>
             </div>
-
-             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border print:border-slate-300 print:break-inside-avoid print:shadow-none">
-               <div className="bg-blue-50 p-4 border-b border-blue-100 print:bg-slate-100 print:border-slate-300">
-                  <h2 className="font-bold text-slate-800 flex items-center gap-2 text-lg">
-                     <Info size={20} className="text-summit-900" /> Analysis Inputs
-                  </h2>
-               </div>
-               <div className="p-6 space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
-                     <label className="font-bold text-slate-700">Property Value (Appraised):</label>
-                     <input type="number" value={propertyValue} onChange={e => setPropertyValue(Number(e.target.value))} className="w-full p-2 bg-amber-50 border border-slate-300 rounded font-bold print:hidden" />
-                     <div className="hidden print:block text-right font-bold text-slate-900">${propertyValue.toLocaleString()}</div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
-                     <label className="font-bold text-slate-700">Annual NOI:</label>
-                     <input type="number" value={annualNOI} onChange={e => setAnnualNOI(Number(e.target.value))} className="w-full p-2 bg-amber-50 border border-slate-300 rounded font-bold print:hidden" />
-                     <div className="hidden print:block text-right font-bold text-slate-900">${annualNOI.toLocaleString()}</div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
-                     <label className="font-bold text-slate-700">Monthly Gross Income:</label>
-                     <input type="number" value={monthlyIncome} onChange={e => setMonthlyIncome(Number(e.target.value))} className="w-full p-2 bg-amber-50 border border-slate-300 rounded font-bold print:hidden" />
-                     <div className="hidden print:block text-right font-bold text-slate-900">${monthlyIncome.toLocaleString()}</div>
-                  </div>
-               </div>
-            </div>
          </div>
 
          <div className="space-y-8 print:space-y-6">
@@ -494,20 +394,12 @@ const MortgageCalculatorPage: React.FC = () => {
                </div>
                <div className="p-6 space-y-3">
                   <div className="flex justify-between items-center py-2 border-b border-slate-100">
-                     <span className="font-bold text-slate-700">Monthly Principal & Interest:</span>
+                     <span className="font-bold text-slate-700">Monthly P&I ({amortizationYears}yr Amort):</span>
                      <span className="font-mono text-lg">${monthlyPaymentPI.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                   </div>
                   <div className="flex justify-between items-center py-2 border-b border-slate-100">
-                     <span className="font-bold text-slate-700">Monthly Property Tax:</span>
-                     <span className="font-mono text-lg">${(annualTax / 12).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b border-slate-100">
-                     <span className="font-bold text-slate-700">Monthly Insurance:</span>
-                     <span className="font-mono text-lg">${(annualInsurance / 12).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b border-slate-100">
-                     <span className="font-bold text-slate-700">Monthly HOA:</span>
-                     <span className="font-mono text-lg">${(annualHOA / 12).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                     <span className="font-bold text-slate-700">Monthly Tax/Ins/HOA:</span>
+                     <span className="font-mono text-lg">${((annualTax + annualInsurance + annualHOA) / 12).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                   </div>
                   
                   <div className="bg-yellow-200 p-4 rounded-lg mt-4 flex justify-between items-center border border-yellow-300 print:bg-yellow-100 print:border-yellow-200">
@@ -517,29 +409,24 @@ const MortgageCalculatorPage: React.FC = () => {
                </div>
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border print:border-slate-300 print:break-inside-avoid print:shadow-none">
-               <div className="bg-blue-50 p-4 border-b border-blue-100 print:bg-slate-100 print:border-slate-300">
-                  <h2 className="font-bold text-slate-800 text-lg">Life of Loan Breakdown</h2>
+            <div className="bg-white rounded-xl shadow-lg border-2 border-slate-800 overflow-hidden print:border-slate-800 print:break-inside-avoid print:shadow-none">
+               <div className="bg-slate-900 p-4 border-b border-slate-700">
+                  <h2 className="font-bold text-white flex items-center gap-2 text-lg">
+                     <CalendarClock size={20} className="text-summit-accent" /> Balloon Payment
+                  </h2>
                </div>
-               <div className="p-6 space-y-3">
-                  <div className="flex justify-between items-center py-2 border-b border-slate-100">
-                     <span className="font-bold text-slate-700">Total Interest Paid:</span>
-                     <span className="font-mono text-lg">${totalInterest.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-                  </div>
-                  <div className="flex justify-between items-center py-2 border-b border-slate-100">
-                     <span className="font-bold text-slate-700">Total Tax & Insurance:</span>
-                     <span className="font-mono text-lg">${((annualTax + annualInsurance + annualHOA) * loanTermYears).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-                  </div>
-                  <div className="bg-red-50 p-4 rounded-lg mt-4 flex justify-between items-center border border-red-100 print:bg-red-50 print:border-red-100">
-                     <span className="font-bold text-xl text-red-900">TOTAL COST OF LOAN:</span>
-                     <span className="font-bold text-2xl text-red-900">${totalCost.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-                  </div>
+               <div className="p-6 text-center">
+                  <p className="text-slate-500 font-bold uppercase text-xs tracking-widest mb-2">Due at End of Year {loanTermYears}</p>
+                  <p className="text-4xl font-black text-slate-900 tracking-tight">${balloonPayment.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
+                  <p className="text-sm text-red-600 font-medium mt-3 bg-red-50 inline-block px-3 py-1 rounded-full">Refinance or Payoff Required</p>
                </div>
             </div>
 
              <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border print:border-slate-300 print:break-inside-avoid print:shadow-none">
                <div className="bg-blue-50 p-4 border-b border-blue-100 print:bg-slate-100 print:border-slate-300">
-                  <h2 className="font-bold text-slate-800 text-lg">Loan Metrics</h2>
+                  <h2 className="font-bold text-slate-800 flex items-center gap-2 text-lg">
+                     <TrendingUp size={20} className="text-summit-900" /> Investment Metrics
+                  </h2>
                </div>
                <div className="p-6 grid grid-cols-2 gap-6">
                   <div className={`p-4 rounded-lg border ${ltv > 80 ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
@@ -550,9 +437,9 @@ const MortgageCalculatorPage: React.FC = () => {
                       <p className="text-xs font-bold uppercase text-slate-500">DSCR</p>
                       <p className={`text-2xl font-bold ${dscr < 1.25 ? 'text-red-700' : 'text-green-700'}`}>{dscr.toFixed(2)}</p>
                   </div>
-                  <div className="p-4 rounded-lg bg-slate-50 border border-slate-200 col-span-2 print:border-slate-300">
-                      <p className="text-xs font-bold uppercase text-slate-500">Break-even Analysis</p>
-                      <p className="text-xl font-bold text-slate-700">{breakEven}</p>
+                  <div className="col-span-2">
+                     <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Annual NOI</label>
+                     <input type="number" value={annualNOI} onChange={e => setAnnualNOI(Number(e.target.value))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded font-bold" />
                   </div>
                </div>
             </div>
@@ -569,7 +456,6 @@ const MortgageCalculatorPage: React.FC = () => {
                   <tr>
                      <th className="p-3 border-b border-slate-200">#</th>
                      <th className="p-3 border-b border-slate-200">Date</th>
-                     <th className="p-3 border-b border-slate-200 text-right">Start Bal</th>
                      <th className="p-3 border-b border-slate-200 text-right">Payment</th>
                      <th className="p-3 border-b border-slate-200 text-right">Principal</th>
                      <th className="p-3 border-b border-slate-200 text-right">Interest</th>
@@ -595,7 +481,7 @@ const MortgageCalculatorPage: React.FC = () => {
                               <th className="p-2">Date</th>
                               <th className="p-2">Purchase Price</th>
                               <th className="p-2">Loan Amt</th>
-                              <th className="p-2">Rate</th>
+                              <th className="p-2">Amort / Term</th>
                               <th className="p-2">Payment</th>
                               <th className="p-2">Action</th>
                           </tr>
@@ -606,7 +492,7 @@ const MortgageCalculatorPage: React.FC = () => {
                                   <td className="p-2">{new Date(c.timestamp).toLocaleDateString()}</td>
                                   <td className="p-2 font-mono">${(c.purchasePrice || 0).toLocaleString()}</td>
                                   <td className="p-2 font-mono">${c.loanAmount.toLocaleString()}</td>
-                                  <td className="p-2">{c.interestRate}%</td>
+                                  <td className="p-2">{c.loanTermYears}yr / {c.loanTerm || c.loanTermYears}yr</td>
                                   <td className="p-2 font-mono font-bold">${c.monthlyPayment.toLocaleString()}</td>
                                   <td className="p-2">
                                       <button 
@@ -614,10 +500,11 @@ const MortgageCalculatorPage: React.FC = () => {
                                             setPurchasePrice(c.purchasePrice || 0);
                                             setDownPaymentValue(c.downPaymentValue || 0);
                                             setInterestRate(c.interestRate);
-                                            setLoanTermYears(c.loanTermYears || 0); // Fixed optional property access
-                                            setAnnualTax(c.annualTax || 0);
-                                            setAnnualInsurance(c.annualInsurance || 0);
-                                            setAnnualHOA(c.annualHOA || 0);
+                                            setAmortizationYears(c.loanTermYears);
+                                            setLoanTermYears(c.loanTerm || c.loanTermYears);
+                                            setAnnualTax(c.annualTax);
+                                            setAnnualInsurance(c.annualInsurance);
+                                            setAnnualHOA(c.annualHOA);
                                             if(c.propertyValue) setPropertyValue(c.propertyValue);
                                             if(c.annualNOI) setAnnualNOI(c.annualNOI);
                                         }}

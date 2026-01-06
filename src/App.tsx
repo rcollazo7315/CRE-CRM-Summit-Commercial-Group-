@@ -379,7 +379,13 @@ const AppContent: React.FC = () => {
             )}
             {renderContent()}
             <DealModal isOpen={isDealModalOpen} onClose={() => setIsDealModalOpen(false)} onSave={handleSaveDeal} initialData={dealModalInitialData} onDelete={handleDeleteDeal} contacts={contacts} />
-            <AiChatModal isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} />
+            <AiChatModal 
+              isOpen={isChatOpen} 
+              onClose={() => setIsChatOpen(false)} 
+              currentUser={currentUser}
+              deals={deals}
+              contacts={contacts}
+            />
             <ConfirmModal isOpen={deleteConfirmModal.isOpen} onClose={closeDeleteModal} onConfirm={executeDeleteDeal} title="Delete Deal" message={deleteConfirmModal.hasDocuments ? "Warning: This deal contains documents that will also be deleted." : "Are you sure you want to delete this deal?"} confirmText={deleteConfirmModal.isDeleting ? "Deleting..." : "Delete"} isLoading={deleteConfirmModal.isDeleting} />
           </Layout>
         ) : <Navigate to="/login" />

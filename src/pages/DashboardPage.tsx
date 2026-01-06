@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, ArrowUpRight, DollarSign, Clock, ChevronDown, MessageSquare, Briefcase, FileText, CheckCircle, Trash2, MapPin, Undo2, Loader2, Building2, LayoutGrid, Columns, Building, CheckSquare } from 'lucide-react';
+import { Plus, ArrowUpRight, DollarSign, Clock, ChevronDown, MessageSquare, Briefcase, FileText, CheckCircle, Trash2, MapPin, Undo2, Loader2, Building2, LayoutGrid, Columns, Building, CheckSquare, Target } from 'lucide-react';
 import { Deal, DealStatus, Task, REPRESENTATION_LABELS } from '../types.ts';
 import { api } from '../services/firestore.ts';
 import TaskModal from '../components/TaskModal.tsx';
@@ -80,6 +80,13 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
   const activeDealsCount = deals.filter(d => d.status !== DealStatus.COMPLETED && d.status !== DealStatus.ARCHIVED).length;
   const pipelineValue = deals.reduce((acc, curr) => acc + (curr.status !== DealStatus.ARCHIVED && curr.status !== DealStatus.COMPLETED ? curr.askingPrice : 0), 0);
   
+  // Calculate total projected commission from active deals
+  // Uses d.projectedCommission if available, otherwise estimates 3%
+  const projectedCommissionTotal = deals.reduce((acc, d) => {
+    if (d.status === DealStatus.COMPLETED || d.status === DealStatus.ARCHIVED || d.status === DealStatus.CLOSED_LOST) return acc;
+    return acc + (d.projectedCommission || (d.askingPrice * 0.03));
+  }, 0);
+
   // Filtering Logic
   const displayedDeals = useMemo(() => {
     let filtered = deals;
@@ -179,16 +186,19 @@ const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDe
                  <DollarSign size={24} />
                </div>
             </div>
-            <div className="bg-gradient-to-br from-white to-slate-50 p-6 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between group hover:border-purple-200 transition-colors">
+            
+            {/* Project Commission KPI */}
+            <div className="bg-gradient-to-br from-white to-slate-50 p-6 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between group hover:border-emerald-200 transition-colors">
                <div>
-                 <p className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Active Deals</p>
-                 <h3 className="text-2xl font-bold text-slate-900">{activeDealsCount}</h3>
-                 <p className="text-xs text-slate-400 font-medium mt-2 bg-slate-100 w-fit px-2 py-0.5 rounded-full">Across 3 property types</p>
+                 <p className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Projected Commission</p>
+                 <h3 className="text-2xl font-bold text-emerald-700">${(projectedCommissionTotal / 1000).toFixed(1)}k</h3>
+                 <p className="text-xs text-slate-400 font-medium mt-2 bg-slate-100 w-fit px-2 py-0.5 rounded-full">Based on Active Deals</p>
                </div>
-               <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-purple-600 shadow-sm border border-slate-100 group-hover:scale-110 transition-transform">
-                 <Briefcase size={24} />
+               <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-emerald-600 shadow-sm border border-slate-100 group-hover:scale-110 transition-transform">
+                 <Target size={24} />
                </div>
             </div>
+
              <div className="bg-gradient-to-br from-white to-slate-50 p-6 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between group hover:border-amber-200 transition-colors">
                <div className="flex-1">
                  <div className="flex justify-between items-start">

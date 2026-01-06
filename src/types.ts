@@ -51,9 +51,14 @@ export enum DealStatus {
   CLOSED_LOST = 'Closed Lost'
 }
 
-export type DealStage = 'prospecting' | 'initial_contact' | 'qualification' | 'proposal' | 'negotiation' | 'due_diligence' | 'closing' | 'closed_won' | 'closed_lost';
-export type DealType = 'acquisition' | 'disposition' | 'lease' | 'development' | 'refinance' | 'other';
 export type RepresentationType = 'seller' | 'buyer' | 'landlord' | 'tenant';
+
+export const REPRESENTATION_LABELS: Record<RepresentationType, string> = {
+  seller: 'Seller Rep (Disposition)',
+  buyer: 'Buyer Rep (Acquisition)',
+  landlord: 'Landlord Rep (Leasing)',
+  tenant: 'Tenant Rep (Leasing)'
+};
 
 export enum PropertyType {
   OFFICE = 'Office',
@@ -96,25 +101,18 @@ export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = {
   other: 'Other'
 };
 
-export const REPRESENTATION_LABELS: Record<RepresentationType, string> = {
-  seller: 'Seller Rep (Disposition)',
-  buyer: 'Buyer Rep (Acquisition)',
-  landlord: 'Landlord Rep (Leasing)',
-  tenant: 'Tenant Rep (Leasing)'
-};
-
 export type DeadlineStatus = 'pending' | 'waived' | 'completed' | 'expired';
 
 export interface ContractDeadline {
   days: number;
-  date?: string; // Calculated deadline date (ISO YYYY-MM-DD)
+  date?: string;
   status: DeadlineStatus;
   waivedDate?: string;
   completedDate?: string;
 }
 
 export interface ContractDates {
-  contractDate?: string; // ISO YYYY-MM-DD
+  contractDate?: string;
   dueDiligence: ContractDeadline;
   financing: ContractDeadline;
   closing: ContractDeadline;
@@ -123,73 +121,55 @@ export interface ContractDates {
 export interface Deal {
   id: string;
   userId: string;
-  representation: RepresentationType;
+  representation?: RepresentationType;
   propertyAddress: string;
-  city?: string;
-  state?: string;
-  zipCode?: string;
   propertyType: PropertyType;
-  dealType: DealType;
-  stage: DealStage;
   status: DealStatus | string;
   
-  // Initial / Target Numbers
-  askingPrice: number; // Target Budget (Buyer) or Asking Price (Seller)
+  // Financials
+  askingPrice: number;
   minSqFt?: number;
   maxSqFt?: number;
-  
-  // Final / Executed Numbers
-  closingPrice?: number; // Final Sale Price
+  closingPrice?: number;
   closingDate?: string;
-  finalLeaseRate?: number; // Final $/sf/yr
-  finalLeaseTerm?: number; // Final Term in Years/Months
-  finalLeaseType?: string; // NNN, Gross, etc.
-  leaseStartDate?: string;
-  leaseExecutionDate?: string;
-  totalContractValue?: number; // Total value of lease over term
-  actualCommission?: number; // Final commission amount
-
-  // Estimates (Legacy/Planning)
-  offerPrice?: number;
-  squareFootage?: number;
+  
+  // Lease Specifics
   leaseTerm?: number; 
   leaseType?: string; 
-  units?: number;
-  capRate?: number;
-  noi?: number;
-  
-  clientName?: string;
-  clientEmail?: string;
-  clientPhone?: string;
-  contactId?: string; // Linked Contact ID
-  
-  notes?: string;
-  description?: string;
-  imageUrl?: string;
-  owner: { name: string; email: string; phone: string };
-  createdAt: string;
-  updatedAt?: string;
-  lastUpdated: string;
-  closedAt?: string;
-  closedDate?: string; // Duplicate of closingDate, kept for compatibility
-  expectedCloseDate?: string;
-  
-  documents?: DocumentFile[];
-  tasks?: Task[];
-  probability?: number;
-  commissionRate?: number;
-  commission?: number;
-  estimatedCommission?: number;
-  projectedCommission?: number; // New field
+  finalLeaseRate?: number;
+  finalLeaseTerm?: number;
+  finalLeaseType?: string;
+  leaseStartDate?: string;
+  annualIncrease?: number;
+
+  // Commission
+  commissionPercentage?: number;
+  commissionBasis?: 'askingPrice' | 'targetBudget' | 'totalLeaseValue';
+  projectedCommission?: number;
+  actualCommission?: number;
+  commission?: number; // Legacy field fallback
+  estimatedCommission?: number; // Legacy field fallback
+
+  // Metadata
   offersReceived: number;
   highestOffer: number;
   daysOnMarket: number;
   leadSource?: LeadSource;
   leadSourceNotes?: string;
-  leadSourceDate?: string;
   
-  // Contract Tracking
+  description?: string;
+  notes?: string;
+  imageUrl?: string;
+  owner: { name: string; email: string; phone: string };
+  contactId?: string;
+  lastUpdated: string;
+  createdAt: string;
+  closedAt?: string;
+  
+  documents?: DocumentFile[];
+  tasks?: Task[];
   contractDates?: ContractDates;
+  clientName?: string;
 }
 
 export type TaskPriority = 'low' | 'medium' | 'high' | 'urgent';
@@ -256,24 +236,25 @@ export interface MortgageCalculation {
   id: string;
   userId: string;
   timestamp: string;
-  purchasePrice?: number;
+  purchasePrice: number;
   propertyPrice?: number;
   downPaymentValue?: number;
   downPayment?: number;
   downPaymentMode?: 'percent' | 'amount';
   loanAmount: number;
   interestRate: number;
-  loanTermYears?: number;
-  loanTerm: number;
-  annualTax?: number;
-  annualInsurance?: number;
-  annualHOA?: number;
+  loanTermYears: number; // Amortization Period
+  loanTerm?: number; // Actual Term (Balloon)
+  annualTax: number;
+  annualInsurance: number;
+  annualHOA: number;
   monthlyPayment: number;
   totalInterest?: number;
   totalPayment?: number;
-  totalCostOfLoan?: number;
-  propertyValue?: number;
-  annualNOI?: number;
+  totalCostOfLoan: number;
+  balloonPayment?: number;
+  propertyValue: number;
+  annualNOI: number;
   createdAt?: string;
   propertyAddress?: string;
   notes?: string;
