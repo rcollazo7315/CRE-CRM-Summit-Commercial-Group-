@@ -16,6 +16,7 @@ export interface UserAccount {
   company?: string;
   title?: string;
   bio?: string;
+  licenseNumber?: string;
   username?: string;
   passwordHash?: string;
   settings?: {
@@ -232,6 +233,31 @@ export interface LeadGenLog {
   createdAt?: string;
 }
 
+export interface AmortizationScheduleItem {
+  paymentNumber: number;
+  date: string;
+  paymentAmount: number;
+  principalPayment: number;
+  interestPayment: number;
+  remainingBalance: number;
+  cumulativePrincipal: number;
+  cumulativeInterest: number;
+}
+
+export interface MortgageCalculationResults {
+  monthlyPayment: number;
+  totalPayments: number;
+  totalInterest: number;
+  totalPrincipal: number;
+  
+  termPayments: number;
+  principalPaidDuringTerm: number;
+  interestPaidDuringTerm: number;
+  balloonPayment: number;
+  
+  amortizationSchedule: AmortizationScheduleItem[];
+}
+
 export interface MortgageCalculation {
   id: string;
   userId: string;
@@ -243,8 +269,10 @@ export interface MortgageCalculation {
   downPaymentMode?: 'percent' | 'amount';
   loanAmount: number;
   interestRate: number;
-  loanTermYears: number; // Amortization Period
-  loanTerm?: number; // Actual Term (Balloon)
+  
+  loanTermYears: number; // Amortization Period (e.g., 25 years)
+  loanTerm?: number;     // Balloon Term (e.g., 10 years)
+  
   annualTax: number;
   annualInsurance: number;
   annualHOA: number;
@@ -258,6 +286,98 @@ export interface MortgageCalculation {
   createdAt?: string;
   propertyAddress?: string;
   notes?: string;
+  calculatedResults?: MortgageCalculationResults;
+}
+
+// --- Lease Calculator Types ---
+
+export interface LeaseCalculation {
+  id: string;
+  userId: string;
+  calculationName: string;
+  propertyAddress?: string;
+  propertyType?: PropertyType;
+  squareFootage: number;
+  
+  // Base Rent
+  baseRentPerSqFt: number;
+  baseRentType: 'annual' | 'monthly';
+  
+  // Term
+  leaseTerm: number; // months
+  leaseCommencementDate: string;
+  
+  // Escalations
+  escalationType: 'percentage' | 'fixed_dollar' | 'none';
+  escalationAmount: number;
+  escalationFrequency: 'annual' | 'biennial' | 'every_3_years' | 'every_5_years';
+  escalationStartYear: number;
+  
+  // NNN
+  nnnCharges: {
+    propertyTaxes: number;
+    insurance: number;
+    cam: number;
+  };
+  nnnEscalationAmount: number;
+  
+  // Concessions
+  freeRentMonths: number;
+  freeRentType: 'front_loaded' | 'back_loaded';
+  tenantImprovementAllowance: number;
+  
+  // Additional
+  parkingSpaces: number;
+  parkingCostPerSpace: number;
+  
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface LeasePaymentScheduleItem {
+  year: number;
+  month: number;
+  monthNumber: number;
+  date: string;
+  
+  baseRent: number;
+  theoreticalBaseRent?: number; // Value before concession
+  nnn: number;
+  parking: number;
+  totalMonthly: number;
+  
+  isFreeRent: boolean;
+  isEscalation: boolean;
+  
+  cumulativeTotal: number;
+}
+
+export interface LeaseCalculationResults {
+  monthlyBaseRent: number;
+  monthlyNNN: number;
+  monthlyParking: number;
+  totalMonthlyPayment: number;
+  
+  annualBaseRent: number;
+  annualNNN: number;
+  totalAnnualCost: number;
+  
+  grandTotalOverTerm: number;
+  averageMonthlyPayment: number;
+  effectiveRatePerSqFt: number;
+  
+  totalUpfrontCosts: number;
+  tiAllowanceTotal: number;
+  
+  paymentSchedule: LeasePaymentScheduleItem[];
+  freeRentValue?: number;
+}
+
+export interface LeaseYearlySummary {
+  year: number;
+  baseRentPerSqFt: number;
+  totalAnnual: number;
+  freeRentMonths: number;
 }
 
 export type ContactType = 'owner' | 'strategic_partner' | 'investor' | 'lender' | 'broker' | 'attorney' | 'title_company' | 'property_manager' | 'contractor' | 'appraiser' | 'inspector' | 'tenant' | 'banker' | 'vendor' | 'other' | 'partner' | 'developer' | 'prospect';

@@ -1,6 +1,6 @@
 
 import React, { useEffect, useState, useRef } from 'react';
-import { LayoutDashboard, Building2, FileText, Settings, Bell, Search, LogOut, Menu, X, PieChart, Target, Shield, Calculator, CheckCircle2, Users, Clock, AlertTriangle } from 'lucide-react';
+import { LayoutDashboard, Building2, FileText, Settings, Bell, Search, LogOut, Menu, X, PieChart, Target, Shield, Calculator, CheckCircle2, Users, Clock, AlertTriangle, TrendingUp } from 'lucide-react';
 import { UserAccount, Task } from '../types.ts';
 import { api } from '../services/firestore.ts';
 
@@ -17,75 +17,48 @@ interface LayoutProps {
 const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, user, onLogout, searchTerm, onSearch }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = React.useState(false);
   const [alerts, setAlerts] = useState<{id: string, title: string, time: string}[]>([]);
-  const processedTaskIds = useRef<Set<string>>(new Set()); // Track notified tasks to prevent duplicate alerts
+  const processedTaskIds = useRef<Set<string>>(new Set()); 
   
   const currentNav = activeTab === 'deal-details' ? 'deals' : activeTab;
 
-  // --- Task Reminder Polling Logic ---
   useEffect(() => {
     if (!user) return;
-
     const checkReminders = async () => {
       try {
-        // Fetch only if user is logged in
         const tasks = await api.getTasks(user.id);
         const now = new Date();
-        
         tasks.forEach(task => {
-          // Skip if no reminder, completed, or already notified
           if (!task.reminderTime || task.status === 'completed' || processedTaskIds.current.has(task.id)) return;
-
           const dueDate = new Date(`${task.dueDate}T${task.dueTime || '09:00'}`);
           const timeDiff = dueDate.getTime() - now.getTime();
           const reminderMs = task.reminderTime * 60 * 1000;
-
-          // Trigger if within reminder window (and not in the past by more than the reminder time)
           if (timeDiff > 0 && timeDiff <= reminderMs) {
-            // Add to alerts
             setAlerts(prev => [...prev, { id: task.id, title: task.title, time: task.dueTime || 'All Day' }]);
-            // Mark processed
             processedTaskIds.current.add(task.id);
-            
-            // Optional: Browser Notification if supported/allowed
-            if ('Notification' in window && Notification.permission === 'granted') {
-               new Notification(`Upcoming Task: ${task.title}`, { body: `Due at ${task.dueTime}` });
-            }
           }
         });
-      } catch (e) {
-        console.error("Failed to check task reminders", e);
-      }
+      } catch (e) { console.error("Failed to check task reminders", e); }
     };
-
-    // Request browser permission on mount
-    if ('Notification' in window && Notification.permission === 'default') {
-      Notification.requestPermission();
-    }
-
-    // Check immediately and then every minute
+    if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission();
     checkReminders();
     const interval = setInterval(checkReminders, 60000);
-
     return () => clearInterval(interval);
   }, [user]);
 
-  const removeAlert = (id: string) => {
-    setAlerts(prev => prev.filter(a => a.id !== id));
-  };
+  const removeAlert = (id: string) => setAlerts(prev => prev.filter(a => a.id !== id));
 
-  // Base items for all users (Reports removed from here)
   const agentNavItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'deals', label: 'Active Deals', icon: Building2 },
     { id: 'closed-deals', label: 'Closed Deals', icon: CheckCircle2 },
     { id: 'contacts', label: 'Contacts', icon: Users },
     { id: 'calculator', label: 'Mortgage Calc', icon: Calculator },
+    { id: 'lease-calculator', label: 'Lease Analysis', icon: TrendingUp },
     { id: 'lead-gen', label: 'Log Activity', icon: Target },
     { id: 'documents', label: 'Documents', icon: FileText },
     { id: 'settings', label: 'Settings', icon: Settings },
   ];
 
-  // Admin Specific Items
   const adminItems = [
     { id: 'admin-dashboard', label: 'Admin Console', icon: Shield },
     { id: 'reports', label: 'Reports', icon: PieChart }
@@ -95,21 +68,15 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, user
 
   return (
     <div className="min-h-screen bg-slate-50 flex flex-col md:flex-row font-sans text-slate-900 relative">
-      
-      {/* Toast Notifications Container */}
       <div className="fixed top-20 right-4 z-50 flex flex-col gap-2 pointer-events-none">
         {alerts.map(alert => (
           <div key={alert.id} className="bg-white border-l-4 border-amber-500 rounded-lg shadow-2xl p-4 w-80 animate-in slide-in-from-right duration-300 pointer-events-auto flex justify-between items-start">
              <div>
-               <div className="flex items-center gap-2 text-amber-600 font-bold text-sm mb-1">
-                 <Clock size={16} /> Upcoming Task
-               </div>
+               <div className="flex items-center gap-2 text-amber-600 font-bold text-sm mb-1"><Clock size={16} /> Upcoming Task</div>
                <p className="font-bold text-slate-800">{alert.title}</p>
                <p className="text-xs text-slate-500 mt-1">Due at {alert.time}</p>
              </div>
-             <button onClick={() => removeAlert(alert.id)} className="text-slate-400 hover:text-slate-600">
-               <X size={16} />
-             </button>
+             <button onClick={() => removeAlert(alert.id)} className="text-slate-400 hover:text-slate-600"><X size={16} /></button>
           </div>
         ))}
       </div>
@@ -145,20 +112,12 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, user
       <main className="flex-1 flex flex-col h-screen overflow-hidden print:h-auto print:overflow-visible">
         <header className="bg-white border-b border-slate-200 h-16 flex items-center justify-between px-6 sticky top-0 z-30 print:hidden">
           <div className="flex items-center flex-1 max-w-xl">
-            {activeTab === 'admin-dashboard' ? (
-              <div className="font-bold text-slate-800 text-lg">Administrator Console</div>
-            ) : (
+            {activeTab === 'admin-dashboard' ? <div className="font-bold text-slate-800 text-lg">Administrator Console</div> : 
               <div className="relative w-full">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
-                <input 
-                  type="text" 
-                  placeholder={activeTab === 'contacts' ? "Search contacts by name, company, phone..." : "Search deals by address, owner..."} 
-                  value={searchTerm}
-                  onChange={(e) => onSearch(e.target.value)}
-                  className="w-full pl-10 pr-4 py-2 bg-slate-100 border-none rounded-full text-sm focus:ring-2 focus:ring-summit-accent outline-none transition-all"
-                />
+                <input type="text" placeholder={activeTab === 'contacts' ? "Search contacts..." : "Search deals..."} value={searchTerm} onChange={(e) => onSearch(e.target.value)} className="w-full pl-10 pr-4 py-2 bg-slate-100 border-none rounded-full text-sm focus:ring-2 focus:ring-summit-accent outline-none transition-all" />
               </div>
-            )}
+            }
           </div>
           <div className="flex items-center gap-4 ml-4">
             <button className="relative p-2 text-slate-500 hover:bg-slate-100 rounded-full transition-colors">

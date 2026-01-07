@@ -91,13 +91,37 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateProfile }) =>
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
+
+      // Check file size (limit to ~800KB to be safe for Firestore document limits)
+      if (file.size > 800 * 1024) {
+        setErrorMsg("Image is too large. Please select an image under 800KB.");
+        setTimeout(() => setErrorMsg(''), 4000);
+        return;
+      }
+
       const reader = new FileReader();
       reader.onloadend = async () => {
         const base64String = reader.result as string;
-        setFormData(prev => ({ ...prev, profileImage: base64String }));
         
-        await onUpdateProfile({ profileImage: base64String }); 
-        await refreshUser();
+        // Update both fields to ensure consistency across the app
+        // Layout uses 'avatar' first, so we must update it
+        // Settings uses 'profileImage' first, so we must update it
+        const updates = { 
+            profileImage: base64String,
+            avatar: base64String 
+        };
+
+        setFormData(prev => ({ ...prev, ...updates }));
+        
+        try {
+            await onUpdateProfile(updates); 
+            await refreshUser();
+            setSuccessMsg("Profile photo updated successfully");
+            setTimeout(() => setSuccessMsg(''), 3000);
+        } catch (err) {
+            console.error(err);
+            setErrorMsg("Failed to save image. Please try again.");
+        }
       };
       reader.readAsDataURL(file);
     }
@@ -136,7 +160,11 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateProfile }) =>
         <div className="space-y-6">
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6 text-center">
             <div className="relative inline-block mb-4 group">
-              <img src={formData.profileImage || `https://ui-avatars.com/api/?name=${formData.firstName}+${formData.lastName}`} alt="Profile" className="w-32 h-32 rounded-full border-4 border-slate-50 object-cover" />
+              <img 
+                src={formData.profileImage || formData.avatar || `https://ui-avatars.com/api/?name=${formData.firstName}+${formData.lastName}`} 
+                alt="Profile" 
+                className="w-32 h-32 rounded-full border-4 border-slate-50 object-cover" 
+              />
               <button onClick={() => fileInputRef.current?.click()} className="absolute bottom-0 right-0 bg-summit-900 text-white p-2 rounded-full hover:bg-summit-800 shadow-md transition-colors group-hover:scale-110 transform">
                 <Camera size={16} />
               </button>

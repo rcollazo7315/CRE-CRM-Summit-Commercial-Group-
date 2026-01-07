@@ -1,23 +1,22 @@
 
 import React, { useState, useEffect } from 'react';
 import { Calculator, Save, RefreshCw, DollarSign, Info, Download, CalendarClock, TrendingUp } from 'lucide-react';
-import { MortgageCalculation } from '../types.ts';
+import { MortgageCalculation, MortgageCalculationResults } from '../types.ts';
 import { api } from '../services/firestore.ts';
 import { useAuth } from '../context/AuthContext.tsx';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
-import { calculateRemainingBalance, generateAmortizationSchedule } from '../utils/calculations.ts';
+import { calculateMortgageResults } from '../utils/calculations.ts';
+import { generateMortgageReport } from '../utils/pdfGenerator.ts';
 
 const MortgageCalculatorPage: React.FC = () => {
+  const { currentUser } = useAuth();
+  
   // Input State
   const [purchasePrice, setPurchasePrice] = useState<number>(2500000);
   const [downPaymentValue, setDownPaymentValue] = useState<number>(30);
   const [downPaymentMode, setDownPaymentMode] = useState<'percent' | 'amount'>('percent');
-  
   const [interestRate, setInterestRate] = useState<number>(6.75);
-  const [amortizationYears, setAmortizationYears] = useState<number>(25); // For monthly payment calc
-  const [loanTermYears, setLoanTermYears] = useState<number>(10); // For balloon date
-  
+  const [amortizationYears, setAmortizationYears] = useState<number>(25); // Amortization Period
+  const [loanTermYears, setLoanTermYears] = useState<number>(10); // Balloon Term
   const [annualTax, setAnnualTax] = useState<number>(35000);
   const [annualInsurance, setAnnualInsurance] = useState<number>(12000);
   const [annualHOA, setAnnualHOA] = useState<number>(0);
@@ -27,19 +26,14 @@ const MortgageCalculatorPage: React.FC = () => {
   const [annualNOI, setAnnualNOI] = useState<number>(285000);
   const [monthlyIncome, setMonthlyIncome] = useState<number>(25000);
 
-  // Computed State
+  // Results State
+  const [results, setResults] = useState<MortgageCalculationResults | null>(null);
   const [loanAmount, setLoanAmount] = useState<number>(0);
-  const [monthlyPaymentPI, setMonthlyPaymentPI] = useState(0);
-  const [totalMonthlyPayment, setTotalMonthlyPayment] = useState(0);
-  const [balloonPayment, setBalloonPayment] = useState(0);
-  const [totalInterest, setTotalInterest] = useState(0);
-  const [totalCost, setTotalCost] = useState(0);
   const [savedCalculations, setSavedCalculations] = useState<MortgageCalculation[]>([]);
-
-  const { currentUser } = useAuth();
+  const [showFullSchedule, setShowFullSchedule] = useState(false);
 
   useEffect(() => {
-    calculateMortgage();
+    runCalculation();
   }, [purchasePrice, downPaymentValue, downPaymentMode, interestRate, amortizationYears, loanTermYears, annualTax, annualInsurance, annualHOA]);
 
   useEffect(() => {
@@ -57,9 +51,8 @@ const MortgageCalculatorPage: React.FC = () => {
     }
   };
 
-  const calculateMortgage = () => {
+  const runCalculation = () => {
     let principal = 0;
-    
     if (downPaymentMode === 'percent') {
         const dpAmount = purchasePrice * (downPaymentValue / 100);
         principal = purchasePrice - dpAmount;
@@ -70,40 +63,28 @@ const MortgageCalculatorPage: React.FC = () => {
     if (principal < 0) principal = 0;
     setLoanAmount(principal);
 
-    const rate = Number(interestRate) || 0;
-    
-    // Monthly payment based on Amortization Period
-    const r = rate / 100 / 12;
-    const nAmort = (Number(amortizationYears) || 0) * 12;
-    const nTerm = (Number(loanTermYears) || 0) * 12;
+    const calcData: MortgageCalculation = {
+        id: 'temp',
+        userId: currentUser?.id || '',
+        timestamp: new Date().toISOString(),
+        purchasePrice,
+        downPaymentValue,
+        downPaymentMode,
+        loanAmount: principal,
+        interestRate,
+        loanTermYears: amortizationYears, // Amortization
+        loanTerm: loanTermYears, // Balloon Term
+        annualTax,
+        annualInsurance,
+        annualHOA,
+        monthlyPayment: 0, // Placeholder
+        totalCostOfLoan: 0, // Placeholder
+        propertyValue,
+        annualNOI
+    };
 
-    let pi = 0;
-    if (rate === 0) {
-        pi = nAmort > 0 ? principal / nAmort : 0;
-    } else {
-        pi = (principal * r) / (1 - Math.pow(1 + r, -nAmort));
-    }
-    
-    if (!isFinite(pi)) pi = 0;
-
-    // Calculate Balloon using utility
-    const balloon = calculateRemainingBalance(principal, rate, amortizationYears, nTerm);
-
-    const taxMonthly = (Number(annualTax) || 0) / 12;
-    const insMonthly = (Number(annualInsurance) || 0) / 12;
-    const hoaMonthly = (Number(annualHOA) || 0) / 12;
-
-    const totalMonthly = pi + taxMonthly + insMonthly + hoaMonthly;
-    
-    // Total Cost over the Term (not Amortization)
-    const totalPayments = pi * nTerm;
-    // Interest paid over the Term approximately
-    const totalCostOverTerm = totalPayments + balloon;
-    
-    setMonthlyPaymentPI(pi);
-    setTotalMonthlyPayment(totalMonthly);
-    setBalloonPayment(balloon);
-    setTotalCost(totalCostOverTerm);
+    const res = calculateMortgageResults(calcData);
+    setResults(res);
   };
 
   const handleClear = () => {
@@ -121,7 +102,7 @@ const MortgageCalculatorPage: React.FC = () => {
   };
 
   const handleSave = async () => {
-    if (!currentUser) {
+    if (!currentUser || !results) {
         alert("You must be logged in to save.");
         return;
     }
@@ -135,138 +116,66 @@ const MortgageCalculatorPage: React.FC = () => {
         downPaymentMode,
         loanAmount,
         interestRate,
-        loanTermYears: amortizationYears, // Stored as Amort
-        loanTerm: loanTermYears, // Stored as Term (Balloon)
+        loanTermYears: amortizationYears,
+        loanTerm: loanTermYears,
         annualTax,
         annualInsurance,
         annualHOA,
-        monthlyPayment: totalMonthlyPayment,
-        totalCostOfLoan: totalCost,
-        balloonPayment,
+        monthlyPayment: results.monthlyPayment,
+        totalCostOfLoan: results.totalInterest + loanAmount,
+        balloonPayment: results.balloonPayment,
         propertyValue,
-        annualNOI
+        annualNOI,
+        calculatedResults: results
     };
     await api.saveCalculation(calc);
     alert("Calculation saved to history.");
     loadSavedCalculations();
   };
 
-  const handlePrint = () => {
-    const doc = new jsPDF();
-    const today = new Date().toLocaleDateString();
+  const handlePrint = async () => {
+    if (!results) return;
     
-    // Header
-    doc.setFontSize(20);
-    doc.setTextColor(16, 61, 49);
-    doc.text('Summit Commercial Group', 105, 20, { align: 'center' });
-    
-    doc.setFontSize(16);
-    doc.setTextColor(0, 0, 0);
-    doc.text('Commercial Loan Analysis', 105, 30, { align: 'center' });
-    
-    doc.setFontSize(10);
-    doc.setTextColor(100, 100, 100);
-    doc.text(`Generated: ${today}`, 105, 38, { align: 'center' });
-    
-    // Loan Details
-    doc.setFontSize(14);
-    doc.setTextColor(0, 0, 0);
-    doc.text('Loan Structure', 14, 50);
-    
-    const loanDetails = [
-      ['Purchase Price', `$${purchasePrice.toLocaleString()}`],
-      ['Down Payment', downPaymentMode === 'percent' 
-        ? `${downPaymentValue}% ($${(purchasePrice * downPaymentValue / 100).toLocaleString()})`
-        : `$${downPaymentValue.toLocaleString()}`],
-      ['Loan Amount', `$${loanAmount.toLocaleString()}`],
-      ['Interest Rate', `${interestRate}%`],
-      ['Amortization', `${amortizationYears} Years`],
-      ['Loan Term (Balloon)', `${loanTermYears} Years`],
-    ];
-    
-    autoTable(doc, {
-        startY: 55,
-        head: [['Item', 'Value']],
-        body: loanDetails,
-        theme: 'striped',
-        headStyles: { fillColor: [16, 61, 49] }
-    });
-    
-    // Monthly Payment Breakdown
-    const finalY = (doc as any).lastAutoTable?.finalY || 100;
-    doc.text('Monthly Payment Breakdown', 14, finalY + 10);
-    
-    const monthlyBreakdown = [
-      ['Principal & Interest', `$${monthlyPaymentPI.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`],
-      ['Property Tax', `$${(annualTax / 12).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`],
-      ['Insurance', `$${(annualInsurance / 12).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`],
-      ['HOA Fees', `$${(annualHOA / 12).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`],
-      ['Total Monthly Payment', `$${totalMonthlyPayment.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`],
-    ];
-    
-    autoTable(doc, {
-        startY: finalY + 15,
-        head: [['Component', 'Amount']],
-        body: monthlyBreakdown,
-        theme: 'striped',
-        headStyles: { fillColor: [16, 61, 49] },
-        footStyles: { fillColor: [16, 61, 49], fontStyle: 'bold' }
-    });
+    const calcData: MortgageCalculation = {
+        id: 'temp',
+        userId: currentUser?.id || '',
+        timestamp: new Date().toISOString(),
+        purchasePrice,
+        downPaymentValue,
+        downPaymentMode,
+        loanAmount,
+        interestRate,
+        loanTermYears: amortizationYears,
+        loanTerm: loanTermYears,
+        annualTax,
+        annualInsurance,
+        annualHOA,
+        monthlyPayment: results.monthlyPayment,
+        totalCostOfLoan: 0,
+        propertyValue,
+        annualNOI,
+        calculatedResults: results
+    };
 
-    // Balloon & Metrics
-    const finalY2 = (doc as any).lastAutoTable?.finalY || 150;
-    doc.text('Key Metrics & Balloon', 14, finalY2 + 10);
-
-    const ltv = propertyValue > 0 ? (loanAmount / propertyValue) * 100 : 0;
-    const annualDebtService = monthlyPaymentPI * 12;
-    const dscr = annualDebtService > 0 ? annualNOI / annualDebtService : 0;
-
-    const metrics = [
-        ['Balloon Payment (End of Term)', `$${balloonPayment.toLocaleString(undefined, {minimumFractionDigits: 2})}`],
-        ['LTV Ratio', `${ltv.toFixed(2)}%`],
-        ['DSCR', dscr.toFixed(2)],
-        ['Annual NOI', `$${annualNOI.toLocaleString()}`]
-    ];
-
-    autoTable(doc, {
-        startY: finalY2 + 15,
-        head: [['Metric', 'Value']],
-        body: metrics,
-        theme: 'grid',
-        headStyles: { fillColor: [16, 61, 49] }
-    });
-    
-    doc.save(`Commercial_Loan_Analysis_${today.replace(/\//g, '-')}.pdf`);
+    const pdf = await generateMortgageReport(calcData, currentUser);
+    pdf.save(`Mortgage_Analysis_${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
-  const renderAmortization = () => {
-    const schedule = generateAmortizationSchedule(loanAmount, interestRate, amortizationYears, loanTermYears);
-    
-    return schedule.slice(0, 12).map((row) => (
-        <tr key={row.paymentNumber} className="hover:bg-slate-50 text-sm">
-            <td className="p-3 border-b border-slate-100">{row.paymentNumber}</td>
-            <td className="p-3 border-b border-slate-100">{row.date.toLocaleDateString()}</td>
-            <td className="p-3 border-b border-slate-100 text-right font-medium">${row.payment.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
-            <td className="p-3 border-b border-slate-100 text-right text-green-700">${row.principal.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
-            <td className="p-3 border-b border-slate-100 text-right text-red-700">${row.interest.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
-            <td className="p-3 border-b border-slate-100 text-right font-bold">${row.balance.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
-        </tr>
-    ));
-  };
-
-  const ltv = propertyValue > 0 ? (loanAmount / propertyValue) * 100 : 0;
-  const annualDebtService = monthlyPaymentPI * 12;
+  // Metrics
+  const ltv = propertyValue > 0 && results ? (loanAmount / propertyValue) * 100 : 0;
+  const annualDebtService = results ? results.monthlyPayment * 12 : 0;
   const dscr = annualDebtService > 0 ? annualNOI / annualDebtService : 0;
-  const breakEven = (monthlyIncome - totalMonthlyPayment) >= 0 ? "Cash Flow Positive" : `$${Math.abs(monthlyIncome - totalMonthlyPayment).toFixed(0)} Shortfall`;
+  const totalMonthlyCost = results ? results.monthlyPayment + ((annualTax+annualInsurance+annualHOA)/12) : 0;
+  const breakEven = (monthlyIncome - totalMonthlyCost) >= 0 ? "Cash Flow Positive" : `$${Math.abs(monthlyIncome - totalMonthlyCost).toFixed(0)} Shortfall`;
 
   return (
     <div className="max-w-6xl mx-auto pb-10 print:w-full print:max-w-none print:pb-0">
-      <div className="bg-summit-900 text-white p-6 rounded-t-xl shadow-lg print:shadow-none print:rounded-none flex justify-between items-center mb-6 print:mb-8 print:border-b-2 print:border-slate-800">
+      <div className="bg-summit-900 text-white p-6 rounded-t-xl shadow-lg flex justify-between items-center mb-6">
          <div>
             <h1 className="text-2xl font-bold uppercase tracking-wide">Commercial Loan Calculator</h1>
-            <p className="text-slate-300 text-sm opacity-80 print:text-slate-100">Amortization & Balloon Payment Analysis</p>
+            <p className="text-slate-300 text-sm opacity-80">Amortization & Balloon Payment Analysis</p>
          </div>
-         <div className="flex gap-3 print:hidden">
+         <div className="flex gap-3">
             <button onClick={handleClear} className="bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg flex items-center gap-2 transition-colors">
                 <RefreshCw size={16} /> Clear
             </button>
@@ -279,10 +188,11 @@ const MortgageCalculatorPage: React.FC = () => {
          </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 print:grid-cols-2 print:gap-8">
-         <div className="space-y-8 print:space-y-6">
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border print:border-slate-300 print:break-inside-avoid print:shadow-none">
-               <div className="bg-blue-50 p-4 border-b border-blue-100 print:bg-slate-100 print:border-slate-300">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+         <div className="space-y-8">
+            {/* INPUTS */}
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+               <div className="bg-blue-50 p-4 border-b border-blue-100">
                   <h2 className="font-bold text-slate-800 flex items-center gap-2 text-lg">
                      <Calculator size={20} className="text-summit-900" /> Loan Parameters
                   </h2>
@@ -290,140 +200,135 @@ const MortgageCalculatorPage: React.FC = () => {
                <div className="p-6 space-y-4">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
                      <label className="font-bold text-slate-700">Purchase Price:</label>
-                     <div className="relative print:hidden">
+                     <div className="relative">
                         <DollarSign size={16} className="absolute left-3 top-3 text-slate-400" />
-                        <input 
-                          type="number" 
-                          value={purchasePrice}
-                          onChange={(e) => setPurchasePrice(Number(e.target.value))}
-                          className="w-full pl-9 pr-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900" 
-                        />
+                        <input type="number" value={purchasePrice} onChange={(e) => setPurchasePrice(Number(e.target.value))} className="w-full pl-9 pr-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900" />
                      </div>
-                     <div className="hidden print:block text-right font-bold text-slate-900">${purchasePrice.toLocaleString()}</div>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
                      <label className="font-bold text-slate-700">Down Payment:</label>
-                     <div className="flex gap-2 print:hidden">
-                        <input 
-                           type="number" 
-                           value={downPaymentValue}
-                           onChange={(e) => setDownPaymentValue(Number(e.target.value))}
-                           className="w-full px-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900" 
-                        />
+                     <div className="flex gap-2">
+                        <input type="number" value={downPaymentValue} onChange={(e) => setDownPaymentValue(Number(e.target.value))} className="w-full px-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900" />
                         <div className="flex rounded-lg border border-slate-300 overflow-hidden shrink-0">
                            <button onClick={() => setDownPaymentMode('percent')} className={`px-3 py-1 text-xs font-bold ${downPaymentMode === 'percent' ? 'bg-summit-900 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}>%</button>
                            <button onClick={() => setDownPaymentMode('amount')} className={`px-3 py-1 text-xs font-bold ${downPaymentMode === 'amount' ? 'bg-summit-900 text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}>$</button>
                         </div>
                      </div>
-                     <div className="hidden print:block text-right font-bold text-slate-900">
-                        {downPaymentMode === 'percent' ? `${downPaymentValue}%` : `$${downPaymentValue.toLocaleString()}`}
-                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center pt-2 border-t border-slate-100">
                      <label className="text-slate-500 font-medium">Financed Amount:</label>
-                     <div className="text-right text-lg font-bold text-blue-600 print:text-slate-900">${loanAmount.toLocaleString()}</div>
+                     <div className="text-right text-lg font-bold text-blue-600">${loanAmount.toLocaleString()}</div>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
                      <label className="font-bold text-slate-700">Interest Rate (%):</label>
-                     <input type="number" step="0.125" value={interestRate} onChange={(e) => setInterestRate(Number(e.target.value))} className="w-full px-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900 text-right print:hidden" />
-                     <div className="hidden print:block text-right font-bold text-slate-900">{interestRate}%</div>
+                     <input type="number" step="0.125" value={interestRate} onChange={(e) => setInterestRate(Number(e.target.value))} className="w-full px-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900 text-right" />
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
-                     <label className="font-bold text-slate-700 flex items-center gap-1">
-                        Amortization <span className="text-xs font-normal text-slate-400">(Yrs)</span>
+                     <label className="font-bold text-slate-700 flex flex-col">
+                        <span>Amortization</span>
+                        <span className="text-xs font-normal text-slate-400 font-normal">Calculates Monthly P&I</span>
                      </label>
-                     <input type="number" value={amortizationYears} onChange={(e) => setAmortizationYears(Number(e.target.value))} className="w-full px-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900 text-right print:hidden" />
-                     <div className="hidden print:block text-right font-bold text-slate-900">{amortizationYears} Years</div>
+                     <div className="flex items-center gap-2">
+                        <input type="number" value={amortizationYears} onChange={(e) => setAmortizationYears(Number(e.target.value))} className="w-full px-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900 text-right" />
+                        <span className="text-xs font-bold text-slate-500">Yrs</span>
+                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
-                     <label className="font-bold text-slate-700 flex items-center gap-1">
-                        Loan Term <span className="text-xs font-normal text-slate-400">(Balloon Yrs)</span>
+                     <label className="font-bold text-slate-700 flex flex-col">
+                        <span>Loan Term</span>
+                        <span className="text-xs font-normal text-slate-400 font-normal">When Balloon is Due</span>
                      </label>
-                     <input type="number" value={loanTermYears} onChange={(e) => setLoanTermYears(Number(e.target.value))} className="w-full px-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900 text-right print:hidden" />
-                     <div className="hidden print:block text-right font-bold text-slate-900">{loanTermYears} Years</div>
+                     <div className="flex items-center gap-2">
+                        <input type="number" value={loanTermYears} onChange={(e) => setLoanTermYears(Number(e.target.value))} className="w-full px-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900 text-right" />
+                        <span className="text-xs font-bold text-slate-500">Yrs</span>
+                     </div>
                   </div>
                </div>
             </div>
 
-            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border print:border-slate-300 print:break-inside-avoid print:shadow-none">
-               <div className="bg-blue-50 p-4 border-b border-blue-100 print:bg-slate-100 print:border-slate-300">
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+               <div className="bg-blue-50 p-4 border-b border-blue-100">
                   <h2 className="font-bold text-slate-800 flex items-center gap-2 text-lg">
-                     <Info size={20} className="text-summit-900" /> Additional Costs
+                     <Info size={20} className="text-summit-900" /> Operating Expenses (Annual)
                   </h2>
                </div>
                <div className="p-6 space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
-                     <label className="font-bold text-slate-700">Annual Property Tax:</label>
-                     <div className="relative print:hidden">
-                        <DollarSign size={16} className="absolute left-3 top-3 text-slate-400" />
-                        <input type="number" value={annualTax} onChange={(e) => setAnnualTax(Number(e.target.value))} className="w-full pl-9 pr-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900" />
+                  <div className="grid grid-cols-3 gap-4">
+                     <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">Property Tax</label>
+                        <input type="number" value={annualTax} onChange={(e) => setAnnualTax(Number(e.target.value))} className="w-full p-2 bg-amber-50 border border-slate-300 rounded outline-none text-right" />
                      </div>
-                     <div className="hidden print:block text-right font-bold text-slate-900">${annualTax.toLocaleString()}</div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
-                     <label className="font-bold text-slate-700">Annual Insurance:</label>
-                     <div className="relative print:hidden">
-                        <DollarSign size={16} className="absolute left-3 top-3 text-slate-400" />
-                        <input type="number" value={annualInsurance} onChange={(e) => setAnnualInsurance(Number(e.target.value))} className="w-full pl-9 pr-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900" />
+                     <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">Insurance</label>
+                        <input type="number" value={annualInsurance} onChange={(e) => setAnnualInsurance(Number(e.target.value))} className="w-full p-2 bg-amber-50 border border-slate-300 rounded outline-none text-right" />
                      </div>
-                     <div className="hidden print:block text-right font-bold text-slate-900">${annualInsurance.toLocaleString()}</div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-center">
-                     <label className="font-bold text-slate-700">Annual HOA Fees:</label>
-                     <div className="relative print:hidden">
-                        <DollarSign size={16} className="absolute left-3 top-3 text-slate-400" />
-                        <input type="number" value={annualHOA} onChange={(e) => setAnnualHOA(Number(e.target.value))} className="w-full pl-9 pr-4 py-2 bg-amber-50 border border-slate-300 rounded-lg focus:ring-2 focus:ring-summit-accent outline-none font-bold text-slate-900" />
+                     <div>
+                        <label className="block text-xs font-bold text-slate-500 mb-1">HOA / CAM</label>
+                        <input type="number" value={annualHOA} onChange={(e) => setAnnualHOA(Number(e.target.value))} className="w-full p-2 bg-amber-50 border border-slate-300 rounded outline-none text-right" />
                      </div>
-                     <div className="hidden print:block text-right font-bold text-slate-900">${annualHOA.toLocaleString()}</div>
                   </div>
                </div>
             </div>
          </div>
 
-         <div className="space-y-8 print:space-y-6">
-            <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden print:border print:border-slate-300 print:break-inside-avoid print:shadow-none">
-               <div className="bg-green-100 p-4 border-b border-green-200 print:bg-green-50 print:border-green-100">
+         {/* OUTPUTS */}
+         <div className="space-y-8">
+            {/* PAYMENT BREAKDOWN */}
+            <div className="bg-white rounded-xl shadow-lg border border-slate-200 overflow-hidden">
+               <div className="bg-green-100 p-4 border-b border-green-200">
                   <h2 className="font-bold text-green-900 flex items-center gap-2 text-lg">
-                     Payment Breakdown
+                     Monthly Payment Breakdown
                   </h2>
                </div>
                <div className="p-6 space-y-3">
                   <div className="flex justify-between items-center py-2 border-b border-slate-100">
-                     <span className="font-bold text-slate-700">Monthly P&I ({amortizationYears}yr Amort):</span>
-                     <span className="font-mono text-lg">${monthlyPaymentPI.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                     <span className="font-bold text-slate-700">Principal & Interest:</span>
+                     <span className="font-mono text-lg font-bold">${results?.monthlyPayment.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                   </div>
-                  <div className="flex justify-between items-center py-2 border-b border-slate-100">
-                     <span className="font-bold text-slate-700">Monthly Tax/Ins/HOA:</span>
-                     <span className="font-mono text-lg">${((annualTax + annualInsurance + annualHOA) / 12).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                  <div className="flex justify-between items-center py-2 border-b border-slate-100 text-sm">
+                     <span className="text-slate-600">Tax & Insurance Escrow:</span>
+                     <span className="font-mono">${((annualTax + annualInsurance + annualHOA) / 12).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                   </div>
                   
-                  <div className="bg-yellow-200 p-4 rounded-lg mt-4 flex justify-between items-center border border-yellow-300 print:bg-yellow-100 print:border-yellow-200">
-                     <span className="font-bold text-xl text-yellow-900">TOTAL MONTHLY:</span>
-                     <span className="font-bold text-2xl text-yellow-900">${totalMonthlyPayment.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                  <div className="bg-yellow-50 p-4 rounded-lg mt-4 flex justify-between items-center border border-yellow-200">
+                     <span className="font-bold text-lg text-yellow-800">TOTAL MONTHLY:</span>
+                     <span className="font-bold text-2xl text-yellow-900">${totalMonthlyCost.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                   </div>
                </div>
             </div>
 
-            <div className="bg-white rounded-xl shadow-lg border-2 border-slate-800 overflow-hidden print:border-slate-800 print:break-inside-avoid print:shadow-none">
+            {/* BALLOON PAYMENT */}
+            <div className="bg-white rounded-xl shadow-lg border-2 border-slate-800 overflow-hidden">
                <div className="bg-slate-900 p-4 border-b border-slate-700">
                   <h2 className="font-bold text-white flex items-center gap-2 text-lg">
-                     <CalendarClock size={20} className="text-summit-accent" /> Balloon Payment
+                     <CalendarClock size={20} className="text-summit-accent" /> Balloon Payment Analysis
                   </h2>
                </div>
                <div className="p-6 text-center">
-                  <p className="text-slate-500 font-bold uppercase text-xs tracking-widest mb-2">Due at End of Year {loanTermYears}</p>
-                  <p className="text-4xl font-black text-slate-900 tracking-tight">${balloonPayment.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
-                  <p className="text-sm text-red-600 font-medium mt-3 bg-red-50 inline-block px-3 py-1 rounded-full">Refinance or Payoff Required</p>
+                  <p className="text-slate-500 font-bold uppercase text-xs tracking-widest mb-2">Remaining Balance Due at End of Year {loanTermYears}</p>
+                  <p className="text-4xl font-black text-slate-900 tracking-tight">${results?.balloonPayment.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</p>
+                  
+                  <div className="grid grid-cols-2 gap-4 mt-6 text-left bg-slate-50 p-4 rounded-xl border border-slate-100">
+                      <div>
+                          <p className="text-xs text-slate-500 uppercase font-bold">Principal Paid</p>
+                          <p className="font-bold text-green-600">${results?.principalPaidDuringTerm.toLocaleString(undefined, {maximumFractionDigits: 0})}</p>
+                      </div>
+                      <div>
+                          <p className="text-xs text-slate-500 uppercase font-bold">Interest Paid</p>
+                          <p className="font-bold text-orange-600">${results?.interestPaidDuringTerm.toLocaleString(undefined, {maximumFractionDigits: 0})}</p>
+                      </div>
+                  </div>
                </div>
             </div>
 
-             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border print:border-slate-300 print:break-inside-avoid print:shadow-none">
-               <div className="bg-blue-50 p-4 border-b border-blue-100 print:bg-slate-100 print:border-slate-300">
+            {/* METRICS */}
+             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+               <div className="bg-blue-50 p-4 border-b border-blue-100">
                   <h2 className="font-bold text-slate-800 flex items-center gap-2 text-lg">
                      <TrendingUp size={20} className="text-summit-900" /> Investment Metrics
                   </h2>
@@ -437,33 +342,51 @@ const MortgageCalculatorPage: React.FC = () => {
                       <p className="text-xs font-bold uppercase text-slate-500">DSCR</p>
                       <p className={`text-2xl font-bold ${dscr < 1.25 ? 'text-red-700' : 'text-green-700'}`}>{dscr.toFixed(2)}</p>
                   </div>
-                  <div className="col-span-2">
-                     <label className="text-xs font-bold uppercase text-slate-500 mb-1 block">Annual NOI</label>
-                     <input type="number" value={annualNOI} onChange={e => setAnnualNOI(Number(e.target.value))} className="w-full p-2 bg-slate-50 border border-slate-200 rounded font-bold" />
-                  </div>
                </div>
             </div>
          </div>
       </div>
 
-      <div className="mt-8 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden print:border print:border-slate-300 print:break-inside-avoid print:shadow-none print:mt-6">
-         <div className="bg-blue-50 p-4 border-b border-blue-100 print:bg-slate-100 print:border-slate-300">
-             <h2 className="font-bold text-slate-800 text-lg">First Year Amortization Schedule</h2>
+      {/* AMORTIZATION SCHEDULE */}
+      <div className="mt-8 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+         <div className="bg-slate-100 p-4 border-b border-slate-200 flex justify-between items-center">
+             <h2 className="font-bold text-slate-800 text-lg">Amortization Schedule</h2>
+             <button onClick={() => setShowFullSchedule(!showFullSchedule)} className="text-xs font-bold uppercase text-blue-600 hover:underline">
+                 {showFullSchedule ? "Show Summary" : "Show Full Schedule"}
+             </button>
          </div>
-         <div className="overflow-x-auto">
-            <table className="w-full text-left">
-               <thead className="bg-slate-50 text-slate-600 uppercase text-xs font-bold print:bg-slate-100">
+         <div className="overflow-x-auto max-h-[500px]">
+            <table className="w-full text-left text-sm">
+               <thead className="bg-slate-50 text-slate-600 uppercase text-xs font-bold sticky top-0 shadow-sm">
                   <tr>
                      <th className="p-3 border-b border-slate-200">#</th>
                      <th className="p-3 border-b border-slate-200">Date</th>
                      <th className="p-3 border-b border-slate-200 text-right">Payment</th>
                      <th className="p-3 border-b border-slate-200 text-right">Principal</th>
                      <th className="p-3 border-b border-slate-200 text-right">Interest</th>
-                     <th className="p-3 border-b border-slate-200 text-right">End Bal</th>
+                     <th className="p-3 border-b border-slate-200 text-right">Balance</th>
                   </tr>
                </thead>
                <tbody className="divide-y divide-slate-50">
-                  {renderAmortization()}
+                  {results?.amortizationSchedule
+                    .slice(0, showFullSchedule ? undefined : 12)
+                    .map((row) => (
+                    <tr key={row.paymentNumber} className="hover:bg-slate-50">
+                        <td className="p-3 text-slate-500">{row.paymentNumber}</td>
+                        <td className="p-3">{new Date(row.date).toLocaleDateString()}</td>
+                        <td className="p-3 text-right font-medium">${row.paymentAmount.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                        <td className="p-3 text-right text-green-700">${row.principalPayment.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                        <td className="p-3 text-right text-red-700">${row.interestPayment.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                        <td className="p-3 text-right font-bold">${row.remainingBalance.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                    </tr>
+                  ))}
+                  {/* Balloon Row */}
+                  {results && (
+                      <tr className="bg-slate-100 border-t-2 border-slate-300">
+                          <td colSpan={5} className="p-4 text-right font-black text-slate-700 uppercase tracking-widest">Balloon Payment Due</td>
+                          <td className="p-4 text-right font-black text-slate-900 text-lg">${results.balloonPayment.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2})}</td>
+                      </tr>
+                  )}
                </tbody>
             </table>
          </div>
@@ -479,8 +402,8 @@ const MortgageCalculatorPage: React.FC = () => {
                       <thead className="text-slate-500 uppercase font-bold text-xs bg-slate-50">
                           <tr>
                               <th className="p-2">Date</th>
-                              <th className="p-2">Purchase Price</th>
                               <th className="p-2">Loan Amt</th>
+                              <th className="p-2">Rate</th>
                               <th className="p-2">Amort / Term</th>
                               <th className="p-2">Payment</th>
                               <th className="p-2">Action</th>
@@ -490,8 +413,8 @@ const MortgageCalculatorPage: React.FC = () => {
                           {savedCalculations.map(c => (
                               <tr key={c.id} className="border-b border-slate-100 hover:bg-slate-50">
                                   <td className="p-2">{new Date(c.timestamp).toLocaleDateString()}</td>
-                                  <td className="p-2 font-mono">${(c.purchasePrice || 0).toLocaleString()}</td>
                                   <td className="p-2 font-mono">${c.loanAmount.toLocaleString()}</td>
+                                  <td className="p-2">{c.interestRate}%</td>
                                   <td className="p-2">{c.loanTermYears}yr / {c.loanTerm || c.loanTermYears}yr</td>
                                   <td className="p-2 font-mono font-bold">${c.monthlyPayment.toLocaleString()}</td>
                                   <td className="p-2">
@@ -508,7 +431,7 @@ const MortgageCalculatorPage: React.FC = () => {
                                             if(c.propertyValue) setPropertyValue(c.propertyValue);
                                             if(c.annualNOI) setAnnualNOI(c.annualNOI);
                                         }}
-                                        className="text-summit-accent hover:text-emerald-700 font-bold text-xs"
+                                        className="text-summit-accent hover:text-emerald-700 font-bold text-xs uppercase"
                                       >
                                           Load
                                       </button>

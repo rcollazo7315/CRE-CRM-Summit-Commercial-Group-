@@ -12,6 +12,7 @@ import CommunicationsPage from './pages/CommunicationsPage.tsx';
 import LeadGenPage from './pages/LeadGenPage.tsx';
 import AdminDashboardPage from './pages/AdminDashboardPage.tsx';
 import MortgageCalculatorPage from './pages/MortgageCalculatorPage.tsx';
+import LeaseCalculatorPage from './pages/LeaseCalculatorPage.tsx';
 import ContactsPage from './pages/ContactsPage.tsx';
 import DealModal from './components/DealModal.tsx';
 import AiChatModal from './components/AiChatModal.tsx';
@@ -63,7 +64,6 @@ const AppContent: React.FC = () => {
   const [documentFilterId, setDocumentFilterId] = useState<string | null>(null);
   const [deleteConfirmModal, setDeleteConfirmModal] = useState<{isOpen: boolean; dealId: string | null; dealAddress: string; hasDocuments: boolean; documentCount: number; isDeleting: boolean;}>({isOpen: false, dealId: null, dealAddress: '', hasDocuments: false, documentCount: 0, isDeleting: false});
 
-  // Check for firebase status without blocking
   const isMockMode = !isFirebaseInitialized();
 
   useEffect(() => {
@@ -95,28 +95,20 @@ const AppContent: React.FC = () => {
 
   const handleTabChange = (tab: string) => {
     setActiveTab(tab);
-    setSearchTerm(''); // Reset search on navigation
+    setSearchTerm('');
   };
 
   const handleLogout = async () => { await api.logout(); setActiveTab('dashboard'); };
 
-  // --- SAFE HANDLERS (Try/Catch Wrapped) ---
+  // Handlers
   const handleSaveDeal = async (dealData: Deal) => { 
     if (!currentUser) return; 
     try {
-      // Ensure we associate it with current user if not already set (e.g. new deal)
-      const payload = { 
-        ...dealData, 
-        userId: dealData.userId || currentUser.id 
-      };
-      
+      const payload = { ...dealData, userId: dealData.userId || currentUser.id };
       await api.saveDeal(payload); 
       await loadUserData(currentUser.id, currentUser.role === 'admin'); 
       refreshUser(); 
-    } catch (e: any) {
-      console.error("Save Deal Failed:", e);
-      alert("Failed to save deal. " + (e.message || ""));
-    }
+    } catch (e: any) { alert("Failed to save deal. " + (e.message || "")); }
   };
 
   const handleDeleteDeal = async (dealId: string) => { 
@@ -129,210 +121,107 @@ const AppContent: React.FC = () => {
   const executeDeleteDeal = async () => {
     if (!currentUser || !deleteConfirmModal.dealId) return;
     setDeleteConfirmModal(prev => ({ ...prev, isDeleting: true }));
-    
-    // Determine the owner of the deal to correctly update stats
     const dealToDelete = deals.find(d => d.id === deleteConfirmModal.dealId);
     const ownerId = dealToDelete?.userId || currentUser.id;
-
     try {
       await api.deleteDeal(deleteConfirmModal.dealId, ownerId);
       await loadUserData(currentUser.id, currentUser.role === 'admin');
       if (selectedDealId === deleteConfirmModal.dealId) { setSelectedDealId(null); setActiveTab('deals'); }
       setDeleteConfirmModal(prev => ({ ...prev, isOpen: false }));
-    } catch (error: any) { 
-      console.error("Delete Failed:", error); 
-      alert("Failed to delete deal. You may not have permission."); 
-      setDeleteConfirmModal(prev => ({ ...prev, isDeleting: false })); 
-    }
+    } catch (error: any) { setDeleteConfirmModal(prev => ({ ...prev, isDeleting: false })); }
   };
-
-  const closeDeleteModal = () => { if (!deleteConfirmModal.isDeleting) setDeleteConfirmModal(prev => ({ ...prev, isOpen: false })); };
 
   const handleUpdateProfile = async (updatedData: Partial<UserAccount>) => { 
     if (!currentUser) return; 
-    try {
-      await api.updateUserProfile(currentUser.id, updatedData); 
-      refreshUser(); 
-    } catch (e) {
-      console.error("Update Profile Failed:", e);
-      alert("Failed to update profile.");
-    }
+    await api.updateUserProfile(currentUser.id, updatedData); 
+    refreshUser(); 
   };
 
   const handleSaveContact = async (contact: Contact) => { 
     if (!currentUser) return; 
     try {
-      // Pass the contact directly; api.saveContact handles userId assignment robustly now
-      const payload = { 
-        ...contact, 
-        userId: contact.userId || currentUser.id 
-      };
+      const payload = { ...contact, userId: contact.userId || currentUser.id };
       await api.saveContact(payload); 
       await loadUserData(currentUser.id, currentUser.role === 'admin');
-    } catch(e: any) {
-      console.error("Save Contact Failed:", e.message);
-      // Re-throw so child components know it failed
-      throw e; 
-    }
+    } catch(e: any) { throw e; }
   };
 
   const handleDeleteContact = async (contactId: string) => { 
     if (!currentUser) return; 
-    try {
-      await api.deleteContact(contactId); 
-      await loadUserData(currentUser.id, currentUser.role === 'admin');
-    } catch (e) {
-      console.error("Delete Contact Failed:", e);
-      alert("Failed to delete contact.");
-    }
+    await api.deleteContact(contactId); 
+    await loadUserData(currentUser.id, currentUser.role === 'admin');
   };
 
   const handleAddInteraction = async (contactId: string, interaction: ContactInteraction) => { 
     if (!currentUser) return; 
-    try {
-      await api.addContactInteraction(contactId, interaction); 
-      await loadUserData(currentUser.id, currentUser.role === 'admin');
-    } catch (e) { console.error("Interaction Failed:", e); }
+    await api.addContactInteraction(contactId, interaction); 
+    await loadUserData(currentUser.id, currentUser.role === 'admin');
   };
 
   const handleLinkDeal = async (contactId: string, dealId: string) => { 
     if (!currentUser) return; 
-    try {
-      await api.linkContactToDeal(contactId, dealId); 
-      await loadUserData(currentUser.id, currentUser.role === 'admin');
-    } catch (e) { console.error("Link Failed:", e); }
+    await api.linkContactToDeal(contactId, dealId); 
+    await loadUserData(currentUser.id, currentUser.role === 'admin');
   };
 
   const handleUnlinkDeal = async (contactId: string, dealId: string) => { 
     if (!currentUser) return; 
-    try {
-      await api.unlinkContactFromDeal(contactId, dealId); 
-      await loadUserData(currentUser.id, currentUser.role === 'admin');
-    } catch (e) { console.error("Unlink Failed:", e); }
+    await api.unlinkContactFromDeal(contactId, dealId); 
+    await loadUserData(currentUser.id, currentUser.role === 'admin');
   };
 
   const handleImportContacts = async (newContacts: Contact[]) => { 
     if (!currentUser) return; 
-    try {
-      for (const c of newContacts) { 
-        await api.saveContact({ ...c, userId: currentUser.id }); 
-      } 
-      await loadUserData(currentUser.id, currentUser.role === 'admin');
-    } catch (e) {
-      console.error("Import Failed:", e);
-      alert("Failed to import contacts.");
-    }
+    for (const c of newContacts) { await api.saveContact({ ...c, userId: currentUser.id }); } 
+    await loadUserData(currentUser.id, currentUser.role === 'admin');
   };
 
   const handleAddDocument = async (dealId: string, doc: DocumentFile, file: File) => { 
     if (!currentUser) return; 
-    try {
-      await api.saveDocument(dealId, doc, file); 
-      await loadUserData(currentUser.id, currentUser.role === 'admin');
-    } catch (e) {
-      console.error("Upload Failed:", e);
-      throw e; 
-    }
+    try { await api.saveDocument(dealId, doc, file); await loadUserData(currentUser.id, currentUser.role === 'admin'); } catch (e) { throw e; }
   };
 
   const handleDeleteDocument = async (dealId: string, docId: string) => { 
     if (!currentUser) return; 
-    try {
-      await api.deleteDocument(dealId, docId); 
-      await loadUserData(currentUser.id, currentUser.role === 'admin');
-    } catch (e) {
-      console.error("Delete Document Failed:", e);
-      alert("Failed to delete document.");
-    }
+    await api.deleteDocument(dealId, docId); 
+    await loadUserData(currentUser.id, currentUser.role === 'admin');
   };
 
   const handleSaveLog = async (l: LeadGenLog) => {
     if(!currentUser) return;
-    try {
-      const payload = { ...l, userId: l.userId || currentUser.id };
-      await api.saveLeadLog(payload);
-      // Optimistic update
-      setLeadGenLogs(prev => {
-        const exists = prev.findIndex(item => item.id === payload.id);
-        if (exists >= 0) {
-            const updated = [...prev];
-            updated[exists] = payload;
-            return updated;
-        }
-        return [payload, ...prev];
-      });
-      // Background sync
-      loadUserData(currentUser.id, currentUser.role === 'admin');
-    } catch (e) {
-      console.error("Save Log Failed:", e);
-      alert("Failed to save activity log.");
-    }
+    const payload = { ...l, userId: l.userId || currentUser.id };
+    await api.saveLeadLog(payload);
+    loadUserData(currentUser.id, currentUser.role === 'admin');
   };
 
   const handleDeleteLog = async (id: string) => {
-    try {
-      await api.deleteLeadLog(id);
-      setLeadGenLogs(prev => prev.filter(l => l.id !== id));
-    } catch (e) {
-      console.error("Delete Log Failed:", e);
-      alert("Failed to delete activity log.");
-    }
+    await api.deleteLeadLog(id);
+    setLeadGenLogs(prev => prev.filter(l => l.id !== id));
   };
 
   const handleTaskComplete = async (task: Task) => {
     if (!currentUser) return;
-    
-    // Toggle Status
     const newStatus = task.status === 'completed' ? 'pending' : 'completed';
     const updatedTask = { ...task, status: newStatus } as Task;
-
     try {
-      // 1. Update Task Status
       await api.saveTask(updatedTask);
-
-      // 2. If COMPLETED, Update Activity Log automatically
       if (newStatus === 'completed') {
         const today = new Date().toISOString().split('T')[0];
-        // Check if log exists for today
         const existingLog = leadGenLogs.find(l => l.date === today);
-        
         const logPayload: LeadGenLog = existingLog ? { ...existingLog } : {
-          id: Math.random().toString(36).substr(2, 9),
-          userId: currentUser.id,
-          date: today,
-          callsMade: 0, lettersSent: 0, socialPosts: 0, targetedEmails: 0,
-          networkingEvents: 0, clientMeetings: 0, referralsGenerated: 0,
-          propertyTours: 0, bovsSubmitted: 0, listingsSigned: 0,
-          offersMade: 0, underContract: 0, closedDeals: 0, closedAmount: 0
+          id: Math.random().toString(36).substr(2, 9), userId: currentUser.id, date: today,
+          callsMade: 0, lettersSent: 0, socialPosts: 0, targetedEmails: 0, networkingEvents: 0, clientMeetings: 0, referralsGenerated: 0, propertyTours: 0, bovsSubmitted: 0, listingsSigned: 0, offersMade: 0, underContract: 0, closedDeals: 0, closedAmount: 0
         };
-
-        // Increment logic based on task type
         let activityLogged = false;
         if (task.type === 'call') { logPayload.callsMade++; activityLogged = true; }
         else if (task.type === 'email') { logPayload.targetedEmails++; activityLogged = true; }
         else if (task.type === 'meeting') { logPayload.clientMeetings++; activityLogged = true; }
         else if (task.type === 'site-visit') { logPayload.propertyTours++; activityLogged = true; }
         else if (task.type === 'proposal') { logPayload.offersMade++; activityLogged = true; }
-
-        if (activityLogged) {
-          await api.saveLeadLog(logPayload);
-          // Refresh logs locally
-          setLeadGenLogs(prev => {
-            const idx = prev.findIndex(l => l.id === logPayload.id);
-            if (idx >= 0) {
-              const updated = [...prev];
-              updated[idx] = logPayload;
-              return updated;
-            }
-            return [logPayload, ...prev];
-          });
-        }
+        if (activityLogged) await api.saveLeadLog(logPayload);
       }
-      // Re-fetch to ensure sync
       loadUserData(currentUser.id, currentUser.role === 'admin');
-    } catch (e) {
-      console.error("Task completion error:", e);
-    }
+    } catch (e) { console.error("Task completion error:", e); }
   };
 
   if (loading) {
@@ -355,6 +244,7 @@ const AppContent: React.FC = () => {
         return <DealDetailsPage deal={deal} onBack={() => setActiveTab('deals')} onUpdateDeal={handleSaveDeal} onEditDeal={() => { setDealModalInitialData(deal); setIsDealModalOpen(true); }} onDeleteDeal={() => handleDeleteDeal(deal.id)} onViewDocuments={() => { setDocumentFilterId(deal.id); setActiveTab('documents'); }} onAddDocument={handleAddDocument} onDeleteDocument={handleDeleteDocument} onTaskComplete={handleTaskComplete} />;
       case 'contacts': return <ContactsPage contacts={contacts} deals={deals} onSaveContact={handleSaveContact} onDeleteContact={handleDeleteContact} onAddInteraction={handleAddInteraction} onLinkDeal={handleLinkDeal} onUnlinkDeal={handleUnlinkDeal} onImportContacts={handleImportContacts} />;
       case 'calculator': return <MortgageCalculatorPage />;
+      case 'lease-calculator': return <LeaseCalculatorPage />;
       case 'settings': return <SettingsPage user={currentUser!} onUpdateProfile={handleUpdateProfile} />;
       case 'reports': 
         if (currentUser?.role !== 'admin') return <DashboardPage activeTab="dashboard" deals={deals} onAddDeal={() => setIsDealModalOpen(true)} onDealClick={() => {}} onDeleteDeal={async () => {}} onRouteChange={setActiveTab} onOpenAi={() => setIsChatOpen(true)} onSaveDeal={() => {}} onTaskComplete={handleTaskComplete} />;
@@ -371,22 +261,13 @@ const AppContent: React.FC = () => {
       <Route path="/login" element={!currentUser ? <AuthPage onLogin={() => refreshUser()} /> : <Navigate to="/" />} />
       <Route path="/*" element={currentUser ? (
           <Layout activeTab={activeTab} setActiveTab={handleTabChange} user={currentUser} onLogout={handleLogout} searchTerm={searchTerm} onSearch={setSearchTerm}>
-            {/* Offline Mode Indicator */}
             {isMockMode && (
-               <div className="bg-amber-100 text-amber-800 text-xs text-center py-1 font-bold flex items-center justify-center gap-2 print:hidden">
-                 <WifiOff size={12} /> Running in Local Demo Mode (Data saved to browser)
-               </div>
+               <div className="bg-amber-100 text-amber-800 text-xs text-center py-1 font-bold flex items-center justify-center gap-2 print:hidden"><WifiOff size={12} /> Running in Local Demo Mode</div>
             )}
             {renderContent()}
             <DealModal isOpen={isDealModalOpen} onClose={() => setIsDealModalOpen(false)} onSave={handleSaveDeal} initialData={dealModalInitialData} onDelete={handleDeleteDeal} contacts={contacts} />
-            <AiChatModal 
-              isOpen={isChatOpen} 
-              onClose={() => setIsChatOpen(false)} 
-              currentUser={currentUser}
-              deals={deals}
-              contacts={contacts}
-            />
-            <ConfirmModal isOpen={deleteConfirmModal.isOpen} onClose={closeDeleteModal} onConfirm={executeDeleteDeal} title="Delete Deal" message={deleteConfirmModal.hasDocuments ? "Warning: This deal contains documents that will also be deleted." : "Are you sure you want to delete this deal?"} confirmText={deleteConfirmModal.isDeleting ? "Deleting..." : "Delete"} isLoading={deleteConfirmModal.isDeleting} />
+            <AiChatModal isOpen={isChatOpen} onClose={() => setIsChatOpen(false)} currentUser={currentUser} deals={deals} contacts={contacts} />
+            <ConfirmModal isOpen={deleteConfirmModal.isOpen} onClose={() => { if(!deleteConfirmModal.isDeleting) setDeleteConfirmModal(prev => ({...prev, isOpen: false})); }} onConfirm={executeDeleteDeal} title="Delete Deal" message={deleteConfirmModal.hasDocuments ? "Warning: This deal contains documents that will also be deleted." : "Are you sure you want to delete this deal?"} confirmText={deleteConfirmModal.isDeleting ? "Deleting..." : "Delete"} isLoading={deleteConfirmModal.isDeleting} />
           </Layout>
         ) : <Navigate to="/login" />
       } />

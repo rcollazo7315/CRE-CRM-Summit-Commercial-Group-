@@ -17,7 +17,7 @@ import {
   deleteObject 
 } from 'firebase/storage';
 import { db, auth, storage } from '../firebase/config.ts';
-import { UserAccount, Deal, Task, LeadGenLog, MortgageCalculation, DocumentFile, Contact, ContactInteraction } from '../types.ts';
+import { UserAccount, Deal, Task, LeadGenLog, MortgageCalculation, DocumentFile, Contact, ContactInteraction, LeaseCalculation } from '../types.ts';
 
 const convertTimestamps = (data: any): any => {
   if (!data) return data;
@@ -224,7 +224,7 @@ export const api = {
 
   adminHardReset: async () => {
     checkDbConnection();
-    const collections = ['deals', 'contacts', 'tasks', 'leadLogs', 'mortgageCalculations'];
+    const collections = ['deals', 'contacts', 'tasks', 'leadLogs', 'mortgageCalculations', 'leaseCalculations'];
     for (const col of collections) {
       const snap = await getDocs(collection(db!, col));
       const batch = writeBatch(db!);
@@ -302,6 +302,32 @@ export const api = {
     const q = query(collection(db!, 'mortgageCalculations'), where('userId', '==', userId));
     const snapshot = await getDocs(q);
     return snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as MortgageCalculation[];
+  },
+
+  // LEASE CALCULATIONS
+  saveLeaseCalculation: async (calculation: LeaseCalculation) => {
+    checkDbConnection();
+    const { id, ...rest } = sanitizeData(calculation);
+    if (id && id.length >= 8) {
+      await setDoc(doc(db!, 'leaseCalculations', id), { ...rest, updatedAt: serverTimestamp() }, { merge: true });
+    } else {
+      await addDoc(collection(db!, 'leaseCalculations'), { ...rest, createdAt: serverTimestamp(), updatedAt: serverTimestamp() });
+    }
+  },
+
+  getLeaseCalculations: async (userId: string) => {
+    checkDbConnection();
+    // Removed orderBy to avoid "index required" error on new deployments
+    // Sorting is now handled client-side
+    const q = query(collection(db!, 'leaseCalculations'), where('userId', '==', userId));
+    const snapshot = await getDocs(q);
+    const results = snapshot.docs.map(d => convertTimestamps({ id: d.id, ...d.data() })) as LeaseCalculation[];
+    return results.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0).getTime() - new Date(a.updatedAt || a.createdAt || 0).getTime());
+  },
+
+  deleteLeaseCalculation: async (id: string) => {
+    checkDbConnection();
+    await deleteDoc(doc(db!, 'leaseCalculations', id));
   },
 
   recalcUserStats: async (userId: string) => {
