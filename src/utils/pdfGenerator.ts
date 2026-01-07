@@ -205,7 +205,7 @@ const addProfessionalHeader = async (
       let photoAdded = false;
       if (currentUser.avatar || currentUser.profileImage) {
         try {
-          const imgUrl = currentUser.avatar || currentUser.profileImage;
+          const imgUrl = currentUser.profileImage || currentUser.avatar; // Prioritize profileImage
           if(imgUrl) {
               const imageData = await getImageAsBase64(imgUrl);
               if (imageData) {
@@ -429,6 +429,7 @@ const addFullPaymentSchedule = (doc: jsPDF, schedule: LeasePaymentScheduleItem[]
         2: { cellWidth: 20 }, // Date
         7: { cellWidth: 25 }  // Cumulative
     },
+    margin: { bottom: 30 }, // Fixed footer spacing
     showHead: 'everyPage' 
   });
 };
@@ -474,7 +475,8 @@ export const generateLeaseAnalysisReport = async (lease: LeaseCalculation, resul
       ['Total Cost', formatCurrency(results.averageMonthlyPayment), formatCurrency(results.averageMonthlyPayment * 12), formatCurrency(results.grandTotalOverTerm)]
     ],
     theme: 'striped',
-    headStyles: { fillColor: BRAND_COLOR }
+    headStyles: { fillColor: BRAND_COLOR },
+    margin: { bottom: 30 }
   });
 
   y = (doc as any).lastAutoTable.finalY + 15;
@@ -501,7 +503,8 @@ export const generateLeaseAnalysisReport = async (lease: LeaseCalculation, resul
     theme: 'grid',
     headStyles: { fillColor: ACCENT_COLOR, textColor: [0,50,0] },
     foot: [['TOTAL TERM', formatCurrency(results.paymentSchedule.reduce((a,b)=>a+b.baseRent,0)), formatCurrency(results.paymentSchedule.reduce((a,b)=>a+b.nnn,0)), formatCurrency(results.grandTotalOverTerm)]],
-    footStyles: { fillColor: [240,240,240], textColor: 0, fontStyle: 'bold' }
+    footStyles: { fillColor: [240,240,240], textColor: 0, fontStyle: 'bold' },
+    margin: { bottom: 30 }
   });
 
   // 6. Full Payment Schedule
@@ -543,7 +546,7 @@ export const generateMortgageReport = async (mortgage: MortgageCalculation, curr
     theme: 'plain',
     styles: { fontSize: 10, cellPadding: 3 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 60 }, 1: { cellWidth: 70 } },
-    margin: { left: 20 }
+    margin: { left: 20, bottom: 30 }
   });
 
   y = (doc as any).lastAutoTable.finalY + 15;
@@ -568,7 +571,7 @@ export const generateMortgageReport = async (mortgage: MortgageCalculation, curr
     theme: 'plain',
     styles: { fontSize: 10, cellPadding: 3 },
     columnStyles: { 0: { fontStyle: 'bold', cellWidth: 60 }, 1: { cellWidth: 70 } },
-    margin: { left: 20 }
+    margin: { left: 20, bottom: 30 }
   });
 
   y = (doc as any).lastAutoTable.finalY + 15;
@@ -632,6 +635,7 @@ export const generateMortgageReport = async (mortgage: MortgageCalculation, curr
         4: { halign: 'right' },
         5: { halign: 'right', fontStyle: 'bold' }
     },
+    margin: { bottom: 30 },
     showHead: 'everyPage'
   });
 
@@ -662,15 +666,301 @@ export const generateOwnerReport = async (deal: Deal, tasks: Task[]) => {
   const relevantTasks = tasks.filter(t => t.dealId === deal.id);
   const activityRows = relevantTasks.sort((a, b) => new Date(b.dueDate).getTime() - new Date(a.dueDate).getTime()).slice(0, 15).map(t => [new Date(t.dueDate).toLocaleDateString(), t.type.toUpperCase(), t.title, t.status]);
   if (activityRows.length > 0) {
-      autoTable(doc, { startY: currentY + 5, head: [['Date', 'Type', 'Detail', 'Status']], body: activityRows, theme: 'striped', headStyles: { fillColor: BRAND_COLOR }});
+      autoTable(doc, { 
+        startY: currentY + 5, 
+        head: [['Date', 'Type', 'Detail', 'Status']], 
+        body: activityRows, 
+        theme: 'striped', 
+        headStyles: { fillColor: BRAND_COLOR },
+        margin: { bottom: 30 }
+      });
   }
   addPageFooters(doc);
   doc.save(`Owner_Report_${deal.propertyAddress.substring(0,10)}.pdf`);
 };
 
-// Placeholder functions for other reports
-export const generatePipelineReport = (deals: Deal[]) => { console.log('Generating Pipeline Report'); };
-export const generateProductionReport = (deals: Deal[]) => { console.log('Generating Production Report'); };
-export const generateKPIReport = (user: UserAccount | null, deals: Deal[], logs: LeadGenLog[]) => { console.log('Generating KPI Report'); };
-export const generateLeaseReport = (deals: Deal[]) => { console.log('Generating Lease Report'); };
-export const generateFirmPerformanceReport = (users: UserAccount[]) => { console.log('Generating Firm Report'); };
+// --- New Implementation for Admin Reports ---
+
+export const generatePipelineReport = (deals: Deal[]) => {
+  const doc = new jsPDF();
+  const today = new Date().toLocaleDateString();
+  
+  addBrandedHeader(doc, "Deal Pipeline Report", `Generated: ${today}`);
+  
+  // Pipeline Summary Table
+  const activeDeals = deals.filter(d => d.status !== 'Completed' && d.status !== 'Archived');
+  const totalVolume = activeDeals.reduce((sum, d) => sum + d.askingPrice, 0);
+  
+  const statusSummary = activeDeals.reduce((acc, deal) => {
+    acc[deal.status] = (acc[deal.status] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  doc.setFontSize(14);
+  doc.setTextColor(0,0,0);
+  doc.text("Executive Summary", 14, 55);
+
+  const summaryData = [
+    ['Total Active Deals', activeDeals.length.toString()],
+    ['Total Pipeline Volume', formatCurrency(totalVolume)],
+    ['Deals Under Review', (statusSummary['Under Review'] || 0).toString()],
+    ['Deals Negotiating', (statusSummary['Negotiating'] || 0).toString()],
+    ['Deals Closing', (statusSummary['Closing'] || 0).toString()]
+  ];
+
+  autoTable(doc, {
+    startY: 60,
+    head: [['Metric', 'Value']],
+    body: summaryData,
+    theme: 'grid',
+    headStyles: { fillColor: BRAND_COLOR },
+    margin: { bottom: 30 }
+  });
+
+  // Detailed Deal List
+  let y = (doc as any).lastAutoTable.finalY + 15;
+  doc.setFontSize(14);
+  doc.text("Active Deal Roster", 14, y);
+
+  const dealRows = activeDeals.map(d => [
+    d.propertyAddress.substring(0, 30),
+    d.propertyType,
+    d.status,
+    formatCurrency(d.askingPrice),
+    new Date(d.lastUpdated).toLocaleDateString()
+  ]);
+
+  autoTable(doc, {
+    startY: y + 5,
+    head: [['Address', 'Type', 'Status', 'Price', 'Updated']],
+    body: dealRows,
+    theme: 'striped',
+    headStyles: { fillColor: ACCENT_COLOR, textColor: [0,50,0] },
+    styles: { fontSize: 8 },
+    margin: { bottom: 30 }
+  });
+
+  addPageFooters(doc);
+  doc.save(`Pipeline_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+};
+
+export const generateProductionReport = (deals: Deal[]) => {
+  const doc = new jsPDF();
+  const today = new Date().toLocaleDateString();
+  
+  addBrandedHeader(doc, "Closed Production Report", `Generated: ${today}`);
+  
+  const closedDeals = deals.filter(d => d.status === 'Completed');
+  const totalVolume = closedDeals.reduce((sum, d) => sum + (d.closingPrice || d.askingPrice), 0);
+  const totalComm = closedDeals.reduce((sum, d) => sum + (d.actualCommission || 0), 0);
+
+  doc.setFontSize(14);
+  doc.setTextColor(0,0,0);
+  doc.text("Production Summary", 14, 55);
+
+  const summaryData = [
+    ['Closed Transactions', closedDeals.length.toString()],
+    ['Total Sales Volume', formatCurrency(totalVolume)],
+    ['Total Commission (Gross)', formatCurrency(totalComm)],
+    ['Average Deal Size', closedDeals.length > 0 ? formatCurrency(totalVolume / closedDeals.length) : '$0']
+  ];
+
+  autoTable(doc, {
+    startY: 60,
+    head: [['Metric', 'Value']],
+    body: summaryData,
+    theme: 'grid',
+    headStyles: { fillColor: BRAND_COLOR },
+    margin: { bottom: 30 }
+  });
+
+  // Closed Deals Table
+  let y = (doc as any).lastAutoTable.finalY + 15;
+  doc.setFontSize(14);
+  doc.text("Transaction Ledger", 14, y);
+
+  const dealRows = closedDeals.map(d => [
+    d.propertyAddress.substring(0, 35),
+    d.propertyType,
+    new Date(d.closingDate || d.lastUpdated).toLocaleDateString(),
+    formatCurrency(d.closingPrice || d.askingPrice),
+    formatCurrency(d.actualCommission || 0)
+  ]);
+
+  autoTable(doc, {
+    startY: y + 5,
+    head: [['Address', 'Type', 'Closed Date', 'Price', 'Commission']],
+    body: dealRows,
+    theme: 'striped',
+    headStyles: { fillColor: ACCENT_COLOR, textColor: [0,50,0] },
+    styles: { fontSize: 8 },
+    margin: { bottom: 30 }
+  });
+
+  addPageFooters(doc);
+  doc.save(`Production_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+};
+
+export const generateKPIReport = (user: UserAccount | null, deals: Deal[], logs: LeadGenLog[]) => {
+  const doc = new jsPDF();
+  const today = new Date().toLocaleDateString();
+  
+  addBrandedHeader(doc, "Key Performance Indicators", `Agent: ${user?.firstName} ${user?.lastName}`);
+  
+  // Aggregate Log Data
+  const totalCalls = logs.reduce((sum, l) => sum + (l.callsMade || 0), 0);
+  const totalEmails = logs.reduce((sum, l) => sum + (l.targetedEmails || 0), 0);
+  const totalMeetings = logs.reduce((sum, l) => sum + (l.clientMeetings || 0), 0);
+  const totalOffers = logs.reduce((sum, l) => sum + (l.offersMade || 0), 0);
+  
+  // Deal metrics
+  const closedCount = deals.filter(d => d.status === 'Completed').length;
+  const leadSources = deals.reduce((acc, d) => {
+    const src = d.leadSource || 'Other';
+    acc[src] = (acc[src] || 0) + 1;
+    return acc;
+  }, {} as Record<string, number>);
+
+  doc.setFontSize(14);
+  doc.setTextColor(0,0,0);
+  doc.text("Activity Funnel", 14, 55);
+
+  const activityData = [
+    ['Total Calls Made', totalCalls.toString()],
+    ['Emails Sent', totalEmails.toString()],
+    ['Meetings Held', totalMeetings.toString()],
+    ['Offers Submitted', totalOffers.toString()],
+    ['Deals Closed', closedCount.toString()]
+  ];
+
+  autoTable(doc, {
+    startY: 60,
+    head: [['Activity', 'Count']],
+    body: activityData,
+    theme: 'striped',
+    headStyles: { fillColor: BRAND_COLOR },
+    margin: { bottom: 30 }
+  });
+
+  // Lead Source Breakdown
+  let y = (doc as any).lastAutoTable.finalY + 15;
+  doc.setFontSize(14);
+  doc.text("Lead Source Attribution", 14, y);
+
+  const sourceData = Object.entries(leadSources).map(([source, count]) => [
+    source,
+    count.toString(),
+    `${((count / deals.length) * 100).toFixed(1)}%`
+  ]);
+
+  autoTable(doc, {
+    startY: y + 5,
+    head: [['Source', 'Count', 'Percentage']],
+    body: sourceData,
+    theme: 'grid',
+    headStyles: { fillColor: ACCENT_COLOR, textColor: [0,50,0] },
+    margin: { bottom: 30 }
+  });
+
+  addPageFooters(doc);
+  doc.save(`KPI_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+};
+
+export const generateLeaseReport = (deals: Deal[]) => {
+  const doc = new jsPDF();
+  const today = new Date().toLocaleDateString();
+  
+  addBrandedHeader(doc, "Lease Portfolio Report", `Generated: ${today}`);
+  
+  // Filter for lease deals
+  const leaseDeals = deals.filter(d => 
+    d.representation === 'landlord' || d.representation === 'tenant' || 
+    (d.propertyType === 'Office' || d.propertyType === 'Retail' || d.propertyType === 'Industrial')
+  );
+
+  doc.setFontSize(14);
+  doc.setTextColor(0,0,0);
+  doc.text("Active Lease Mandates", 14, 55);
+
+  const leaseRows = leaseDeals.map(d => [
+    d.propertyAddress.substring(0, 25),
+    d.propertyType,
+    d.representation?.toUpperCase() || '-',
+    d.finalLeaseRate ? `$${d.finalLeaseRate}/sf` : 'TBD',
+    d.status
+  ]);
+
+  if (leaseRows.length > 0) {
+    autoTable(doc, {
+      startY: 60,
+      head: [['Address', 'Type', 'Rep', 'Rate', 'Status']],
+      body: leaseRows,
+      theme: 'striped',
+      headStyles: { fillColor: BRAND_COLOR },
+      margin: { bottom: 30 }
+    });
+  } else {
+    doc.setFontSize(10);
+    doc.text("No active lease mandates found.", 14, 65);
+  }
+
+  addPageFooters(doc);
+  doc.save(`Lease_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+};
+
+export const generateFirmPerformanceReport = (users: UserAccount[]) => {
+  const doc = new jsPDF();
+  const today = new Date().toLocaleDateString();
+  
+  addBrandedHeader(doc, "Firm Performance Audit", `Generated: ${today}`);
+  
+  const agents = users.filter(u => u.role === 'agent');
+  const totalVolume = agents.reduce((sum, u) => sum + (u.stats?.totalVolume || 0), 0);
+  const totalDeals = agents.reduce((sum, u) => sum + (u.stats?.totalDeals || 0), 0);
+
+  doc.setFontSize(14);
+  doc.setTextColor(0,0,0);
+  doc.text("Firm Overview", 14, 55);
+
+  const firmStats = [
+    ['Total Active Agents', agents.length.toString()],
+    ['Total Firm Volume', formatCurrency(totalVolume)],
+    ['Total Transactions', totalDeals.toString()],
+    ['Avg Volume / Agent', formatCurrency(agents.length > 0 ? totalVolume/agents.length : 0)]
+  ];
+
+  autoTable(doc, {
+    startY: 60,
+    head: [['Metric', 'Value']],
+    body: firmStats,
+    theme: 'grid',
+    headStyles: { fillColor: BRAND_COLOR },
+    margin: { bottom: 30 }
+  });
+
+  // Agent League Table
+  let y = (doc as any).lastAutoTable.finalY + 15;
+  doc.setFontSize(14);
+  doc.text("Agent League Table", 14, y);
+
+  const agentRows = agents
+    .sort((a, b) => (b.stats?.totalVolume || 0) - (a.stats?.totalVolume || 0))
+    .map(u => [
+      `${u.firstName} ${u.lastName}`,
+      (u.stats?.closedDeals || 0).toString(),
+      formatCurrency(u.stats?.totalVolume || 0),
+      formatCurrency(u.stats?.totalCommissions || 0)
+    ]);
+
+  autoTable(doc, {
+    startY: y + 5,
+    head: [['Agent', 'Closed', 'Volume', 'Commission']],
+    body: agentRows,
+    theme: 'striped',
+    headStyles: { fillColor: ACCENT_COLOR, textColor: [0,50,0] },
+    margin: { bottom: 30 }
+  });
+
+  addPageFooters(doc);
+  doc.save(`Firm_Report_${new Date().toISOString().split('T')[0]}.pdf`);
+};

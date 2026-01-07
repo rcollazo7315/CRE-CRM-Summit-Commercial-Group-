@@ -95,7 +95,8 @@ const LeaseCalculatorPage: React.FC = () => {
     if (!results) return;
     setIsGenerating(true);
     try {
-      await generateLeaseAnalysisReport(formData, results, currentUser);
+      const pdf = await generateLeaseAnalysisReport(formData, results, currentUser);
+      pdf.save(`Lease_Analysis_${formData.propertyAddress ? formData.propertyAddress.substring(0, 20).replace(/[^a-z0-9]/gi, '_') : 'Report'}_${new Date().toISOString().split('T')[0]}.pdf`);
     } catch (e) {
       console.error(e);
       alert("Failed to generate PDF");

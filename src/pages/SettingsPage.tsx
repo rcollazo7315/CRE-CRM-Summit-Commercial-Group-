@@ -1,9 +1,11 @@
 
 import React, { useState, useRef } from 'react';
 import { Save, User, Mail, Phone, Lock, Bell, Camera, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
-import { UserAccount } from '../types.ts';
-import { api } from '../services/firestore.ts';
-import { useAuth } from '../context/AuthContext.tsx';
+import { UserAccount } from '../types';
+import { api } from '../services/firestore';
+import { useAuth } from '../context/AuthContext';
+import { storage } from '../firebase/config';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 interface SettingsPageProps {
   user: UserAccount;
@@ -88,42 +90,39 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateProfile }) =>
     }
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
 
-      // Check file size (limit to ~800KB to be safe for Firestore document limits)
-      if (file.size > 800 * 1024) {
-        setErrorMsg("Image is too large. Please select an image under 800KB.");
-        setTimeout(() => setErrorMsg(''), 4000);
+      // Validate file size (5MB limit)
+      if (file.size > 5 * 1024 * 1024) {
+        setErrorMsg("Image is too large. Please select an image under 5MB.");
+        setTimeout(() => setErrorMsg(''), 5000);
         return;
       }
 
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const base64String = reader.result as string;
+      setIsSaving(true);
+      try {
+        // Upload to Firebase Storage instead of using Base64 string in Firestore
+        const storageRef = ref(storage, `users/${user.id}/avatar_${Date.now()}_${file.name}`);
+        await uploadBytes(storageRef, file);
+        const downloadURL = await getDownloadURL(storageRef);
         
-        // Update both fields to ensure consistency across the app
-        // Layout uses 'avatar' first, so we must update it
-        // Settings uses 'profileImage' first, so we must update it
-        const updates = { 
-            profileImage: base64String,
-            avatar: base64String 
-        };
-
+        const updates = { avatar: downloadURL, profileImage: downloadURL };
         setFormData(prev => ({ ...prev, ...updates }));
         
-        try {
-            await onUpdateProfile(updates); 
-            await refreshUser();
-            setSuccessMsg("Profile photo updated successfully");
-            setTimeout(() => setSuccessMsg(''), 3000);
-        } catch (err) {
-            console.error(err);
-            setErrorMsg("Failed to save image. Please try again.");
-        }
-      };
-      reader.readAsDataURL(file);
+        await onUpdateProfile(updates); 
+        await refreshUser();
+        setSuccessMsg("Profile photo updated successfully");
+        setTimeout(() => setSuccessMsg(''), 3000);
+      } catch (err: any) {
+        console.error("Image upload failed", err);
+        setErrorMsg("Failed to upload image. " + (err.message || ''));
+        setTimeout(() => setErrorMsg(''), 5000);
+      } finally {
+        setIsSaving(false);
+        if (fileInputRef.current) fileInputRef.current.value = '';
+      }
     }
   };
 
@@ -161,12 +160,17 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ user, onUpdateProfile }) =>
           <div className="bg-white rounded-xl shadow-sm border border-slate-100 p-6 text-center">
             <div className="relative inline-block mb-4 group">
               <img 
-                src={formData.profileImage || formData.avatar || `https://ui-avatars.com/api/?name=${formData.firstName}+${formData.lastName}`} 
+                src={formData.avatar || formData.profileImage || `https://ui-avatars.com/api/?name=${formData.firstName}+${formData.lastName}`} 
                 alt="Profile" 
                 className="w-32 h-32 rounded-full border-4 border-slate-50 object-cover" 
               />
-              <button onClick={() => fileInputRef.current?.click()} className="absolute bottom-0 right-0 bg-summit-900 text-white p-2 rounded-full hover:bg-summit-800 shadow-md transition-colors group-hover:scale-110 transform">
-                <Camera size={16} />
+              <button 
+                type="button"
+                onClick={() => !isSaving && fileInputRef.current?.click()} 
+                className="absolute bottom-0 right-0 bg-summit-900 text-white p-2 rounded-full hover:bg-summit-800 shadow-md transition-colors group-hover:scale-110 transform disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={isSaving}
+              >
+                {isSaving ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
               </button>
               <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
             </div>
