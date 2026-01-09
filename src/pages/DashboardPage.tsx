@@ -1,11 +1,13 @@
 
-import React, { useState, useEffect, useMemo } from 'react';
-import { Plus, ArrowUpRight, DollarSign, Clock, ChevronDown, MessageSquare, Briefcase, FileText, CheckCircle, Trash2, MapPin, Undo2, Loader2, Building2, LayoutGrid, Columns, Building, CheckSquare, Target } from 'lucide-react';
-import { Deal, DealStatus, Task, REPRESENTATION_LABELS } from '../types.ts';
-import { api } from '../services/firestore.ts';
-import TaskModal from '../components/TaskModal.tsx';
-import UpcomingDeadlinesWidget from '../components/UpcomingDeadlinesWidget.tsx';
+import React, { useState } from 'react';
+import { 
+  Plus, ArrowUpRight, DollarSign, Clock, MessageSquare, 
+  Briefcase, FileText, LayoutGrid, Columns, Building2, 
+  Trash2, MapPin, TrendingUp, Target, Search
+} from 'lucide-react';
+import { Deal, DealStatus, REPRESENTATION_LABELS } from '../types.ts';
 import { useAuth } from '../context/AuthContext.tsx';
+import UpcomingDeadlinesWidget from '../components/UpcomingDeadlinesWidget.tsx';
 
 interface DashboardPageProps {
   activeTab: string;
@@ -17,372 +19,264 @@ interface DashboardPageProps {
   onOpenAi: () => void;
   onSaveDeal: (deal: Deal) => void;
   searchTerm?: string;
-  onTaskComplete?: (task: Task) => void;
+  onTaskComplete?: (task: any) => void;
 }
 
-const DashboardPage: React.FC<DashboardPageProps> = ({ activeTab, deals, onAddDeal, onDealClick, onDeleteDeal, onRouteChange, onOpenAi, onSaveDeal, searchTerm = '', onTaskComplete }) => {
+const DashboardPage: React.FC<DashboardPageProps> = ({ 
+  activeTab, deals, onAddDeal, onDealClick, onDeleteDeal, onRouteChange, onOpenAi, searchTerm 
+}) => {
   const { currentUser } = useAuth();
-  const [filterStatus, setFilterStatus] = useState<string>('all');
   const [viewMode, setViewMode] = useState<'grid' | 'pipeline'>('grid');
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
-  const [editingTask, setEditingTask] = useState<Partial<Task> | undefined>(undefined);
-  const [deletingDealId, setDeletingDealId] = useState<string | null>(null);
   
-  // -- Fetch Tasks --
-  const loadTasks = async () => {
-    try {
-      if (currentUser?.id) {
-         const userTasks = await api.getTasks(currentUser.id);
-         setTasks(userTasks);
-      }
-    } catch (e) {
-      console.error("Failed to load tasks", e);
+  const calculateDealValue = (deal: Deal) => {
+    const isLease = deal.representation === 'landlord' || deal.representation === 'tenant';
+    if (isLease) {
+      // askingPrice is Monthly Rent
+      // leaseTerm is Years (default to 1 year/12 months if missing for pipeline estimation)
+      const termMonths = (deal.leaseTerm || 1) * 12;
+      return deal.askingPrice * termMonths;
     }
+    return deal.askingPrice;
   };
 
-  useEffect(() => {
-    loadTasks();
-  }, [deals, currentUser]);
-
-  const handleSaveTask = async (task: Partial<Task>) => {
-    if (!currentUser?.id) return;
-
-    const newTask = {
-      ...task,
-      id: task.id || Math.random().toString(36).substr(2, 9),
-      userId: currentUser.id,
-    } as Task;
-
-    await api.saveTask(newTask);
-    loadTasks();
-    setIsTaskModalOpen(false);
-  };
-
-  const handleReopenDeal = (deal: Deal, e: React.MouseEvent) => {
-    e.stopPropagation();
-    if(true) { // Auto-confirm
-        onSaveDeal({ ...deal, status: DealStatus.ACTIVE });
-    }
-  };
-
-  const handleDeleteClick = async (e: React.MouseEvent, dealId: string) => {
-    e.stopPropagation();
-    setDeletingDealId(dealId);
-    try {
-        await onDeleteDeal(dealId);
-    } finally {
-        setDeletingDealId(null);
-    }
-  };
-
-  // -- Computed Stats --
-  const activeDealsCount = deals.filter(d => d.status !== DealStatus.COMPLETED && d.status !== DealStatus.ARCHIVED).length;
-  const pipelineValue = deals.reduce((acc, curr) => acc + (curr.status !== DealStatus.ARCHIVED && curr.status !== DealStatus.COMPLETED ? curr.askingPrice : 0), 0);
+  const activeDealsCount = deals.filter(d => d.status !== DealStatus.COMPLETED && d.status !== DealStatus.ARCHIVED && d.status !== DealStatus.CLOSED_LOST).length;
   
-  // Calculate total projected commission from active deals
-  // Uses d.projectedCommission if available, otherwise estimates 3%
-  const projectedCommissionTotal = deals.reduce((acc, d) => {
-    if (d.status === DealStatus.COMPLETED || d.status === DealStatus.ARCHIVED || d.status === DealStatus.CLOSED_LOST) return acc;
-    return acc + (d.projectedCommission || (d.askingPrice * 0.03));
+  const pipelineValue = deals.reduce((acc, curr) => {
+    if (curr.status === DealStatus.ARCHIVED || curr.status === DealStatus.COMPLETED || curr.status === DealStatus.CLOSED_LOST) return acc;
+    return acc + calculateDealValue(curr);
   }, 0);
 
-  // Filtering Logic
-  const displayedDeals = useMemo(() => {
-    let filtered = deals;
+  let displayedDeals = deals;
+  if (activeTab === 'closed-deals') {
+    displayedDeals = deals.filter(d => d.status === DealStatus.COMPLETED);
+  } else {
+    displayedDeals = deals.filter(d => d.status !== DealStatus.COMPLETED && d.status !== DealStatus.ARCHIVED && d.status !== DealStatus.CLOSED_LOST);
+  }
 
-    // 1. Tab Filter
-    if (activeTab === 'closed-deals') {
-      filtered = filtered.filter(d => d.status === DealStatus.COMPLETED);
-    } else {
-      // dashboard or deals
-      filtered = filtered.filter(d => d.status !== DealStatus.COMPLETED && d.status !== DealStatus.ARCHIVED);
-    }
+  // Filter by search term if provided
+  if (searchTerm) {
+    const lower = searchTerm.toLowerCase();
+    displayedDeals = displayedDeals.filter(d => 
+      d.propertyAddress.toLowerCase().includes(lower) || 
+      d.owner.name.toLowerCase().includes(lower) ||
+      d.propertyType.toLowerCase().includes(lower)
+    );
+  }
 
-    // 2. Search Filter (Prop)
-    if (searchTerm.trim()) {
-      const lowerSearch = searchTerm.toLowerCase();
-      filtered = filtered.filter(d => 
-        d.propertyAddress.toLowerCase().includes(lowerSearch) || 
-        d.owner.name.toLowerCase().includes(lowerSearch) ||
-        d.propertyType.toLowerCase().includes(lowerSearch)
-      );
-    }
-
-    // 3. Local Status Filter (Grid View Only mostly, but applies to list)
-    if (filterStatus !== 'all' && viewMode === 'grid') {
-      filtered = filtered.filter(d => d.status === filterStatus);
-    }
-
-    return filtered;
-  }, [deals, activeTab, searchTerm, filterStatus, viewMode]);
-
-  // -- Task Filtering --
-  const pendingTasks = tasks.filter(t => t.status !== 'completed').sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
-
-  // -- Kanban Columns --
   const pipelineStatuses = [DealStatus.ACTIVE, DealStatus.UNDER_REVIEW, DealStatus.NEGOTIATING, DealStatus.CLOSING];
 
   return (
-    <div className="max-w-7xl mx-auto pb-10 h-full flex flex-col">
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-8 gap-4 flex-shrink-0">
+    <div className="max-w-7xl mx-auto pb-12">
+      {/* Header Section */}
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-10 gap-6">
         <div>
-          <h1 className="text-3xl font-bold text-slate-900 tracking-tight">
-            {activeTab === 'dashboard' ? 'Dashboard' : activeTab === 'closed-deals' ? 'Closed Deals' : 'Active Pipeline'}
+          <div className="flex items-center gap-2 text-summit-accent font-bold text-xs uppercase tracking-[0.2em] mb-2">
+            <Target size={14} />
+            <span>Operational Hub</span>
+          </div>
+          <h1 className="text-4xl font-black text-slate-900 tracking-tight">
+            {activeTab === 'dashboard' ? 'Market Overview' : activeTab === 'closed-deals' ? 'Closed Portfolio' : 'Deal Pipeline'}
           </h1>
-          <p className="text-slate-500 mt-1">
+          <p className="text-slate-500 mt-2 font-medium">
             {activeTab === 'dashboard' 
-              ? `Welcome back! You have ${activeDealsCount} active deals and ${pendingTasks.length} pending tasks.`
-              : `Manage your ${activeTab === 'closed-deals' ? 'closed' : 'active'} transactions.`}
+              ? `You have ${activeDealsCount} mandates currently active in the market.`
+              : `Managing ${displayedDeals.length} ${activeTab === 'closed-deals' ? 'historical' : 'live'} assets.`}
           </p>
         </div>
-        <div className="flex gap-3">
+        
+        <div className="flex items-center gap-3 w-full md:w-auto">
           {(activeTab === 'dashboard' || activeTab === 'deals') && (
-            <div className="bg-white p-1 rounded-lg border border-slate-200 flex items-center shadow-sm mr-2">
+            <div className="bg-white p-1 rounded-xl border border-slate-200 flex items-center shadow-sm">
               <button 
                 onClick={() => setViewMode('grid')}
-                className={`p-2 rounded-md transition-all ${viewMode === 'grid' ? 'bg-slate-100 text-summit-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-                title="Grid View"
+                className={`p-2.5 rounded-lg transition-all ${viewMode === 'grid' ? 'bg-summit-900 text-white shadow-md' : 'text-slate-400 hover:text-slate-600'}`}
               >
                 <LayoutGrid size={20} />
               </button>
               <button 
                 onClick={() => setViewMode('pipeline')}
-                className={`p-2 rounded-md transition-all ${viewMode === 'pipeline' ? 'bg-slate-100 text-summit-900 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
-                title="Pipeline View"
+                className={`p-2.5 rounded-lg transition-all ${viewMode === 'pipeline' ? 'bg-summit-900 text-white shadow-md' : 'text-slate-400 hover:text-slate-600'}`}
               >
                 <Columns size={20} />
               </button>
             </div>
           )}
           
-          <button onClick={onOpenAi} className="bg-white border border-slate-300 text-slate-700 px-4 py-2 rounded-lg font-medium hover:bg-slate-50 flex items-center gap-2 transition-colors shadow-sm">
-            <MessageSquare size={18} /> <span className="hidden sm:inline">AI Assistant</span>
+          <button onClick={onOpenAi} className="flex-1 md:flex-none bg-white border border-slate-200 text-slate-700 px-5 py-3 rounded-xl font-bold hover:bg-slate-50 flex items-center justify-center gap-2 transition-all shadow-sm">
+            <MessageSquare size={18} className="text-purple-500" /> Summit IQ
           </button>
           
           {activeTab !== 'closed-deals' && (
-            <button onClick={onAddDeal} className="bg-summit-900 text-white px-4 py-2 rounded-lg font-medium hover:bg-summit-800 flex items-center gap-2 shadow-lg shadow-summit-900/10 transition-all transform hover:-translate-y-0.5">
-              <Plus size={18} /> <span className="hidden sm:inline">New Deal</span>
+            <button onClick={onAddDeal} className="flex-1 md:flex-none bg-summit-900 text-white px-6 py-3 rounded-xl font-black hover:bg-slate-800 flex items-center justify-center gap-2 shadow-xl shadow-summit-900/10 transition-all hover:-translate-y-0.5 active:scale-95">
+              <Plus size={20} /> New mandate
             </button>
           )}
         </div>
       </div>
 
+      {/* KPI Cards */}
       {activeTab === 'dashboard' && !searchTerm && (
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8 flex-shrink-0">
-          {/* Upcoming Deadlines Widget - Takes up one column */}
-          <div className="md:col-span-1 h-full">
-             <UpcomingDeadlinesWidget deals={deals} onDealClick={onDealClick} />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
+          <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-200 relative overflow-hidden group hover:border-summit-accent transition-all">
+             <div className="relative z-10">
+               <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] mb-4">Total Pipeline Value</p>
+               <h3 className="text-4xl font-black text-slate-900">${(pipelineValue / 1000000).toFixed(1)}M</h3>
+               <div className="flex items-center gap-2 mt-4">
+                  <span className="text-xs text-green-600 font-bold bg-green-50 px-2 py-0.5 rounded-full flex items-center"><ArrowUpRight size={12} className="mr-1"/> +8.4%</span>
+                  <span className="text-[10px] text-slate-400 font-bold uppercase">vs trailing 30d</span>
+               </div>
+             </div>
+             <div className="absolute -bottom-4 -right-4 opacity-[0.03] group-hover:opacity-[0.08] transition-opacity">
+               <DollarSign size={160} />
+             </div>
+          </div>
+          
+          <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-200 relative overflow-hidden group hover:border-summit-accent transition-all">
+             <div className="relative z-10">
+               <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] mb-4">Active Mandates</p>
+               <h3 className="text-4xl font-black text-slate-900">{activeDealsCount}</h3>
+               <p className="text-xs text-slate-400 font-bold mt-4 uppercase tracking-tighter">
+                 {deals.filter(d => d.representation === 'seller' || d.representation === 'landlord').length} Listings • {deals.filter(d => d.representation === 'buyer' || d.representation === 'tenant').length} Requirements
+               </p>
+             </div>
+             <div className="absolute -bottom-4 -right-4 opacity-[0.03] group-hover:opacity-[0.08] transition-opacity">
+               <Briefcase size={160} />
+             </div>
           </div>
 
-          <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-gradient-to-br from-white to-slate-50 p-6 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between group hover:border-blue-200 transition-colors">
-               <div>
-                 <p className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Total Pipeline Value</p>
-                 <h3 className="text-2xl font-bold text-slate-900">${(pipelineValue / 1000000).toFixed(1)}M</h3>
-                 <p className="text-xs text-green-600 font-bold mt-2 flex items-center bg-green-50 w-fit px-2 py-0.5 rounded-full"><ArrowUpRight size={12} className="mr-1"/> +12% vs last month</p>
+          <div className="bg-white p-8 rounded-[2rem] shadow-sm border border-slate-200 relative overflow-hidden group hover:border-summit-accent transition-all">
+             <div className="relative z-10">
+               <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.2em] mb-4">Upcoming Critical Dates</p>
+               <div className="h-24 -mt-2 -ml-2">
+                  <UpcomingDeadlinesWidget deals={deals} onDealClick={onDealClick} />
                </div>
-               <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-blue-600 shadow-sm border border-slate-100 group-hover:scale-110 transition-transform">
-                 <DollarSign size={24} />
-               </div>
-            </div>
-            
-            {/* Project Commission KPI */}
-            <div className="bg-gradient-to-br from-white to-slate-50 p-6 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between group hover:border-emerald-200 transition-colors">
-               <div>
-                 <p className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Projected Commission</p>
-                 <h3 className="text-2xl font-bold text-emerald-700">${(projectedCommissionTotal / 1000).toFixed(1)}k</h3>
-                 <p className="text-xs text-slate-400 font-medium mt-2 bg-slate-100 w-fit px-2 py-0.5 rounded-full">Based on Active Deals</p>
-               </div>
-               <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-emerald-600 shadow-sm border border-slate-100 group-hover:scale-110 transition-transform">
-                 <Target size={24} />
-               </div>
-            </div>
-
-             <div className="bg-gradient-to-br from-white to-slate-50 p-6 rounded-xl shadow-sm border border-slate-200 flex items-center justify-between group hover:border-amber-200 transition-colors">
-               <div className="flex-1">
-                 <div className="flex justify-between items-start">
-                   <div>
-                      <p className="text-slate-500 text-xs font-bold uppercase tracking-wider mb-1">Pending Tasks</p>
-                      <h3 className="text-2xl font-bold text-slate-900">{pendingTasks.length}</h3>
-                   </div>
-                   <button onClick={() => { setEditingTask(undefined); setIsTaskModalOpen(true); }} className="p-2 bg-amber-50 text-amber-600 rounded-full hover:bg-amber-100 transition-colors">
-                      <Plus size={16} />
-                   </button>
-                 </div>
-                 
-                 {/* Mini Task List in Card */}
-                 <div className="mt-3 space-y-2 max-h-24 overflow-y-auto pr-1">
-                    {pendingTasks.slice(0, 3).map(t => (
-                      <div key={t.id} className="flex items-center gap-2 text-xs bg-white/60 p-1.5 rounded border border-slate-100">
-                          <button 
-                              className="text-slate-400 hover:text-green-500"
-                              onClick={(e) => { e.stopPropagation(); if(onTaskComplete) { onTaskComplete(t); loadTasks(); } }}
-                          >
-                              <CheckSquare size={14} />
-                          </button>
-                          <span className="truncate flex-1">{t.title}</span>
-                      </div>
-                    ))}
-                    {pendingTasks.length === 0 && <span className="text-xs text-slate-400 italic">All caught up!</span>}
-                 </div>
-               </div>
-               <div className="w-12 h-12 bg-white rounded-full flex items-center justify-center text-amber-600 shadow-sm border border-slate-100 group-hover:scale-110 transition-transform self-start ml-4">
-                 <Clock size={24} />
-               </div>
-            </div>
+             </div>
           </div>
         </div>
       )}
 
-      {/* VIEW CONTENT */}
+      {/* Main View Area */}
       {viewMode === 'grid' || activeTab === 'closed-deals' ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 pb-4">
-          {displayedDeals.length > 0 ? displayedDeals.map(deal => {
-            const isDemandSide = deal.representation === 'buyer' || deal.representation === 'tenant';
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          {displayedDeals.map(deal => {
+            const isLease = deal.representation === 'landlord' || deal.representation === 'tenant';
+            const dealVal = calculateDealValue(deal);
+            
             return (
-            <div key={deal.id} onClick={() => onDealClick(deal.id)} className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden hover:shadow-lg hover:border-summit-accent/30 transition-all cursor-pointer group flex flex-col h-full">
-              <div className="h-48 overflow-hidden relative">
-                <img src={deal.imageUrl} alt={deal.propertyAddress} className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
-                <div className="absolute top-3 right-3 bg-white/95 backdrop-blur-sm px-3 py-1 rounded-full text-xs font-bold text-slate-800 shadow-sm border border-slate-100">
+            <div key={deal.id} onClick={() => onDealClick(deal.id)} className="bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden hover:shadow-2xl hover:shadow-slate-200 transition-all cursor-pointer group flex flex-col h-full border-t-4 border-t-transparent hover:border-t-summit-accent">
+              <div className="h-64 overflow-hidden relative">
+                <img src={deal.imageUrl} alt={deal.propertyAddress} className="w-full h-full object-cover transition-transform duration-1000 group-hover:scale-110" />
+                <div className="absolute inset-0 bg-gradient-to-t from-slate-900/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-6">
+                   <p className="text-white text-sm font-bold flex items-center gap-2">Explore asset details <ArrowUpRight size={16} /></p>
+                </div>
+                <div className="absolute top-6 right-6 bg-white/90 backdrop-blur-md px-4 py-2 rounded-2xl text-[10px] font-black text-slate-900 shadow-sm uppercase tracking-widest">
                   {deal.status}
                 </div>
-                <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-4">
-                   <p className="text-white text-sm font-medium">View Details <ArrowUpRight size={14} className="inline ml-1" /></p>
-                </div>
               </div>
-              <div className="p-5 flex-1 flex flex-col">
-                <div className="flex justify-between items-start mb-2">
-                   <div className="flex items-center gap-1.5 text-xs font-bold text-summit-accent uppercase tracking-wide bg-summit-accent/5 px-2 py-1 rounded">
-                     <Building2 size={12} /> {deal.propertyType}
+              <div className="p-8 flex-1 flex flex-col">
+                <div className="flex justify-between items-start mb-4">
+                   <div className="text-[10px] font-black text-summit-accent uppercase tracking-[0.2em] bg-summit-accent/10 px-3 py-1.5 rounded-xl">
+                     {deal.propertyType}
                    </div>
-                   <div className="text-xs text-slate-400">{new Date(deal.lastUpdated).toLocaleDateString()}</div>
+                   <div className="text-[10px] text-slate-400 font-black uppercase tracking-widest">{new Date(deal.lastUpdated).toLocaleDateString()}</div>
                 </div>
-                <h3 className="font-bold text-lg text-slate-900 mb-1 leading-tight group-hover:text-summit-accent transition-colors truncate" title={deal.propertyAddress}>{deal.propertyAddress}</h3>
+                <h3 className="font-black text-2xl text-slate-900 mb-2 leading-tight group-hover:text-summit-accent transition-colors truncate">{deal.propertyAddress}</h3>
                 
-                {/* Representation Badge */}
-                <div className="mb-3">
-                    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${isDemandSide ? 'bg-blue-50 text-blue-700' : 'bg-green-50 text-green-700'}`}>
-                        {isDemandSide ? <Briefcase size={10} /> : <Building size={10} />}
+                <div className="mb-4">
+                    <span className="text-[10px] font-bold uppercase tracking-widest text-slate-400 bg-slate-50 px-2 py-1 rounded">
                         {REPRESENTATION_LABELS[deal.representation || 'seller']}
                     </span>
                 </div>
 
-                <p className="text-slate-500 text-sm mb-4 line-clamp-2">{deal.description || 'No description provided.'}</p>
+                <p className="text-slate-500 text-sm mb-8 line-clamp-2 leading-relaxed font-medium">{deal.description || 'No executive summary provided for this asset.'}</p>
                 
-                <div className="mt-auto pt-4 border-t border-slate-100 flex items-center justify-between">
-                   <div className="flex flex-col">
-                       <span className="text-[10px] text-slate-400 uppercase font-bold">{isDemandSide ? 'Target Budget' : 'Asking Price'}</span>
-                       <span className="font-bold text-slate-900 text-lg">${deal.askingPrice.toLocaleString(undefined, {minimumFractionDigits: 0, maximumFractionDigits: 0})}</span>
+                <div className="mt-auto pt-8 border-t border-slate-50 flex items-center justify-between">
+                   <div>
+                     <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-1">
+                        {isLease ? 'Total Lease Value' : 'Valuation'}
+                     </p>
+                     <div className="font-black text-slate-900 text-3xl">
+                        ${(dealVal >= 1000000) ? (dealVal / 1000000).toFixed(1) + 'M' : (dealVal / 1000).toFixed(0) + 'K'}
+                     </div>
                    </div>
-                   <div className="flex gap-2">
-                      {deal.status === 'Archived' ? (
-                         <button onClick={(e) => handleReopenDeal(deal, e)} className="p-2 text-slate-400 hover:text-green-600 hover:bg-green-50 rounded-full transition-colors" title="Reopen Deal">
-                           <Undo2 size={18} />
-                         </button>
-                      ) : (
-                         <button 
-                           onClick={(e) => handleDeleteClick(e, deal.id)} 
-                           disabled={deletingDealId === deal.id}
-                           className="p-2 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-full transition-colors" title="Archive Deal"
-                         >
-                           {deletingDealId === deal.id ? <Loader2 size={18} className="animate-spin" /> : <Trash2 size={18} />}
-                         </button>
-                      )}
-                   </div>
+                   <button 
+                     onClick={(e) => { e.stopPropagation(); onDeleteDeal(deal.id); }}
+                     className="w-12 h-12 flex items-center justify-center text-slate-200 hover:text-red-500 hover:bg-red-50 rounded-2xl transition-all"
+                   >
+                     <Trash2 size={20} />
+                   </button>
                 </div>
               </div>
             </div>
-          );}) : (
-            <div className="col-span-full py-20 text-center border-2 border-dashed border-slate-200 rounded-xl">
-              <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-300">
-                <Building2 size={40} />
-              </div>
-              <h3 className="text-lg font-bold text-slate-700">No deals found</h3>
-              <p className="text-slate-500">Try adjusting your search or create a new deal.</p>
+          );})}
+          {displayedDeals.length === 0 && (
+            <div className="col-span-full py-40 text-center bg-white rounded-[3rem] border-2 border-dashed border-slate-100">
+              <Building2 size={80} className="mx-auto text-slate-100 mb-6" />
+              <h3 className="text-2xl font-black text-slate-300 tracking-tight">System state: Idle</h3>
+              <p className="text-slate-300 font-medium mt-2">Initialize your pipeline by registering a new commercial mandate.</p>
             </div>
           )}
         </div>
       ) : (
-        /* KANBAN PIPELINE VIEW */
-        <div className="flex overflow-x-auto pb-6 gap-6 h-full items-start">
+        <div className="flex overflow-x-auto pb-12 gap-8 h-full items-start scrollbar-hide">
           {pipelineStatuses.map(status => {
-            // If in pipeline view, displayedDeals is already filtered by search term
             const statusDeals = displayedDeals.filter(d => d.status === status);
+            const totalValue = statusDeals.reduce((a, b) => a + calculateDealValue(b), 0);
             return (
-              <div key={status} className="min-w-[320px] w-80 flex-shrink-0 flex flex-col h-full max-h-[calc(100vh-220px)] bg-slate-100/50 rounded-xl border border-slate-200/60">
-                <div className="p-4 flex items-center justify-between sticky top-0 bg-slate-100/50 backdrop-blur-sm rounded-t-xl z-10 border-b border-slate-200/50">
-                  <div className="flex items-center gap-2">
-                    <div className={`w-2.5 h-2.5 rounded-full ${
+              <div key={status} className="min-w-[360px] w-[360px] flex-shrink-0 flex flex-col h-full max-h-[calc(100vh-320px)] bg-slate-50/50 rounded-[2.5rem] border border-slate-100 p-2">
+                <div className="p-6 flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className={`w-3 h-3 rounded-full ${
                       status === DealStatus.ACTIVE ? 'bg-blue-500' :
                       status === DealStatus.UNDER_REVIEW ? 'bg-amber-500' :
-                      status === DealStatus.NEGOTIATING ? 'bg-purple-500' : 'bg-green-500'
+                      status === DealStatus.NEGOTIATING ? 'bg-purple-500' : 'bg-emerald-500'
                     }`}></div>
-                    <span className="font-bold text-slate-700">{status}</span>
+                    <span className="font-black text-slate-800 text-sm uppercase tracking-widest">{status}</span>
                   </div>
-                  <span className="bg-white text-slate-500 text-xs font-bold px-2 py-0.5 rounded-full shadow-sm">{statusDeals.length}</span>
+                  <div className="flex flex-col items-end">
+                    <span className="bg-white text-slate-400 text-[10px] font-black px-2.5 py-1 rounded-xl shadow-sm border border-slate-100">{statusDeals.length}</span>
+                    <span className="text-[10px] text-slate-400 font-bold mt-1">${(totalValue/1000000).toFixed(1)}M</span>
+                  </div>
                 </div>
                 
-                <div className="p-3 space-y-3 overflow-y-auto flex-1">
-                  {statusDeals.length > 0 ? statusDeals.map(deal => {
-                    const isDemandSide = deal.representation === 'buyer' || deal.representation === 'tenant';
-                    return (
+                <div className="px-4 pb-4 space-y-4 overflow-y-auto flex-1 scrollbar-hide">
+                  {statusDeals.map(deal => (
                     <div 
                       key={deal.id} 
                       onClick={() => onDealClick(deal.id)}
-                      className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 hover:shadow-md hover:border-summit-accent/30 cursor-pointer transition-all group"
+                      className="bg-white p-5 rounded-[2rem] shadow-sm border border-slate-100 hover:shadow-xl hover:scale-[1.02] cursor-pointer transition-all group"
                     >
-                      <div className="flex gap-3 mb-2">
-                        <div className="w-16 h-16 rounded-md overflow-hidden flex-shrink-0 bg-slate-100">
+                      <div className="flex gap-5 mb-5">
+                        <div className="w-16 h-16 rounded-2xl overflow-hidden flex-shrink-0 bg-slate-50 border border-slate-100">
                           <img src={deal.imageUrl} alt="" className="w-full h-full object-cover" />
                         </div>
                         <div className="flex-1 min-w-0">
-                          <div className="flex justify-between items-start">
-                             <p className="text-xs text-summit-accent font-bold uppercase truncate">{deal.propertyType}</p>
-                             {deal.documents && deal.documents.length > 0 && (
-                                <FileText size={12} className="text-slate-400 flex-shrink-0" />
-                             )}
-                          </div>
-                          <h4 className="font-bold text-sm text-slate-800 leading-tight truncate group-hover:text-summit-accent transition-colors" title={deal.propertyAddress}>
-                            {deal.propertyAddress}
-                          </h4>
-                          <div className="flex gap-1 mt-1">
-                             <span className={`text-[9px] px-1.5 py-0.5 rounded uppercase font-bold ${isDemandSide ? 'bg-blue-50 text-blue-600' : 'bg-green-50 text-green-600'}`}>
-                                {REPRESENTATION_LABELS[deal.representation || 'seller'].split(' ')[0]}
-                             </span>
+                          <p className="text-[9px] text-summit-accent font-black uppercase tracking-widest mb-1 truncate">{deal.propertyType}</p>
+                          <h4 className="font-black text-sm text-slate-900 leading-tight truncate group-hover:text-summit-accent transition-colors">{deal.propertyAddress}</h4>
+                          <div className="flex items-center gap-1 text-[10px] text-slate-400 mt-2 font-bold uppercase">
+                            <MapPin size={10} className="text-slate-300" /> Louisville, KY
                           </div>
                         </div>
                       </div>
-                      <div className="flex items-center justify-between pt-2 border-t border-slate-50 mt-2">
-                        <span className="font-bold text-slate-900 text-sm">${deal.askingPrice.toLocaleString(undefined, {notation: 'compact'})}</span>
-                        <span className="text-[10px] text-slate-400">{new Date(deal.lastUpdated).toLocaleDateString()}</span>
+                      <div className="flex items-center justify-between pt-4 border-t border-slate-50">
+                        <span className="font-black text-slate-900 text-base">${(deal.askingPrice / 1000).toFixed(0)}K{(deal.representation === 'landlord' || deal.representation === 'tenant') ? '/mo' : ''}</span>
+                        <div className="flex -space-x-2">
+                           <div className="w-7 h-7 rounded-full bg-summit-900 border-2 border-white flex items-center justify-center text-[10px] font-black text-white uppercase shadow-sm">{deal.owner.name[0]}</div>
+                        </div>
                       </div>
                     </div>
-                  );}) : (
-                    <div className="h-24 border-2 border-dashed border-slate-200 rounded-lg flex items-center justify-center text-slate-400 text-sm italic">
-                      Empty
+                  ))}
+                  {statusDeals.length === 0 && (
+                    <div className="py-12 text-center text-slate-300 text-xs font-bold uppercase tracking-widest italic opacity-50">
+                      Zone Cleared
                     </div>
                   )}
                 </div>
-                
-                {/* Footer Sum */}
-                {statusDeals.length > 0 && (
-                   <div className="p-3 border-t border-slate-200 bg-white rounded-b-xl text-xs text-slate-500 font-medium text-center">
-                      Total: ${(statusDeals.reduce((acc, d) => acc + d.askingPrice, 0) / 1000000).toFixed(1)}M
-                   </div>
-                )}
               </div>
             );
           })}
         </div>
       )}
-
-      <TaskModal 
-        isOpen={isTaskModalOpen} 
-        onClose={() => setIsTaskModalOpen(false)} 
-        onSave={handleSaveTask}
-        initialData={editingTask}
-      />
     </div>
   );
 };
